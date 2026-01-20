@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "85914193622",
+    "project_id": "adjstudios",
+    "storage_bucket": "adjstudios.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:85914193622:android:0a29ab642b9fdc4a1e0377",
+        "android_client_info": {
+          "package_name": "com.adj.adjstudios"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "85914193622-kpt8pgaj8qonfsbiun5s5ko9mlu5cajf.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyABrjOpE8l7zzoC1t2KXUms9jlom-fOkOw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "85914193622-kpt8pgaj8qonfsbiun5s5ko9mlu5cajf.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
