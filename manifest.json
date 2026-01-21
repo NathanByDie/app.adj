@@ -1,0 +1,22 @@
+{
+  "name": "ADJStudios - Acordes Misioneros",
+  "short_name": "ADJStudios",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "description": "Una plataforma para músicos litúrgicos de ADJStudios para compartir, transponer y organizar repertorios.",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/461/461146.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/461/461146.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

@@ -103,11 +103,23 @@ const SongViewer: React.FC<SongViewerProps> = ({
   };
 
   const handleShare = async () => {
-    const shareUrl = `${window.location.origin}${window.location.pathname}?song=${song.id}`;
+    const webUrl = `${window.location.origin}${window.location.pathname}?song=${song.id}`;
+    
+    // Construir URL de Intent para Android
+    // Esto fuerza al sistema a buscar el paquete com.adj.adjstudios
+    // Formato: intent://<HOST><PATH><PARAMS>#Intent;scheme=<SCHEME>;package=<PACKAGE>;S.browser_fallback_url=<FALLBACK>;end
+    
+    const scheme = window.location.protocol.replace(':', ''); // 'https'
+    const host = window.location.host;
+    const path = window.location.pathname;
+    const query = `?song=${song.id}`;
+    
+    const androidIntentUrl = `intent://${host}${path}${query}#Intent;scheme=${scheme};package=com.adj.adjstudios;S.browser_fallback_url=${encodeURIComponent(webUrl)};end`;
+
     const shareData = {
       title: song.title,
       text: `Mira esta música en ADJStudios: ${song.title}`,
-      url: shareUrl,
+      url: androidIntentUrl,
     };
 
     if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
@@ -119,7 +131,7 @@ const SongViewer: React.FC<SongViewerProps> = ({
     } else {
       // Fallback a copiar al portapapeles
       try {
-        await navigator.clipboard.writeText(shareUrl);
+        await navigator.clipboard.writeText(androidIntentUrl);
         setShowShareToast(true);
         setTimeout(() => setShowShareToast(false), 2000);
       } catch (err) {
@@ -248,7 +260,7 @@ const SongViewer: React.FC<SongViewerProps> = ({
           
           {showOptions && (
             <div className={`absolute right-4 top-12 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'} shadow-2xl rounded-2xl border w-44 overflow-hidden z-20 animate-in fade-in zoom-in duration-150 origin-top-right transition-colors duration-500`}>
-              <button onClick={handleShare} className={`w-full px-4 py-3.5 text-left text-[9px] font-black uppercase ${darkMode ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-600 hover:bg-slate-50'} border-b ${darkMode ? 'border-slate-800' : 'border-slate-50'} flex items-center gap-3`}><svg className="w-4 h-4 text-misionero-verde" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>Compartir Enlace</button>
+              <button onClick={handleShare} className={`w-full px-4 py-3.5 text-left text-[9px] font-black uppercase ${darkMode ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-600 hover:bg-slate-50'} border-b ${darkMode ? 'border-slate-800' : 'border-slate-50'} flex items-center gap-3`}><svg className="w-4 h-4 text-misionero-verde" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>Copiar Enlace App</button>
               <button onClick={downloadAsPDF} className={`w-full px-4 py-3.5 text-left text-[9px] font-black uppercase ${darkMode ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-600 hover:bg-slate-50'} border-b ${darkMode ? 'border-slate-800' : 'border-slate-50'} flex items-center gap-3`}><svg className="w-4 h-4 text-misionero-rojo" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>Guardar PDF</button>
               {onEdit && (<button onClick={() => { onEdit(); setShowOptions(false); }} className={`w-full px-4 py-3.5 text-left text-[9px] font-black uppercase ${darkMode ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-600 hover:bg-slate-50'} border-b ${darkMode ? 'border-slate-800' : 'border-slate-50'} flex items-center gap-3`}><svg className="w-4 h-4 text-misionero-azul" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>Editar música</button>)}
               {onDelete && (<button onClick={() => { onDelete(); setShowOptions(false); }} className={`w-full px-4 py-3.5 text-left text-[9px] font-black uppercase text-misionero-rojo ${darkMode ? 'hover:bg-red-500/10' : 'hover:bg-red-50'} flex items-center gap-3`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>Eliminar</button>)}
@@ -260,7 +272,7 @@ const SongViewer: React.FC<SongViewerProps> = ({
       <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto p-5 transition-colors duration-500 ${darkMode ? 'bg-slate-950' : 'bg-white'} custom-scroll no-pull relative`}>
         {showShareToast && (
           <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-misionero-verde text-white px-6 py-2 rounded-full text-[10px] font-black uppercase shadow-2xl z-[100] animate-in fade-in slide-in-from-top-4 duration-300">
-            ¡Enlace copiado al portapapeles!
+            ¡Enlace App copiado!
           </div>
         )}
         <div className="mb-6 space-y-4">

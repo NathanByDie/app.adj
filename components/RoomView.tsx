@@ -29,6 +29,14 @@ interface Notification {
   type: 'info' | 'success' | 'alert';
 }
 
+interface SwipeableMessageProps {
+  msg: ChatMessage;
+  currentUser: string;
+  onReply: (msg: ChatMessage) => void;
+  darkMode: boolean;
+  formatTime: (time: number) => string;
+}
+
 const CrownIcon = ({ className }: { className?: string }) => (
     <svg className={className || "w-4 h-4"} viewBox="0 0 24 24" fill="currentColor">
         <path d="M19.14,6.21,15,7.35,12,2,9,7.35,4.86,6.21,4,18H20Z"></path>
@@ -53,6 +61,70 @@ const DragHandleIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
+// Componente para mensajes deslizables
+const SwipeableMessage: React.FC<SwipeableMessageProps> = ({ msg, currentUser, onReply, darkMode, formatTime }) => {
+  const [translateX, setTranslateX] = useState(0);
+  const touchStartX = useRef<number | null>(null);
+  const isMe = msg.sender === currentUser;
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.targetTouches[0].clientX;
+  };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (touchStartX.current === null) return;
+    const currentX = e.targetTouches[0].clientX;
+    const diff = currentX - touchStartX.current;
+    
+    // Solo permitir deslizar a la derecha para responder
+    if (diff > 0 && diff < 100) {
+      setTranslateX(diff);
+    }
+  };
+
+  const onTouchEnd = () => {
+    if (translateX > 50) {
+      // Umbral superado, activar respuesta
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        try { navigator.vibrate(20); } catch(e) {}
+      }
+      onReply(msg);
+    }
+    setTranslateX(0);
+    touchStartX.current = null;
+  };
+
+  return (
+    <div 
+      className={`relative flex flex-col ${isMe ? 'items-end' : 'items-start'} select-none`}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+    >
+        {/* Indicador de respuesta detrás del mensaje */}
+        <div 
+            className="absolute left-0 top-1/2 -translate-y-1/2 text-slate-400 transition-opacity duration-300 flex items-center"
+            style={{ opacity: translateX > 10 ? Math.min(translateX / 50, 1) : 0, transform: `translateX(-20px)` }}
+        >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg>
+        </div>
+
+        <div 
+            className="transition-transform duration-150 ease-out max-w-[85%]"
+            style={{ transform: `translateX(${translateX}px)` }}
+        >
+            <div className={`p-3.5 rounded-2xl shadow-sm ${isMe ? 'bg-misionero-azul text-white' : (darkMode ? 'bg-slate-800 text-slate-200 border border-white/5' : 'bg-slate-100 text-slate-700')}`}>
+                <p className="text-sm font-medium leading-tight whitespace-pre-wrap">{msg.text}</p>
+            </div>
+            <div className="flex items-center gap-1.5 mt-1 px-1">
+                <span className={`text-[8px] font-black uppercase ${darkMode ? 'text-slate-600' : 'text-slate-400'}`}>{msg.sender}</span>
+                <span className={`text-[8px] font-black uppercase ${darkMode ? 'text-slate-600' : 'text-slate-400'}`}>{formatTime(msg.timestamp)}</span>
+            </div>
+        </div>
+    </div>
+  );
+};
+
 const RoomView: React.FC<RoomViewProps> = ({ 
     room, songs, currentUser, isAdmin, onExit, onUpdateRoom, darkMode = false, db, ADMIN_EMAILS,
     onEditSong, onDeleteSong
@@ -71,11 +143,14 @@ const RoomView: React.FC<RoomViewProps> = ({
 
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatMessage, setChatMessage] = useState('');
+  const [replyingTo, setReplyingTo] = useState<{sender: string, text: string} | null>(null);
+
   const [chatToast, setChatToast] = useState<{ sender: string; text: string; id: number } | null>(null);
   const [isToastVisible, setIsToastVisible] = useState(false);
   const toastTimerRef = useRef<number | null>(null);
   const toastExitTimerRef = useRef<number | null>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLInputElement>(null);
   
   const [isFollowingHost, setIsFollowingHost] = useState(true);
   const [addSongFilter, setAddSongFilter] = useState<LiturgicalTime | 'Todos'>('Todos');
@@ -90,8 +165,12 @@ const RoomView: React.FC<RoomViewProps> = ({
   const lastSyncedHostSongId = useRef<string | undefined>(room.currentSongId);
 
   useEffect(() => {
-    notificationAudio.current = new Audio("https://firebasestorage.googleapis.com/v0/b/adjstudios.firebasestorage.app/o/notificacion-adj.mp3?alt=media&token=8e9b60b7-9571-460b-857c-658a0a8616a2");
-    notificationAudio.current.load();
+    try {
+      notificationAudio.current = new Audio("https://firebasestorage.googleapis.com/v0/b/adjstudios.firebasestorage.app/o/notificacion-adj.mp3?alt=media&token=8e9b60b7-9571-460b-857c-658a0a8616a2");
+      notificationAudio.current.load();
+    } catch (e) {
+      console.error("Audio init failed", e);
+    }
   }, []);
 
   useEffect(() => {
@@ -99,13 +178,22 @@ const RoomView: React.FC<RoomViewProps> = ({
     if (currentChat.length > prevChatLength.current) {
       const lastMsg = currentChat[currentChat.length - 1];
       if (lastMsg.sender !== currentUser) {
+        
+        // 1. Audio Playback
         if (notificationAudio.current) {
           notificationAudio.current.currentTime = 0;
           notificationAudio.current.play().catch(e => console.log("Audio play blocked by browser"));
         }
-        if ('vibrate' in navigator) {
-          navigator.vibrate(50);
+        
+        // 2. Vibration API (200ms pattern for notification)
+        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+            try {
+                navigator.vibrate(200); 
+            } catch (e) {
+                console.error("Vibration failed", e);
+            }
         }
+        
         if (!isChatOpen) {
           if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
           if (toastExitTimerRef.current) clearTimeout(toastExitTimerRef.current);
@@ -186,6 +274,12 @@ const RoomView: React.FC<RoomViewProps> = ({
   useEffect(() => {
     if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
   }, [room.chat, isChatOpen]);
+
+  useEffect(() => {
+    if (isChatOpen && chatInputRef.current) {
+        setTimeout(() => chatInputRef.current?.focus(), 100);
+    }
+  }, [isChatOpen]);
 
   useEffect(() => {
     const currentParts = room.participants || [];
@@ -323,11 +417,27 @@ const RoomView: React.FC<RoomViewProps> = ({
     onUpdateRoom({ ...room, globalTranspositions: { ...(room.globalTranspositions || {}), [songId]: newSemiTones } });
   };
 
+  const handleReply = (msg: ChatMessage) => {
+    setReplyingTo({ sender: msg.sender, text: msg.text });
+    setIsChatOpen(true);
+    // Enfocar el input
+    setTimeout(() => {
+        chatInputRef.current?.focus();
+    }, 100);
+  };
+
   const handleSendMessage = () => {
     if (chatMessage.trim() === '') return;
-    const newMessage: ChatMessage = { sender: currentUser, text: chatMessage, timestamp: Date.now() };
+    
+    let textToSend = chatMessage;
+    if (replyingTo) {
+        textToSend = `> @${replyingTo.sender}: ${replyingTo.text.length > 30 ? replyingTo.text.substring(0, 30) + '...' : replyingTo.text}\n${chatMessage}`;
+    }
+
+    const newMessage: ChatMessage = { sender: currentUser, text: textToSend, timestamp: Date.now() };
     onUpdateRoom({ ...room, chat: [...(room.chat || []), newMessage] });
     setChatMessage('');
+    setReplyingTo(null);
   };
 
   const filteredSongsForHost = useMemo(() => {
@@ -357,14 +467,39 @@ const RoomView: React.FC<RoomViewProps> = ({
     });
   };
 
+  const ChatInputArea = () => (
+    <div className={`p-4 border-t shrink-0 ${darkMode ? 'border-white/5 bg-slate-950' : 'border-slate-100 bg-white'} pb-[calc(2rem+env(safe-area-inset-bottom))]`}>
+        {replyingTo && (
+            <div className={`flex items-center justify-between px-4 py-2 mb-2 rounded-xl text-xs font-medium border-l-4 border-misionero-azul ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-50 text-slate-600'}`}>
+                <span className="truncate">Respondiendo a <b>{replyingTo.sender}</b></span>
+                <button onClick={() => setReplyingTo(null)} className="p-1 hover:bg-black/10 rounded-full"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+            </div>
+        )}
+        <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex gap-3 items-center">
+            <input 
+                ref={chatInputRef}
+                type="text" 
+                value={chatMessage} 
+                onChange={e => setChatMessage(e.target.value)} 
+                placeholder="Enviar un mensaje..." 
+                className={`flex-1 rounded-2xl px-5 py-4 text-sm font-bold outline-none border transition-all ${darkMode ? 'bg-slate-900 border-white/5 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} 
+            />
+            <button type="submit" disabled={!chatMessage.trim()} className="bg-misionero-verde text-white font-black px-5 rounded-2xl text-[10px] uppercase shadow-md active:scale-95 transition-transform disabled:opacity-30 self-stretch flex items-center justify-center">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+            </button>
+        </form>
+    </div>
+  );
+
   return (
     <div className={`flex flex-col h-full transition-colors duration-500 ${darkMode ? 'bg-slate-950 text-white' : 'bg-white text-slate-900'} animate-in fade-in duration-300 overflow-hidden relative`}>
       <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[200] w-full max-w-xs flex flex-col items-center gap-2 pointer-events-none px-4">
         {chatToast && (
           <div
             key={chatToast.id}
+            onClick={() => setIsChatOpen(true)}
             className={`
-              pointer-events-auto transition-all duration-300 ease-out
+              pointer-events-auto transition-all duration-300 ease-out cursor-pointer active:scale-95
               ${isToastVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-full'}
             `}
           >
@@ -381,6 +516,7 @@ const RoomView: React.FC<RoomViewProps> = ({
                   <span className="font-black uppercase text-[10px] text-misionero-amarillo">{chatToast.sender}:</span>
                   <span className="ml-2">{chatToast.text}</span>
                 </p>
+                <p className="text-[9px] text-slate-400 mt-1 text-right italic">Toca para responder</p>
               </div>
             </div>
           </div>
@@ -447,17 +583,17 @@ const RoomView: React.FC<RoomViewProps> = ({
             </div>
             <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 custom-scroll">
               {(room.chat || []).map((msg, idx) => (
-                <div key={idx} className={`flex flex-col ${msg.sender === currentUser ? 'items-end' : 'items-start'}`}>
-                  <div className={`max-w-[85%] p-3.5 rounded-2xl shadow-sm ${msg.sender === currentUser ? 'bg-misionero-azul text-white' : (darkMode ? 'bg-slate-800 text-slate-200 border border-white/5' : 'bg-slate-100 text-slate-700')}`}>
-                    <p className="text-sm font-medium leading-tight">{msg.text}</p>
-                  </div>
-                  <div className="flex items-center gap-1.5 mt-1 px-1">
-                    <span className={`text-[8px] font-black uppercase ${darkMode ? 'text-slate-600' : 'text-slate-400'}`}>{msg.sender}</span>
-                    <span className={`text-[8px] font-black uppercase ${darkMode ? 'text-slate-600' : 'text-slate-400'}`}>{formatMessageTime(msg.timestamp)}</span>
-                  </div>
-                </div>
+                <SwipeableMessage 
+                    key={idx} 
+                    msg={msg} 
+                    currentUser={currentUser} 
+                    onReply={handleReply} 
+                    darkMode={darkMode}
+                    formatTime={formatMessageTime}
+                />
               ))}
             </div>
+            <ChatInputArea />
           </div>
         </div>
       )}
@@ -614,17 +750,7 @@ const RoomView: React.FC<RoomViewProps> = ({
       </div>
 
       <div className={`fixed bottom-0 left-0 right-0 z-[120] max-w-md mx-auto`}>
-          <div className={`p-4 border-t shrink-0 ${darkMode ? 'border-white/5 bg-slate-950 shadow-[0_-10px_30px_rgba(0,0,0,0.3)]' : 'border-slate-100 bg-white shadow-lg'} pb-[calc(1rem+env(safe-area-inset-bottom))]`}>
-              <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex gap-3 items-center">
-                  <button type="button" onClick={() => setIsChatOpen(true)} className={`p-4 rounded-2xl active:scale-95 transition-all ${darkMode ? 'bg-slate-800 text-misionero-amarillo' : 'bg-slate-100 text-misionero-azul'}`} aria-label="Ver historial del chat">
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" /></svg>
-                  </button>
-                  <input type="text" value={chatMessage} onChange={e => setChatMessage(e.target.value)} placeholder="Enviar un mensaje..." className={`flex-1 rounded-2xl px-5 py-4 text-sm font-bold outline-none border transition-all ${darkMode ? 'bg-slate-900 border-white/5 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} />
-                  <button type="submit" disabled={!chatMessage.trim()} className="bg-misionero-verde text-white font-black px-5 rounded-2xl text-[10px] uppercase shadow-md active:scale-95 transition-transform disabled:opacity-30 self-stretch">
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
-                  </button>
-              </form>
-          </div>
+          {!isChatOpen && <ChatInputArea />}
       </div>
 
       {songForViewer && (

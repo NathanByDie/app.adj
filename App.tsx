@@ -143,25 +143,54 @@ const App: React.FC = () => {
     else document.documentElement.classList.remove('dark');
   }, [darkMode]);
 
-  const navigateTo = useCallback((newView: AppView) => {
-    setView(newView);
+  // Inicializar historial
+  useEffect(() => {
+    if (!window.history.state) {
+      window.history.replaceState({ view: 'feed' }, '', '');
+    }
   }, []);
 
+  const navigateTo = useCallback((newView: AppView) => {
+    if (view === newView) return;
+    // Empujar nueva vista al historial
+    window.history.pushState({ view: newView }, '', '');
+    setView(newView);
+  }, [view]);
+
   useEffect(() => {
-    const handlePopState = () => {
-      if (editingSong) { setEditingSong(null); return; }
+    const handlePopState = (event: PopStateEvent) => {
+      // 1. Manejo de Modales (Prioridad Alta)
+      if (editingSong) { 
+        setEditingSong(null); 
+        return; 
+      }
       if (activeSong) { 
         setActiveSong(null); 
         if (window.location.search.includes('song=')) {
-          window.history.replaceState({}, '', window.location.pathname);
+          window.history.replaceState(null, '', window.location.pathname);
         }
         return; 
       }
-      if (activeRoom) { setActiveRoom(null); return; }
+      if (activeRoom) { 
+        // Nota: Si estamos en una sala, al dar atrás solo cerramos la vista.
+        // La limpieza de la base de datos se maneja idealmente con un botón explícito de "Salir",
+        // pero aquí priorizamos la navegación fluida.
+        setActiveRoom(null); 
+        return; 
+      }
+
+      // 2. Manejo de Navegación entre Vistas (Tabs)
+      if (event.state && event.state.view) {
+        setView(event.state.view as AppView);
+      } else {
+        // Fallback si se acaba el historial o es el estado inicial
+        setView('feed');
+      }
     };
+
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [activeSong, activeRoom, editingSong]);
+  }, [activeSong, activeRoom, editingSong, view]);
 
   useEffect(() => {
     if (!activeRoom?.id) return;
