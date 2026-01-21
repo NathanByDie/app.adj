@@ -139,7 +139,8 @@ const RoomView: React.FC<RoomViewProps> = ({
     room, songs, currentUser, isAdmin, onExit, onUpdateRoom, darkMode = false, db, ADMIN_EMAILS,
     onEditSong, onDeleteSong
 }) => {
-  const [selectedSongId, setSelectedSongId] = useState<string | null>(room.currentSongId || null);
+  // IMPORTANTE: Inicializar en null para forzar la ejecución del efecto de sincronización y gestionar el historial correctamente
+  const [selectedSongId, setSelectedSongId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   
   const isTheHost = currentUser === room.host;
@@ -278,14 +279,40 @@ const RoomView: React.FC<RoomViewProps> = ({
     }
   }, [room.participants, currentUser, onExit]);
 
+  // Lógica de Sincronización Mejorada con Manejo de Historial
   useEffect(() => {
     if (!isTheHost && isFollowingHost) {
-      if (room.currentSongId && room.currentSongId !== lastSyncedHostSongId.current) {
-        lastSyncedHostSongId.current = room.currentSongId;
-        setSelectedSongId(room.currentSongId);
+      const targetSongId = room.currentSongId || null;
+
+      // Si el estado de la canción en el servidor difiere de lo que mostramos
+      if (targetSongId !== selectedSongId) {
+        
+        // CASO 1: El Host abrió una canción y nosotros estamos en la lista (null)
+        if (targetSongId && !selectedSongId) {
+            // Empujamos el estado 'room_song' al historial para que el botón "Atrás" funcione
+            // y cierre la canción en lugar de salir de la sala.
+            window.history.pushState({ overlay: 'room_song' }, '', '');
+            setSelectedSongId(targetSongId);
+        } 
+        
+        // CASO 2: El Host cambió de canción A a canción B (ya estamos dentro de 'room_song')
+        else if (targetSongId && selectedSongId) {
+            // Solo cambiamos el contenido visual, no tocamos el historial
+            setSelectedSongId(targetSongId);
+        } 
+        
+        // CASO 3: El Host cerró la canción (volvió a la lista) y nosotros la tenemos abierta
+        else if (!targetSongId && selectedSongId) {
+            // Usamos history.back() para "deshacer" el pushState del CASO 1.
+            // Esto limpiará el historial y disparará el evento popstate en App.tsx,
+            // que a su vez cerrará la canción de forma segura.
+            window.history.back();
+        }
+
+        lastSyncedHostSongId.current = targetSongId || '';
       }
     }
-  }, [room.currentSongId, isFollowingHost, isTheHost]);
+  }, [room.currentSongId, isFollowingHost, isTheHost, selectedSongId]);
 
   useEffect(() => {
     if (!db || !room.participants || room.participants.length === 0) return;
