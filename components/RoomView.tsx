@@ -167,12 +167,22 @@ const RoomView: React.FC<RoomViewProps> = ({
 
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [dropIndicator, setDropIndicator] = useState<{ index: number; position: 'before' | 'after' } | null>(null);
+  
+  // Estado para el modal de confirmación
+  const [confirmModal, setConfirmModal] = useState<{ title: string, message: string, action: () => void, type: 'danger' | 'warning' } | null>(null);
 
   const prevParticipants = useRef<string[]>(room.participants || []);
   const prevChatLength = useRef<number>(room.chat?.length || 0);
   const notificationAudio = useRef<HTMLAudioElement | null>(null);
   
   const lastSyncedHostSongId = useRef<string | undefined>(room.currentSongId);
+
+  useEffect(() => {
+    // Listener para cerrar canción al dar atrás
+    const handler = () => setSelectedSongId(null);
+    window.addEventListener('closeRoomSong', handler);
+    return () => window.removeEventListener('closeRoomSong', handler);
+  }, []);
 
   useEffect(() => {
     try {
@@ -320,10 +330,14 @@ const RoomView: React.FC<RoomViewProps> = ({
       lastSyncedHostSongId.current = songId || '';
       setSelectedSongId(songId);
       onUpdateRoom({ ...room, currentSongId: songId || '' });
+      if (songId) window.history.pushState({ overlay: 'room_song' }, '', '');
     } else {
       setSelectedSongId(songId);
       if (isFollowingHost && songId) {
         lastSyncedHostSongId.current = songId;
+      }
+      if (songId) {
+         window.history.pushState({ overlay: 'room_song' }, '', '');
       }
     }
   };
@@ -332,29 +346,44 @@ const RoomView: React.FC<RoomViewProps> = ({
   
   const handleMakeHost = (newHostUsername: string) => {
     if (!isTheHost) return;
-    if (window.confirm(`¿Transferir Host a ${newHostUsername}? Perderás el mando de seguimiento.`)) {
-        onUpdateRoom({ ...room, host: newHostUsername });
-        addNotification(`${newHostUsername} es ahora el Host`, 'success');
-    }
+    setConfirmModal({
+        title: 'Transferir Host',
+        message: `¿Estás seguro de ceder el liderazgo a ${newHostUsername}? Perderás el control de la sala.`,
+        type: 'warning',
+        action: () => {
+            onUpdateRoom({ ...room, host: newHostUsername });
+            addNotification(`${newHostUsername} es ahora el Host`, 'success');
+        }
+    });
   };
 
   const handleKickParticipant = (username: string) => {
     if (!isTheHost) return;
-    if (window.confirm(`¿Expulsar a ${username} de la sala?`)) {
-      const updatedParticipants = (room.participants || []).filter(p => p !== username);
-      onUpdateRoom({ ...room, participants: updatedParticipants });
-      addNotification(`${username} ha sido expulsado`, 'alert');
-    }
+    setConfirmModal({
+        title: 'Expulsar Miembro',
+        message: `¿Deseas sacar a ${username} de la sala? Podrá volver a entrar con el código.`,
+        type: 'danger',
+        action: () => {
+            const updatedParticipants = (room.participants || []).filter(p => p !== username);
+            onUpdateRoom({ ...room, participants: updatedParticipants });
+            addNotification(`${username} ha sido expulsado`, 'alert');
+        }
+    });
   };
 
   const handleBanParticipant = (username: string) => {
     if (!isTheHost) return;
-    if (window.confirm(`¿Bloquear permanentemente a ${username}? No podrá volver a entrar.`)) {
-      const updatedParticipants = (room.participants || []).filter(p => p !== username);
-      const updatedBanned = [...(room.banned || []), username];
-      onUpdateRoom({ ...room, participants: updatedParticipants, banned: updatedBanned });
-      addNotification(`${username} ha sido bloqueado`, 'alert');
-    }
+    setConfirmModal({
+        title: 'Bloquear Usuario',
+        message: `¿Bloquear permanentemente a ${username}? No podrá volver a ingresar a esta sala.`,
+        type: 'danger',
+        action: () => {
+            const updatedParticipants = (room.participants || []).filter(p => p !== username);
+            const updatedBanned = [...(room.banned || []), username];
+            onUpdateRoom({ ...room, participants: updatedParticipants, banned: updatedBanned });
+            addNotification(`${username} ha sido bloqueado`, 'alert');
+        }
+    });
   };
 
   const addSongToRepertoire = (songId: string) => {
@@ -478,19 +507,19 @@ const RoomView: React.FC<RoomViewProps> = ({
   };
 
   const chatInputArea = (
-    <div className={`p-4 border-t shrink-0 ${darkMode ? 'border-white/5 bg-slate-950' : 'border-slate-100 bg-white'} pb-[calc(2rem+env(safe-area-inset-bottom))]`}>
+    <div className={`px-3 pt-3 border-t shrink-0 ${darkMode ? 'border-white/5 bg-slate-950' : 'border-slate-100 bg-white'} pb-[calc(0.25rem+env(safe-area-inset-bottom))]`}>
         {replyingTo && (
             <div className={`flex items-center justify-between px-4 py-2 mb-2 rounded-xl text-xs font-medium border-l-4 border-misionero-azul ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-50 text-slate-600'}`}>
                 <span className="truncate">Respondiendo a <b>{replyingTo.sender}</b></span>
                 <button onClick={() => setReplyingTo(null)} className="p-1 hover:bg-black/10 rounded-full"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
             </div>
         )}
-        <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex gap-2 items-center">
+        <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex gap-2 items-center w-full">
              {!isChatOpen && (
                 <button 
                   type="button" 
                   onClick={() => setIsChatOpen(true)} 
-                  className={`p-4 rounded-2xl border shrink-0 transition-colors ${darkMode ? 'bg-slate-900 border-white/5 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
+                  className={`w-12 h-12 flex items-center justify-center rounded-2xl border shrink-0 transition-colors ${darkMode ? 'bg-slate-900 border-white/5 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
                 >
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
@@ -502,11 +531,11 @@ const RoomView: React.FC<RoomViewProps> = ({
                 type="text" 
                 value={chatMessage} 
                 onChange={e => setChatMessage(e.target.value)} 
-                placeholder="Enviar un mensaje..." 
-                className={`flex-1 rounded-2xl px-5 py-4 text-sm font-bold outline-none border transition-all ${darkMode ? 'bg-slate-900 border-white/5 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} 
+                placeholder="Mensaje..." 
+                className={`flex-1 min-w-0 rounded-2xl px-4 py-3.5 text-sm font-bold outline-none border transition-all ${darkMode ? 'bg-slate-900 border-white/5 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} 
             />
-            <button type="submit" disabled={!chatMessage.trim()} className="bg-misionero-verde text-white font-black px-5 rounded-2xl text-[10px] uppercase shadow-md active:scale-95 transition-transform disabled:opacity-30 self-stretch flex items-center justify-center">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+            <button type="submit" disabled={!chatMessage.trim()} className="bg-misionero-verde text-white font-black w-12 h-12 rounded-2xl text-[10px] uppercase shadow-md active:scale-95 transition-transform disabled:opacity-30 flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
             </button>
         </form>
     </div>
@@ -550,6 +579,28 @@ const RoomView: React.FC<RoomViewProps> = ({
           </div>
         ))}
       </div>
+
+      {/* MODAL DE CONFIRMACIÓN */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-[400] flex items-center justify-center p-6 animate-in fade-in duration-200">
+           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmModal(null)}></div>
+           <div className={`relative w-full max-w-sm p-6 rounded-[2rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-slate-900 border-white/10' : 'bg-white border-slate-100'}`}>
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 mx-auto ${confirmModal.type === 'danger' ? 'bg-misionero-rojo/10 text-misionero-rojo' : 'bg-misionero-amarillo/10 text-misionero-amarillo'}`}>
+                 {confirmModal.type === 'danger' ? (
+                   <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                 ) : (
+                   <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                 )}
+              </div>
+              <h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{confirmModal.title}</h3>
+              <p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{confirmModal.message}</p>
+              <div className="flex gap-3">
+                  <button onClick={() => setConfirmModal(null)} className={`flex-1 py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest active:scale-95 transition-transform ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button>
+                  <button onClick={() => { confirmModal.action(); setConfirmModal(null); }} className={`flex-1 py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest active:scale-95 transition-transform ${confirmModal.type === 'danger' ? 'bg-misionero-rojo text-white' : 'bg-misionero-azul text-white'}`}>Confirmar</button>
+              </div>
+           </div>
+        </div>
+      )}
 
       {showParticipants && (
         <div className="fixed inset-0 z-[250] flex items-start justify-center pt-24 px-6 animate-in fade-in duration-300">
@@ -780,7 +831,7 @@ const RoomView: React.FC<RoomViewProps> = ({
           <div className="flex-1 overflow-hidden flex flex-col">
             <SongViewer 
               song={songForViewer} 
-              onBack={() => navigateToSong(null)} 
+              onBack={() => window.history.back()} 
               externalTranspose={room.globalTranspositions?.[songForViewer.id] || 0}
               onTransposeChange={canModify ? (val) => handleGlobalTranspose(songForViewer.id, val) : undefined}
               darkMode={darkMode}

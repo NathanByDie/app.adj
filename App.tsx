@@ -133,6 +133,9 @@ const App: React.FC = () => {
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   const [isJoiningRoom, setIsJoiningRoom] = useState(false);
 
+  // Estado para alertas globales (estilo modal)
+  const [globalAlert, setGlobalAlert] = useState<{ title: string, message: string, type: 'error' | 'success' | 'info' } | null>(null);
+
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
   const minSwipeDistance = 50;
@@ -159,7 +162,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
-      // 1. Manejo de Modales (Prioridad Alta)
+      // 1. Manejo de Modales Globales (Prioridad Alta)
       if (editingSong) { 
         setEditingSong(null); 
         return; 
@@ -171,15 +174,24 @@ const App: React.FC = () => {
         }
         return; 
       }
+      
+      // 2. Manejo de Sala y Navegación Interna de Sala
       if (activeRoom) { 
-        // Nota: Si estamos en una sala, al dar atrás solo cerramos la vista.
-        // La limpieza de la base de datos se maneja idealmente con un botón explícito de "Salir",
-        // pero aquí priorizamos la navegación fluida.
+        // Si el estado del historial indica que estamos en la "raíz" de la sala (overlay: 'room'),
+        // significa que acabamos de retroceder desde una canción (overlay: 'room_song').
+        // En este caso, NO cerramos la sala, sino que enviamos un evento para que RoomView cierre la canción.
+        if (event.state && event.state.overlay === 'room') {
+            window.dispatchEvent(new CustomEvent('closeRoomSong'));
+            return;
+        }
+
+        // Si no tenemos overlay 'room' (ej. estamos volviendo al feed), cerramos la sala.
+        // O si explicitamente se navega atrás mas allá del historial de la sala.
         setActiveRoom(null); 
         return; 
       }
 
-      // 2. Manejo de Navegación entre Vistas (Tabs)
+      // 3. Manejo de Navegación entre Vistas (Tabs)
       if (event.state && event.state.view) {
         setView(event.state.view as AppView);
       } else {
@@ -200,7 +212,7 @@ const App: React.FC = () => {
         setActiveRoom(prev => ({ ...prev, ...roomData, id: docSnap.id } as Room));
       } else {
         setActiveRoom(null);
-        alert("La sala ha sido cerrada.");
+        setGlobalAlert({ title: "Sala Cerrada", message: "La sala ha sido cerrada por el servidor.", type: 'info' });
       }
     });
     return () => unsubscribe();
@@ -227,13 +239,14 @@ const App: React.FC = () => {
             if (activeSong && activeSong.id === songId) goBack();
         } catch (err) {
             console.error("Error deleting song:", err);
-            alert("Error al eliminar la canción.");
+            setGlobalAlert({ title: "Error", message: "Error al eliminar la canción.", type: 'error' });
         }
     }
   };
 
   const enterRoom = (room: Room) => {
     setActiveRoom(room);
+    // Aseguramos que el estado base de la sala esté en el historial
     window.history.pushState({ overlay: 'room' }, '', '');
   };
 
@@ -242,7 +255,12 @@ const App: React.FC = () => {
       const updatedParticipants = (activeRoom.participants || []).filter(p => p !== user.username);
       handleUpdateRoom({ ...activeRoom, participants: updatedParticipants });
     }
-    goBack();
+    // Intentamos ir atrás para respetar el historial, si no, forzamos cierre
+    if (window.history.state?.overlay === 'room') {
+        window.history.back();
+    } else {
+        setActiveRoom(null);
+    }
   };
 
   const isAdmin = useMemo(() => {
@@ -325,7 +343,7 @@ const App: React.FC = () => {
         enterRoom({ id: docRef.id, ...newRoom } as Room);
     } catch (error) {
         console.error("Error creating room:", error);
-        alert("Error al crear la sala.");
+        setGlobalAlert({ title: "Error", message: "Error al crear la sala.", type: 'error' });
     } finally {
         setIsJoiningRoom(false);
     }
@@ -342,13 +360,21 @@ const App: React.FC = () => {
           const roomData = { id: roomDoc.id, ...roomDoc.data() } as Room;
 
           if (roomData.expiresAt && Date.now() > roomData.expiresAt) {
-            alert("El código de esta sala ha vencido.");
+            setGlobalAlert({ 
+              title: "CÓDIGO VENCIDO", 
+              message: "El código de esta sala ha expirado. Solicita uno nuevo al anfitrión.", 
+              type: 'error' 
+            });
             setIsJoiningRoom(false);
             return;
           }
 
           if (roomData.banned && roomData.banned.includes(user.username)) {
-            alert("Has sido expulsado permanentemente de esta sala.");
+            setGlobalAlert({ 
+              title: "ACCESO DENEGADO", 
+              message: "Has sido expulsado permanentemente de esta sala por el administrador.", 
+              type: 'error' 
+            });
             setIsJoiningRoom(false);
             return;
           }
@@ -363,11 +389,15 @@ const App: React.FC = () => {
           }
           enterRoom(roomData);
         } else {
-            alert("Sala no encontrada.");
+            setGlobalAlert({ 
+              title: "SALA NO ENCONTRADA", 
+              message: "Verifica el código e inténtalo de nuevo.", 
+              type: 'info' 
+            });
         }
     } catch (error) {
         console.error("Error joining room:", error);
-        alert("Ocurrió un error al intentar unirse a la sala.");
+        setGlobalAlert({ title: "Error", message: "Ocurrió un error al intentar unirse a la sala.", type: 'error' });
     } finally {
         setIsJoiningRoom(false);
     }
@@ -510,7 +540,7 @@ const App: React.FC = () => {
 
   return (
     <div className={`fixed inset-0 max-w-md mx-auto transition-colors duration-500 ${darkMode ? 'text-white bg-slate-950' : 'text-slate-900 bg-slate-50'} overflow-hidden flex flex-col`} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-      <header onTouchStart={(e) => e.stopPropagation()} className={`px-4 py-3 transition-colors duration-500 ${darkMode ? 'bg-slate-950/95 border-slate-800' : 'bg-white/95 border-slate-50'} border-b shrink-0 shadow-sm z-30 backdrop-blur-sm`}>
+      <header onTouchStart={(e) => e.stopPropagation()} className={`shrink-0 px-4 py-3 transition-colors duration-500 ${darkMode ? 'bg-slate-950/95 border-slate-800' : 'bg-white/95 border-slate-50'} border-b shadow-sm z-30`}>
         <div className="flex justify-between items-center mb-3">
           <div>
             <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.3em] mb-0.5">ADJStudios</p>
@@ -540,12 +570,12 @@ const App: React.FC = () => {
         )}
       </header>
 
-      <main className="flex-1 relative overflow-hidden mb-28">
+      <main className="flex-1 relative overflow-hidden">
         <div 
           className="flex h-full w-[400%] transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
           style={{ transform: `translateX(-${viewIndex * 25}%)` }}
         >
-          <div className="w-1/4 h-full overflow-y-auto custom-scroll px-4 pt-4 pb-12 space-y-3">
+          <div className="w-1/4 h-full overflow-y-auto custom-scroll px-4 py-4 space-y-3">
              {filteredSongs.map(song => (
                 <div key={song.id} className={`${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'} rounded-[1.8rem] border shadow-sm relative overflow-hidden active:scale-[0.98] transition-all`} onClick={() => openSongViewer(song)}>
                   <div className={`absolute inset-0 z-0 ${getLiturgicalCardClass(song.category)} opacity-40`}></div>
@@ -561,7 +591,7 @@ const App: React.FC = () => {
              ))}
           </div>
 
-          <div className="w-1/4 h-full overflow-y-auto custom-scroll px-4 pt-4 pb-12 space-y-3">
+          <div className="w-1/4 h-full overflow-y-auto custom-scroll px-4 py-4 space-y-3">
              {favoriteSongs.length === 0 ? (
                <div className="flex flex-col items-center justify-center h-full opacity-20"><p className="text-[10px] font-black uppercase">Sin favoritos</p></div>
              ) : favoriteSongs.map(song => (
@@ -577,7 +607,7 @@ const App: React.FC = () => {
              ))}
           </div>
 
-          <div className="w-1/4 h-full flex flex-col items-center justify-center px-8 pt-8 pb-12 text-center space-y-6 relative">
+          <div className="w-1/4 h-full flex flex-col items-center justify-center px-8 py-4 text-center space-y-6 relative">
               {isJoiningRoom && (
                  <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/30 dark:bg-slate-950/30 backdrop-blur-md animate-in fade-in duration-300 rounded-[2.5rem]">
                     <div className="w-12 h-12 border-4 border-misionero-azul border-t-transparent rounded-full animate-spin mb-4"></div>
@@ -591,7 +621,7 @@ const App: React.FC = () => {
               {isAdmin && <button onClick={handleCreateRoom} className="w-full border-2 border-misionero-verde text-misionero-verde font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest active:scale-95 transition-all">CREAR SALA</button>}
           </div>
 
-          <div className="w-1/4 h-full overflow-y-auto custom-scroll px-6 pt-8 pb-12 space-y-8">
+          <div className="w-1/4 h-full overflow-y-auto custom-scroll px-6 py-4 space-y-8">
               <section className="space-y-4">
                  <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Apariencia</h3>
                  <div className={`${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'} p-5 rounded-[2.5rem] border flex items-center justify-between`}>
@@ -638,10 +668,29 @@ const App: React.FC = () => {
       </main>
 
       {view === 'feed' && isAdmin && !activeSong && !editingSong && !activeRoom && (
-        <button onClick={() => openSongEditor(null)} className="fixed bottom-[130px] right-6 w-16 h-16 bg-misionero-rojo text-white rounded-[1.8rem] shadow-2xl flex items-center justify-center z-40 animate-bounce-subtle active:scale-90 transition-transform"><PlusIcon /></button>
+        <button onClick={() => openSongEditor(null)} className="fixed bottom-[5rem] right-6 w-16 h-16 bg-misionero-rojo text-white rounded-[1.8rem] shadow-2xl flex items-center justify-center z-40 animate-bounce-subtle active:scale-90 transition-transform"><PlusIcon /></button>
       )}
 
-      <nav onTouchStart={(e) => e.stopPropagation()} className={`fixed bottom-0 left-0 right-0 transition-colors duration-500 ${darkMode ? 'bg-slate-950/90 border-slate-800' : 'bg-white/90 border-slate-100'} border-t px-4 pt-2 pb-8 flex justify-around items-center z-50 max-w-md mx-auto h-28 shadow-lg backdrop-blur-sm`}>
+      {/* Global Alert Modal */}
+      {globalAlert && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200">
+           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setGlobalAlert(null)}></div>
+           <div className={`relative w-full max-w-sm p-6 rounded-[2rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-slate-900 border-white/10' : 'bg-white border-slate-100'}`}>
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 mx-auto ${globalAlert.type === 'error' ? 'bg-misionero-rojo/10 text-misionero-rojo' : 'bg-misionero-azul/10 text-misionero-azul'}`}>
+                 {globalAlert.type === 'error' ? (
+                   <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                 ) : (
+                   <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                 )}
+              </div>
+              <h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{globalAlert.title}</h3>
+              <p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{globalAlert.message}</p>
+              <button onClick={() => setGlobalAlert(null)} className={`w-full py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest active:scale-95 transition-transform ${globalAlert.type === 'error' ? 'bg-misionero-rojo text-white' : 'bg-misionero-azul text-white'}`}>Entendido</button>
+           </div>
+        </div>
+      )}
+
+      <nav onTouchStart={(e) => e.stopPropagation()} className={`shrink-0 transition-colors duration-500 ${darkMode ? 'bg-slate-950/90 border-slate-800' : 'bg-white/90 border-slate-100'} border-t w-full px-4 pt-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] flex justify-center gap-14 items-center z-50 max-w-md mx-auto shadow-[0_-10px_30px_rgba(0,0,0,0.05)]`}>
         {VIEW_ORDER.map((v) => {
           const isActive = view === v;
           let activeColorClass = 'text-slate-300';
@@ -653,7 +702,7 @@ const App: React.FC = () => {
           return (
             <button key={v} onClick={() => navigateTo(v)} className={`flex flex-col items-center gap-1.5 transition-all duration-300 ${activeColorClass}`}>
               <div className="relative flex items-center justify-center">
-                <div className={`absolute inset-x-[-20px] inset-y-[-4px] rounded-full transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${bubbleColorClass} ${isActive ? 'scale-100 opacity-100' : 'scale-0 opacity-0'}`}></div>
+                <div className={`absolute inset-x-[-12px] inset-y-[-4px] rounded-full transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${bubbleColorClass} ${isActive ? 'scale-100 opacity-100' : 'scale-0 opacity-0'}`}></div>
                 <div className={`relative transition-transform duration-300 z-10 ${isActive ? 'scale-110' : 'scale-100'}`}>
                   {v === 'feed' && <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>}
                   {v === 'favorites' && <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>}
