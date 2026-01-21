@@ -384,18 +384,33 @@ const RoomView: React.FC<RoomViewProps> = ({
   };
   
   const navigateToSong = (songId: string | null) => {
+    const isAlreadyViewingSong = selectedSongId !== null;
+
     if (isTheHost) {
       lastSyncedHostSongId.current = songId || '';
       setSelectedSongId(songId);
       onUpdateRoom({ ...room, currentSongId: songId || '' });
-      if (songId) window.history.pushState({ overlay: 'room_song' }, '', '');
+      
+      if (songId) {
+        if (isAlreadyViewingSong) {
+            // Reemplazar estado para no acumular historial
+            window.history.replaceState({ overlay: 'room_song' }, '', '');
+        } else {
+            // Crear nueva entrada solo si venimos de la lista
+            window.history.pushState({ overlay: 'room_song' }, '', '');
+        }
+      }
     } else {
       setSelectedSongId(songId);
       if (isFollowingHost && songId) {
         lastSyncedHostSongId.current = songId;
       }
       if (songId) {
-         window.history.pushState({ overlay: 'room_song' }, '', '');
+         if (isAlreadyViewingSong) {
+            window.history.replaceState({ overlay: 'room_song' }, '', '');
+         } else {
+            window.history.pushState({ overlay: 'room_song' }, '', '');
+         }
       }
     }
   };
@@ -699,31 +714,6 @@ const RoomView: React.FC<RoomViewProps> = ({
                 );
               })}
             </div>
-          </div>
-        </div>
-      )}
-
-      {isChatOpen && (
-        <div className="fixed inset-0 z-[250] flex items-end justify-center animate-in fade-in duration-300">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeChat}></div>
-          <div className={`relative w-full max-w-md flex flex-col animate-in slide-in-from-bottom-10 duration-300 transition-all ${darkMode ? 'bg-slate-900 border-white/10' : 'bg-white border-slate-100'} h-[85dvh] rounded-t-[2.5rem] shadow-2xl border`}>
-            <div className={`flex items-center justify-between p-4 border-b shrink-0 ${darkMode ? 'border-white/10' : 'border-slate-100'}`}>
-              <h4 className="text-[10px] font-black uppercase tracking-widest text-misionero-amarillo ml-4">Historial del Chat</h4>
-              <button onClick={closeChat} className={`w-8 h-8 rounded-full flex items-center justify-center ${darkMode ? 'bg-white/5 text-white' : 'bg-slate-100 text-slate-400'}`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
-            </div>
-            <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 custom-scroll">
-              {(room.chat || []).map((msg, idx) => (
-                <SwipeableMessage 
-                    key={idx} 
-                    msg={msg} 
-                    currentUser={currentUser} 
-                    onReply={handleReply} 
-                    darkMode={darkMode}
-                    formatTime={formatMessageTime}
-                />
-              ))}
-            </div>
-            {chatInputArea}
           </div>
         </div>
       )}
