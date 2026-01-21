@@ -176,7 +176,9 @@ const RoomView: React.FC<RoomViewProps> = ({
   const prevChatLength = useRef<number>(room.chat?.length || 0);
   const notificationAudio = useRef<HTMLAudioElement | null>(null);
   
-  const lastSyncedHostSongId = useRef<string | undefined>(room.currentSongId);
+  // Inicializamos en undefined para que el primer valor que llegue (aunque sea el mismo que el actual)
+  // dispare la sincronización inicial.
+  const lastSyncedHostSongId = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     // Listener para cerrar canción al dar atrás
@@ -282,34 +284,29 @@ const RoomView: React.FC<RoomViewProps> = ({
   // Lógica de Sincronización Mejorada con Manejo de Historial
   useEffect(() => {
     if (!isTheHost && isFollowingHost) {
-      const targetSongId = room.currentSongId || null;
+      const targetSongId = room.currentSongId || '';
 
-      // Si el estado de la canción en el servidor difiere de lo que mostramos
-      if (targetSongId !== selectedSongId) {
+      // Si la canción del host ha cambiado desde la última vez que sincronizamos, actualizamos.
+      // Esto evita forzar al usuario a entrar a una canción de la que acaba de salir si el host no la ha cambiado.
+      if (targetSongId !== lastSyncedHostSongId.current) {
         
-        // CASO 1: El Host abrió una canción y nosotros estamos en la lista (null)
+        lastSyncedHostSongId.current = targetSongId;
+        
+        // CASO 1: El Host abrió una nueva canción y nosotros estamos en la lista
         if (targetSongId && !selectedSongId) {
-            // Empujamos el estado 'room_song' al historial para que el botón "Atrás" funcione
-            // y cierre la canción en lugar de salir de la sala.
             window.history.pushState({ overlay: 'room_song' }, '', '');
             setSelectedSongId(targetSongId);
         } 
         
         // CASO 2: El Host cambió de canción A a canción B (ya estamos dentro de 'room_song')
         else if (targetSongId && selectedSongId) {
-            // Solo cambiamos el contenido visual, no tocamos el historial
             setSelectedSongId(targetSongId);
         } 
         
         // CASO 3: El Host cerró la canción (volvió a la lista) y nosotros la tenemos abierta
         else if (!targetSongId && selectedSongId) {
-            // Usamos history.back() para "deshacer" el pushState del CASO 1.
-            // Esto limpiará el historial y disparará el evento popstate en App.tsx,
-            // que a su vez cerrará la canción de forma segura.
             window.history.back();
         }
-
-        lastSyncedHostSongId.current = targetSongId || '';
       }
     }
   }, [room.currentSongId, isFollowingHost, isTheHost, selectedSongId]);
@@ -337,7 +334,7 @@ const RoomView: React.FC<RoomViewProps> = ({
   }, [db, room.participants, ADMIN_EMAILS]);
 
   const addNotification = (message: string, type: Notification['type'] = 'info') => {
-    const id = Date.now();
+    const id = Date.now() + Math.random();
     setNotifications(prev => [...prev, { id, message, type }]);
     setTimeout(() => {
       setNotifications(prev => prev.filter(n => n.id !== id));
@@ -356,12 +353,20 @@ const RoomView: React.FC<RoomViewProps> = ({
 
   useEffect(() => {
     const currentParts = room.participants || [];
+    
+    // Detectar múltiples entradas a la vez
     if (currentParts.length > prevParticipants.current.length) {
-      const newUser = currentParts.find(p => !prevParticipants.current.includes(p));
-      if (newUser && newUser !== currentUser) addNotification(`${newUser} se ha unido`, 'success');
-    } else if (currentParts.length < prevParticipants.current.length) {
-      const leftUser = prevParticipants.current.find(p => !currentParts.includes(p));
-      if (leftUser) addNotification(`${leftUser} ha salido`, 'alert');
+      const newUsers = currentParts.filter(p => !prevParticipants.current.includes(p));
+      newUsers.forEach(u => {
+         if (u !== currentUser) addNotification(`${u} se ha unido`, 'success');
+      });
+    } 
+    // Detectar múltiples salidas a la vez
+    else if (currentParts.length < prevParticipants.current.length) {
+      const leftUsers = prevParticipants.current.filter(p => !currentParts.includes(p));
+      leftUsers.forEach(u => {
+         addNotification(`${u} ha salido`, 'alert');
+      });
     }
     prevParticipants.current = currentParts;
   }, [room.participants, currentUser]);

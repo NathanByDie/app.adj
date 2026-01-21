@@ -133,6 +133,9 @@ const App: React.FC = () => {
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   const [isJoiningRoom, setIsJoiningRoom] = useState(false);
 
+  // Estado para forzar actualización de listeners al volver del background
+  const [connectionKey, setConnectionKey] = useState(0);
+
   // Estado para alertas globales (estilo modal)
   const [globalAlert, setGlobalAlert] = useState<{ title: string, message: string, type: 'error' | 'success' | 'info' } | null>(null);
 
@@ -151,6 +154,21 @@ const App: React.FC = () => {
     if (!window.history.state) {
       window.history.replaceState({ view: 'feed' }, '', '');
     }
+  }, []);
+
+  // DETECTOR DE VISIBILIDAD PARA RECONEXIÓN
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Al volver al primer plano, incrementamos la llave para forzar la reconexión de los listeners de la sala
+        // Esto asegura que si hubo cambios mientras la app estaba en segundo plano, se obtengan inmediatamente.
+        // console.log("App en primer plano: Refrescando conexión...");
+        setConnectionKey(prev => prev + 1);
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, []);
 
   const navigateTo = useCallback((newView: AppView) => {
@@ -217,6 +235,9 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!activeRoom?.id) return;
+    
+    // Al añadir connectionKey a las dependencias, cada vez que la app vuelve al frente,
+    // se destruye el listener anterior y se crea uno nuevo, forzando una actualización inmediata.
     const unsubscribe = onSnapshot(doc(db, "rooms", activeRoom.id), (docSnap) => {
       if (docSnap.exists()) {
         const roomData = docSnap.data();
@@ -225,9 +246,11 @@ const App: React.FC = () => {
         setActiveRoom(null);
         setGlobalAlert({ title: "Sala Cerrada", message: "La sala ha sido cerrada por el servidor.", type: 'info' });
       }
+    }, (error) => {
+        console.error("Error en listener de sala:", error);
     });
     return () => unsubscribe();
-  }, [activeRoom?.id]);
+  }, [activeRoom?.id, connectionKey]);
 
   const goBack = () => {
     window.history.back();
