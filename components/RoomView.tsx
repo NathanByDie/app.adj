@@ -772,10 +772,22 @@ const RoomView: React.FC<RoomViewProps> = ({
                 room.repertoire.map((songId, idx) => {
                   const song = repertoireSongsMap[songId];
                   const tValue = room.globalTranspositions?.[songId] || 0;
+                  const isHostHere = room.currentSongId === songId;
+
                   return (
-                    <div key={songId} onClick={() => navigateToSong(songId)} className={`flex items-center justify-between p-4 border rounded-2xl active:scale-[0.98] transition-all duration-300 ${selectedSongId === songId ? 'border-misionero-amarillo shadow-lg' : (darkMode ? 'bg-slate-900 border-white/5 text-white' : 'bg-white border-slate-100 text-slate-900')}`}>
+                    <div 
+                      key={songId} 
+                      onClick={() => navigateToSong(songId)} 
+                      className={`
+                        flex items-center justify-between p-4 border rounded-2xl active:scale-[0.98] transition-all duration-300 relative
+                        ${selectedSongId === songId ? 'border-misionero-amarillo shadow-lg' : (darkMode ? 'bg-slate-900 border-white/5 text-white' : 'bg-white border-slate-100 text-slate-900')}
+                        ${isHostHere ? `ring-2 ring-misionero-rojo ring-offset-2 ${darkMode ? 'ring-offset-slate-950' : 'ring-offset-slate-50'}` : ''}
+                      `}
+                    >
                       <div className="flex items-center gap-4 flex-1 truncate">
-                        <div className="w-8 h-8 shrink-0 rounded-lg bg-misionero-verde flex items-center justify-center font-black text-xs text-white">{idx + 1}</div>
+                        <div className={`w-8 h-8 shrink-0 rounded-lg flex items-center justify-center font-black text-xs text-white transition-colors ${isHostHere ? 'bg-misionero-rojo animate-pulse' : 'bg-misionero-verde'}`}>
+                            {idx + 1}
+                        </div>
                         <div className="truncate">
                           <h4 className="font-black text-xs uppercase truncate">{song?.title || 'Cargando...'}</h4>
                           {tValue !== 0 && (
@@ -785,6 +797,7 @@ const RoomView: React.FC<RoomViewProps> = ({
                       </div>
                       <div className="text-right shrink-0 ml-2">
                         <span className={`text-[10px] font-black block uppercase ${darkMode ? 'text-misionero-amarillo' : 'text-misionero-rojo'}`}>{song?.key}</span>
+                        {isHostHere && <span className="text-[7px] font-bold text-misionero-rojo uppercase tracking-wider block mt-0.5">En Vivo</span>}
                       </div>
                     </div>
                   );
