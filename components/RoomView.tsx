@@ -76,14 +76,21 @@ const SwipeableMessage: React.FC<SwipeableMessageProps> = ({ msg, currentUser, o
     const currentX = e.targetTouches[0].clientX;
     const diff = currentX - touchStartX.current;
     
-    // Solo permitir deslizar a la derecha para responder
-    if (diff > 0 && diff < 100) {
-      setTranslateX(diff);
+    if (isMe) {
+        // Deslizar a la izquierda para mensajes propios (valores negativos)
+        if (diff < 0 && diff > -100) {
+             setTranslateX(diff);
+        }
+    } else {
+        // Deslizar a la derecha para mensajes ajenos (valores positivos)
+        if (diff > 0 && diff < 100) {
+            setTranslateX(diff);
+        }
     }
   };
 
   const onTouchEnd = () => {
-    if (translateX > 50) {
+    if (Math.abs(translateX) > 50) {
       // Umbral superado, activar respuesta
       if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
         try { navigator.vibrate(20); } catch(e) {}
@@ -96,17 +103,20 @@ const SwipeableMessage: React.FC<SwipeableMessageProps> = ({ msg, currentUser, o
 
   return (
     <div 
-      className={`relative flex flex-col ${isMe ? 'items-end' : 'items-start'} select-none`}
+      className={`relative flex flex-col ${isMe ? 'items-end' : 'items-start'} select-none w-full`}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
-        {/* Indicador de respuesta detrás del mensaje */}
+        {/* Indicador de respuesta */}
         <div 
-            className="absolute left-0 top-1/2 -translate-y-1/2 text-slate-400 transition-opacity duration-300 flex items-center"
-            style={{ opacity: translateX > 10 ? Math.min(translateX / 50, 1) : 0, transform: `translateX(-20px)` }}
+            className={`absolute top-1/2 -translate-y-1/2 text-slate-400 transition-opacity duration-300 flex items-center ${isMe ? 'right-0' : 'left-0'}`}
+            style={{ 
+                opacity: Math.abs(translateX) > 10 ? Math.min(Math.abs(translateX) / 50, 1) : 0, 
+                transform: isMe ? `translateX(20px)` : `translateX(-20px)`
+            }}
         >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg>
+            <svg className={`w-5 h-5 ${isMe ? 'scale-x-[-1]' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg>
         </div>
 
         <div 
@@ -467,7 +477,7 @@ const RoomView: React.FC<RoomViewProps> = ({
     });
   };
 
-  const ChatInputArea = () => (
+  const chatInputArea = (
     <div className={`p-4 border-t shrink-0 ${darkMode ? 'border-white/5 bg-slate-950' : 'border-slate-100 bg-white'} pb-[calc(2rem+env(safe-area-inset-bottom))]`}>
         {replyingTo && (
             <div className={`flex items-center justify-between px-4 py-2 mb-2 rounded-xl text-xs font-medium border-l-4 border-misionero-azul ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-50 text-slate-600'}`}>
@@ -475,7 +485,18 @@ const RoomView: React.FC<RoomViewProps> = ({
                 <button onClick={() => setReplyingTo(null)} className="p-1 hover:bg-black/10 rounded-full"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
             </div>
         )}
-        <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex gap-3 items-center">
+        <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex gap-2 items-center">
+             {!isChatOpen && (
+                <button 
+                  type="button" 
+                  onClick={() => setIsChatOpen(true)} 
+                  className={`p-4 rounded-2xl border shrink-0 transition-colors ${darkMode ? 'bg-slate-900 border-white/5 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                  </svg>
+                </button>
+             )}
             <input 
                 ref={chatInputRef}
                 type="text" 
@@ -593,7 +614,7 @@ const RoomView: React.FC<RoomViewProps> = ({
                 />
               ))}
             </div>
-            <ChatInputArea />
+            {chatInputArea}
           </div>
         </div>
       )}
@@ -601,6 +622,7 @@ const RoomView: React.FC<RoomViewProps> = ({
       {!songForViewer && (
         <header className={`pt-8 pb-10 px-5 relative shrink-0 transition-colors duration-500 ${darkMode ? 'bg-slate-900' : 'bg-misionero-azul text-white'}`}>
           <div className="absolute top-6 right-5 z-30 flex items-center gap-2">
+            
             <button onClick={() => setShowParticipants(true)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border active:scale-95 transition-all ${darkMode ? 'bg-black/40 border-white/5' : 'bg-black/20 border-white/10'}`}>
                 <svg className={`w-3 h-3 ${darkMode ? 'text-misionero-amarillo' : 'text-white'}`} fill="currentColor" viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
                 <span className={`text-[10px] font-black ${darkMode ? 'text-misionero-amarillo' : 'text-white'}`}>{(room.participants || []).length}</span>
@@ -750,7 +772,7 @@ const RoomView: React.FC<RoomViewProps> = ({
       </div>
 
       <div className={`fixed bottom-0 left-0 right-0 z-[120] max-w-md mx-auto`}>
-          {!isChatOpen && <ChatInputArea />}
+          {!isChatOpen && chatInputArea}
       </div>
 
       {songForViewer && (
