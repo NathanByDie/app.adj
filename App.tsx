@@ -160,9 +160,6 @@ const App: React.FC = () => {
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        // Al volver al primer plano, incrementamos la llave para forzar la reconexión de los listeners de la sala
-        // Esto asegura que si hubo cambios mientras la app estaba en segundo plano, se obtengan inmediatamente.
-        // console.log("App en primer plano: Refrescando conexión...");
         setConnectionKey(prev => prev + 1);
       }
     };
@@ -173,7 +170,6 @@ const App: React.FC = () => {
 
   const navigateTo = useCallback((newView: AppView) => {
     if (view === newView) return;
-    // Empujar nueva vista al historial
     window.history.pushState({ view: newView }, '', '');
     setView(newView);
   }, [view]);
@@ -193,30 +189,36 @@ const App: React.FC = () => {
         return; 
       }
       
-      // 2. Manejo de Sala y Navegación Interna de Sala
+      // 2. Manejo de Sala y Navegación Interna de Sala (MEJORADO)
       if (activeRoom) { 
-        const currentOverlay = event.state?.overlay;
+        const state = event.state;
+        const currentOverlay = state?.overlay;
 
-        // Si el estado del historial indica que estamos en la "raíz" de la sala (overlay: 'room'),
-        // significa que acabamos de retroceder desde una canción (overlay: 'room_song') o del chat.
+        // Si el estado es la 'raíz' de la sala, cerramos la canción activa pero seguimos en la sala
         if (currentOverlay === 'room') {
             window.dispatchEvent(new CustomEvent('closeRoomSong'));
             return;
         }
 
-        // Si el estado es 'room_song' (ej: volvimos del chat a la canción), no hacemos nada aquí,
-        // dejamos que la vista de la sala mantenga la canción abierta.
-        if (currentOverlay === 'room_song') {
+        // Si el estado es interno de la sala, no hacemos nada (RoomView lo gestiona)
+        if (currentOverlay === 'room_song' || currentOverlay === 'chat' || currentOverlay === 'participants') {
             return;
         }
 
-        // Si el estado es 'chat', tampoco hacemos nada aquí, RoomView lo manejará.
-        if (currentOverlay === 'chat') {
+        // Si el estado tiene una vista (view) definida por App.tsx (tabs), 
+        // significa que el usuario salió de la sala mediante navegación atrás
+        if (state?.view) {
+            setActiveRoom(null);
+            setView(state.view as AppView);
             return;
         }
 
-        // Si no tenemos overlay reconocido (ej. estamos volviendo al feed), cerramos la sala.
-        setActiveRoom(null); 
+        // Fallback: si no hay estado o es inconsistente, no cerramos la sala abruptamente
+        // solo si el estado es explícitamente anterior a la entrada a la sala.
+        if (!state) {
+            setActiveRoom(null);
+            setView('feed');
+        }
         return; 
       }
 
@@ -224,7 +226,6 @@ const App: React.FC = () => {
       if (event.state && event.state.view) {
         setView(event.state.view as AppView);
       } else {
-        // Fallback si se acaba el historial o es el estado inicial
         setView('feed');
       }
     };
@@ -236,8 +237,6 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!activeRoom?.id) return;
     
-    // Al añadir connectionKey a las dependencias, cada vez que la app vuelve al frente,
-    // se destruye el listener anterior y se crea uno nuevo, forzando una actualización inmediata.
     const unsubscribe = onSnapshot(doc(db, "rooms", activeRoom.id), (docSnap) => {
       if (docSnap.exists()) {
         const roomData = docSnap.data();
@@ -280,20 +279,23 @@ const App: React.FC = () => {
 
   const enterRoom = (room: Room) => {
     setActiveRoom(room);
-    // Aseguramos que el estado base de la sala esté en el historial
+    // Empujamos el estado base de la sala al historial
     window.history.pushState({ overlay: 'room' }, '', '');
   };
 
   const exitRoom = () => {
     if (activeRoom && user) {
-      const updatedParticipants = (activeRoom.participants || []).filter(p => p !== user.username);
-      handleUpdateRoom({ ...activeRoom, participants: updatedParticipants });
+      // Operación atómica para remover al usuario de la sala.
+      updateDoc(doc(db, "rooms", activeRoom.id), {
+        participants: arrayRemove(user.username)
+      });
     }
-    // Intentamos ir atrás para respetar el historial, si no, forzamos cierre
-    if (window.history.state?.overlay === 'room') {
-        window.history.back();
+    // La navegación hacia atrás se encarga de limpiar el estado de `activeRoom`
+    // a través del listener de `popstate`.
+    if (window.history.state?.overlay?.startsWith('room')) {
+      window.history.back();
     } else {
-        setActiveRoom(null);
+      setActiveRoom(null); // Fallback
     }
   };
 
@@ -394,44 +396,34 @@ const App: React.FC = () => {
           const roomData = { id: roomDoc.id, ...roomDoc.data() } as Room;
 
           if (roomData.expiresAt && Date.now() > roomData.expiresAt) {
-            setGlobalAlert({ 
-              title: "CÓDIGO VENCIDO", 
-              message: "El código de esta sala ha expirado. Solicita uno nuevo al anfitrión.", 
-              type: 'error' 
-            });
-            setIsJoiningRoom(false);
+            setGlobalAlert({ title: "CÓDIGO VENCIDO", message: "El código de esta sala ha expirado.", type: 'error' });
             return;
           }
 
           if (roomData.banned && roomData.banned.includes(user.username)) {
-            setGlobalAlert({ 
-              title: "ACCESO DENEGADO", 
-              message: "Has sido expulsado permanentemente de esta sala por el administrador.", 
-              type: 'error' 
-            });
-            setIsJoiningRoom(false);
+            setGlobalAlert({ title: "ACCESO DENEGADO", message: "Has sido bloqueado de esta sala.", type: 'error' });
             return;
           }
 
-          const currentParticipants = roomData.participants || [];
+          // Atomically add user to participants. Safe even if already present.
+          await updateDoc(doc(db, "rooms", roomDoc.id), {
+            participants: arrayUnion(user.username)
+          });
+          
+          // Optimistically update local state to prevent race conditions on entry.
+          const optimisticRoomData = {
+            ...roomData,
+            participants: [...new Set([...(roomData.participants || []), user.username])]
+          };
 
-          if (!currentParticipants.includes(user.username)) {
-            await updateDoc(doc(db, "rooms", roomDoc.id), { participants: arrayUnion(user.username) });
-            roomData.participants = [...currentParticipants, user.username];
-          } else {
-            roomData.participants = currentParticipants;
-          }
-          enterRoom(roomData);
+          enterRoom(optimisticRoomData);
+
         } else {
-            setGlobalAlert({ 
-              title: "SALA NO ENCONTRADA", 
-              message: "Verifica el código e inténtalo de nuevo.", 
-              type: 'info' 
-            });
+            setGlobalAlert({ title: "SALA NO ENCONTRADA", message: "Verifica el código.", type: 'info' });
         }
     } catch (error) {
         console.error("Error joining room:", error);
-        setGlobalAlert({ title: "Error", message: "Ocurrió un error al intentar unirse a la sala.", type: 'error' });
+        setGlobalAlert({ title: "Error", message: "Ocurrió un error al intentar unirse.", type: 'error' });
     } finally {
         setIsJoiningRoom(false);
     }
@@ -534,11 +526,6 @@ const App: React.FC = () => {
     const unsubSongs = onSnapshot(q, (snap) => {
       const fetchedSongs = snap.docs.map(d => ({ id: d.id, ...d.data() } as Song));
       setSongs(fetchedSongs);
-      setActiveSong(current => {
-        if (!current) return null;
-        const updated = fetchedSongs.find(s => s.id === current.id);
-        return updated || current;
-      });
     });
     const unsubFavs = onSnapshot(doc(db, "users", user.id), (docSnap) => { if (docSnap.exists()) setFavorites(docSnap.data().favorites || []); });
     return () => { unsubSongs(); unsubFavs(); };
@@ -676,12 +663,6 @@ const App: React.FC = () => {
                       <input type="text" className={`w-full ${darkMode ? 'bg-slate-800 text-white' : 'bg-slate-50 text-slate-900'} rounded-2xl px-4 py-4 text-sm font-bold outline-none`} value={newUsername} onChange={e => setNewUsername(e.target.value)} />
                       <button onClick={() => { updateProfile(auth.currentUser!, { displayName: newUsername }).then(() => { updateDoc(doc(db, "users", user.id), { username: newUsername }); alert("Guardado"); }); }} className="w-full mt-3 bg-misionero-azul text-white font-black py-4 rounded-2xl text-[9px] uppercase tracking-widest">Guardar Cambios</button>
                     </div>
-                    {user.createdAt && (
-                      <div className="pt-4 border-t border-dashed border-slate-700/30">
-                          <span className="text-[8px] font-black uppercase text-slate-400">Miembro desde</span>
-                          <p className="text-sm font-bold">{new Date(user.createdAt).toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
-                      </div>
-                    )}
                  </div>
               </section>
 
@@ -705,7 +686,6 @@ const App: React.FC = () => {
         <button onClick={() => openSongEditor(null)} className="fixed bottom-[5rem] right-6 w-16 h-16 bg-misionero-rojo text-white rounded-[1.8rem] shadow-2xl flex items-center justify-center z-40 animate-bounce-subtle active:scale-90 transition-transform"><PlusIcon /></button>
       )}
 
-      {/* Global Alert Modal */}
       {globalAlert && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200">
            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setGlobalAlert(null)}></div>
@@ -751,7 +731,7 @@ const App: React.FC = () => {
       </nav>
       {editingSong && hasElevatedPermissions && (
         <div className="fixed inset-0 z-[300]">
-          <SongForm initialData={typeof editingSong === 'boolean' ? undefined : editingSong} onSave={async (data) => { if (typeof editingSong !== 'boolean' && editingSong) { if (activeSong && activeSong.id === editingSong.id) { setActiveSong(prev => prev ? { ...prev, ...data } : null); } await updateDoc(doc(db, "songs", editingSong.id), data); } else { await addDoc(collection(db, "songs"), { ...data, createdAt: Date.now(), author: user.username }); } goBack(); }} onCancel={goBack} darkMode={darkMode} />
+          <SongForm initialData={typeof editingSong === 'boolean' ? undefined : editingSong} onSave={async (data) => { if (typeof editingSong !== 'boolean' && editingSong) { await updateDoc(doc(db, "songs", editingSong.id), data); } else { await addDoc(collection(db, "songs"), { ...data, createdAt: Date.now(), author: user.username }); } goBack(); }} onCancel={goBack} darkMode={darkMode} />
         </div>
       )}
       {activeSong && (
