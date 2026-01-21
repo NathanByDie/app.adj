@@ -212,7 +212,7 @@ const SongViewer: React.FC<SongViewerProps> = ({
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
     >
-      <header className={`px-4 py-2 border-b ${darkMode ? 'border-slate-800 bg-slate-950' : 'border-slate-100 bg-white'} flex items-center justify-between sticky top-0 z-10 shadow-sm transition-colors duration-500`}>
+      <header className={`px-4 pt-12 pb-2 border-b ${darkMode ? 'border-slate-800 bg-slate-950' : 'border-slate-100 bg-white'} flex items-center justify-between sticky top-0 z-10 shadow-sm transition-colors duration-500`}>
         <div className="flex items-center gap-1 shrink-0">
           <button onClick={onBack} className={`w-10 h-10 flex items-center justify-center ${darkMode ? 'text-slate-400' : 'text-slate-500'} active:scale-90`}>
             {/* Ícono de X (Cerrar) en lugar de flecha atrás */}
@@ -275,31 +275,31 @@ const SongViewer: React.FC<SongViewerProps> = ({
             ¡Enlace App copiado!
           </div>
         )}
-        <div className="mb-6 space-y-4">
+        <div className="mb-2 space-y-1">
           {!isTransposeLocked && (
-            <div className={`${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-100'} flex items-center justify-between rounded-2xl p-4 border transition-colors duration-500`}>
+            <div className={`${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-100'} flex items-center justify-between rounded-xl px-3 py-1.5 border transition-colors duration-500`}>
               <div className="flex flex-col">
-                <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Transponer</span>
-                <div className="flex items-center gap-3">
-                    <button onClick={() => handleTransposeChange(-1)} className={`w-8 h-8 rounded-full ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-600'} flex items-center justify-center active:scale-90 shadow-sm transition-colors`}>-</button>
-                    <span className={`text-xs font-black min-w-[2.5rem] text-center transition-colors duration-500 ${currentTranspose === 0 ? 'text-slate-500' : (darkMode ? 'text-misionero-amarillo' : 'text-misionero-azul')}`}>{currentTranspose > 0 ? `+${currentTranspose}` : currentTranspose}</span>
-                    <button onClick={() => handleTransposeChange(1)} className={`w-8 h-8 rounded-full ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-600'} flex items-center justify-center active:scale-90 shadow-sm transition-colors`}>+</button>
+                <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Transponer</span>
+                <div className="flex items-center gap-2">
+                    <button onClick={() => handleTransposeChange(-1)} className={`w-6 h-6 rounded-full ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-600'} flex items-center justify-center active:scale-90 shadow-sm transition-colors text-[10px]`}>-</button>
+                    <span className={`text-[10px] font-black min-w-[1.5rem] text-center transition-colors duration-500 ${currentTranspose === 0 ? 'text-slate-500' : (darkMode ? 'text-misionero-amarillo' : 'text-misionero-azul')}`}>{currentTranspose > 0 ? `+${currentTranspose}` : currentTranspose}</span>
+                    <button onClick={() => handleTransposeChange(1)} className={`w-6 h-6 rounded-full ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-600'} flex items-center justify-center active:scale-90 shadow-sm transition-colors text-[10px]`}>+</button>
                 </div>
               </div>
-              <button onClick={() => onTransposeChange ? onTransposeChange(0) : setInternalTranspose(0)} className={`text-[8px] font-black uppercase px-3 py-2 rounded-xl transition-all ${currentTranspose !== 0 ? 'bg-misionero-rojo text-white shadow-md' : (darkMode ? 'bg-slate-800 text-slate-700' : 'bg-slate-100 text-slate-300')}`} disabled={currentTranspose === 0}>Reset</button>
+              <button onClick={() => onTransposeChange ? onTransposeChange(0) : setInternalTranspose(0)} className={`text-[7px] font-black uppercase px-2 py-1 rounded-lg transition-all ${currentTranspose !== 0 ? 'bg-misionero-rojo text-white shadow-md' : (darkMode ? 'bg-slate-800 text-slate-700' : 'bg-slate-100 text-slate-300')}`} disabled={currentTranspose === 0}>Reset</button>
             </div>
           )}
 
-          <div className={`${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-100'} flex items-center justify-between rounded-2xl p-4 border transition-colors duration-500`}>
+          <div className={`${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-100'} flex items-center justify-between rounded-xl px-3 py-1.5 border transition-colors duration-500`}>
              <div className="flex flex-col">
-               <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Zoom (Tamaño Letra)</span>
-               <div className="flex items-center gap-3">
-                  <button onClick={() => adjustFontSize(-1)} className={`w-8 h-8 rounded-full ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-600'} flex items-center justify-center active:scale-90 shadow-sm transition-colors`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7" /></svg></button>
-                  <span className={`text-xs font-black min-w-[2.5rem] text-center transition-colors duration-500 ${darkMode ? 'text-white' : 'text-slate-600'}`}>{fontSize}px</span>
-                  <button onClick={() => adjustFontSize(1)} className={`w-8 h-8 rounded-full ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-600'} flex items-center justify-center active:scale-90 shadow-sm transition-colors`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" /></svg></button>
+               <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Zoom</span>
+               <div className="flex items-center gap-2">
+                  <button onClick={() => adjustFontSize(-1)} className={`w-6 h-6 rounded-full ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-600'} flex items-center justify-center active:scale-90 shadow-sm transition-colors`}><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7" /></svg></button>
+                  <span className={`text-[10px] font-black min-w-[1.5rem] text-center transition-colors duration-500 ${darkMode ? 'text-white' : 'text-slate-600'}`}>{fontSize}</span>
+                  <button onClick={() => adjustFontSize(1)} className={`w-6 h-6 rounded-full ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-600'} flex items-center justify-center active:scale-90 shadow-sm transition-colors`}><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" /></svg></button>
                </div>
              </div>
-             <button onClick={() => setFontSize(11)} className={`text-[8px] font-black uppercase px-3 py-2 rounded-xl transition-all ${fontSize !== 11 ? 'bg-misionero-verde text-white shadow-md' : (darkMode ? 'bg-slate-800 text-slate-700' : 'bg-slate-100 text-slate-300')}`} disabled={fontSize === 11}>Normal</button>
+             <button onClick={() => setFontSize(11)} className={`text-[7px] font-black uppercase px-2 py-1 rounded-lg transition-all ${fontSize !== 11 ? 'bg-misionero-verde text-white shadow-md' : (darkMode ? 'bg-slate-800 text-slate-700' : 'bg-slate-100 text-slate-300')}`} disabled={fontSize === 11}>Normal</button>
           </div>
         </div>
         <div className={`leading-relaxed ${isChatVisible ? 'pb-40' : 'pb-24'}`}>{processedContent}</div>

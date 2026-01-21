@@ -543,7 +543,7 @@ const RoomView: React.FC<RoomViewProps> = ({
 
   return (
     <div className={`flex flex-col h-full transition-colors duration-500 ${darkMode ? 'bg-slate-950 text-white' : 'bg-white text-slate-900'} animate-in fade-in duration-300 overflow-hidden relative`}>
-      <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[200] w-full max-w-xs flex flex-col items-center gap-2 pointer-events-none px-4">
+      <div className="fixed top-28 left-1/2 -translate-x-1/2 z-[200] w-full max-w-xs flex flex-col items-center gap-2 pointer-events-none px-4">
         {chatToast && (
           <div
             key={chatToast.id}
@@ -671,8 +671,8 @@ const RoomView: React.FC<RoomViewProps> = ({
       )}
 
       {!songForViewer && (
-        <header className={`pt-8 pb-10 px-5 relative shrink-0 transition-colors duration-500 ${darkMode ? 'bg-slate-900' : 'bg-misionero-azul text-white'}`}>
-          <div className="absolute top-6 right-5 z-30 flex items-center gap-2">
+        <header className={`pt-14 pb-10 px-5 relative shrink-0 transition-colors duration-500 ${darkMode ? 'bg-slate-900' : 'bg-misionero-azul text-white'}`}>
+          <div className="absolute top-12 right-5 z-30 flex items-center gap-2">
             
             <button onClick={() => setShowParticipants(true)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border active:scale-95 transition-all ${darkMode ? 'bg-black/40 border-white/5' : 'bg-black/20 border-white/10'}`}>
                 <svg className={`w-3 h-3 ${darkMode ? 'text-misionero-amarillo' : 'text-white'}`} fill="currentColor" viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>

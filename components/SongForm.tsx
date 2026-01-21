@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { LiturgicalTime, Song } from '../types';
 import { isChordLine } from '../services/musicUtils';
@@ -83,7 +82,7 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
 
   return (
     <div className={`fixed inset-0 ${darkMode ? 'bg-slate-950 text-white' : 'bg-white text-slate-900'} z-[80] flex flex-col overflow-hidden animate-in slide-in-from-right duration-200 transition-colors duration-500`}>
-      <header className={`px-4 py-3 border-b ${darkMode ? 'border-slate-800 bg-slate-950' : 'border-slate-100 bg-white'} flex items-center justify-between shrink-0 z-20 transition-colors duration-500`}>
+      <header className={`px-4 pt-12 pb-3 border-b ${darkMode ? 'border-slate-800 bg-slate-950' : 'border-slate-100 bg-white'} flex items-center justify-between shrink-0 z-20 transition-colors duration-500`}>
         <button onClick={onCancel} className={`text-[10px] font-black uppercase ${darkMode ? 'text-slate-500 bg-slate-900 active:bg-slate-800' : 'text-slate-400 bg-slate-50 active:bg-slate-100'} px-3 py-2 rounded-xl transition-colors`}>Cerrar</button>
         <h2 className="text-[10px] font-black uppercase tracking-widest">{initialData ? 'Editor de Obra' : 'Nueva Música'}</h2>
         <button onClick={handleSubmit} className="bg-misionero-verde text-white px-6 py-2.5 rounded-2xl font-black text-[10px] uppercase disabled:opacity-30 shadow-lg active:scale-95 transition-all" disabled={!title || !content}>{initialData ? 'Guardar' : 'Publicar'}</button>

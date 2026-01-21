@@ -540,7 +540,7 @@ const App: React.FC = () => {
 
   return (
     <div className={`fixed inset-0 max-w-md mx-auto transition-colors duration-500 ${darkMode ? 'text-white bg-slate-950' : 'text-slate-900 bg-slate-50'} overflow-hidden flex flex-col`} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-      <header onTouchStart={(e) => e.stopPropagation()} className={`shrink-0 px-4 py-3 transition-colors duration-500 ${darkMode ? 'bg-slate-950/95 border-slate-800' : 'bg-white/95 border-slate-50'} border-b shadow-sm z-30`}>
+      <header onTouchStart={(e) => e.stopPropagation()} className={`shrink-0 px-4 pt-12 pb-3 transition-colors duration-500 ${darkMode ? 'bg-slate-950/95 border-slate-800' : 'bg-white/95 border-slate-50'} border-b shadow-sm z-30`}>
         <div className="flex justify-between items-center mb-3">
           <div>
             <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.3em] mb-0.5">ADJStudios</p>
