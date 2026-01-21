@@ -177,16 +177,27 @@ const App: React.FC = () => {
       
       // 2. Manejo de Sala y Navegación Interna de Sala
       if (activeRoom) { 
+        const currentOverlay = event.state?.overlay;
+
         // Si el estado del historial indica que estamos en la "raíz" de la sala (overlay: 'room'),
-        // significa que acabamos de retroceder desde una canción (overlay: 'room_song').
-        // En este caso, NO cerramos la sala, sino que enviamos un evento para que RoomView cierre la canción.
-        if (event.state && event.state.overlay === 'room') {
+        // significa que acabamos de retroceder desde una canción (overlay: 'room_song') o del chat.
+        if (currentOverlay === 'room') {
             window.dispatchEvent(new CustomEvent('closeRoomSong'));
             return;
         }
 
-        // Si no tenemos overlay 'room' (ej. estamos volviendo al feed), cerramos la sala.
-        // O si explicitamente se navega atrás mas allá del historial de la sala.
+        // Si el estado es 'room_song' (ej: volvimos del chat a la canción), no hacemos nada aquí,
+        // dejamos que la vista de la sala mantenga la canción abierta.
+        if (currentOverlay === 'room_song') {
+            return;
+        }
+
+        // Si el estado es 'chat', tampoco hacemos nada aquí, RoomView lo manejará.
+        if (currentOverlay === 'chat') {
+            return;
+        }
+
+        // Si no tenemos overlay reconocido (ej. estamos volviendo al feed), cerramos la sala.
         setActiveRoom(null); 
         return; 
       }

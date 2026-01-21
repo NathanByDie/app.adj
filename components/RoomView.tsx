@@ -184,6 +184,32 @@ const RoomView: React.FC<RoomViewProps> = ({
     return () => window.removeEventListener('closeRoomSong', handler);
   }, []);
 
+  // Manejo de historial para el Chat
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+        if (event.state?.overlay === 'chat') {
+            setIsChatOpen(true);
+        } else {
+            // Si estamos navegando y el estado ya no es 'chat', cerramos el modal
+            setIsChatOpen(false);
+        }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const openChat = () => {
+    if (!isChatOpen) {
+        window.history.pushState({ overlay: 'chat' }, '', '');
+        setIsChatOpen(true);
+    }
+  };
+
+  const closeChat = () => {
+      // Usamos back para quitar el estado 'chat' del historial, lo cual disparará el useEffect
+      window.history.back();
+  };
+
   useEffect(() => {
     try {
       notificationAudio.current = new Audio("https://firebasestorage.googleapis.com/v0/b/adjstudios.firebasestorage.app/o/notificacion-adj.mp3?alt=media&token=8e9b60b7-9571-460b-857c-658a0a8616a2");
@@ -458,7 +484,7 @@ const RoomView: React.FC<RoomViewProps> = ({
 
   const handleReply = (msg: ChatMessage) => {
     setReplyingTo({ sender: msg.sender, text: msg.text });
-    setIsChatOpen(true);
+    openChat();
     // Enfocar el input
     setTimeout(() => {
         chatInputRef.current?.focus();
@@ -518,7 +544,7 @@ const RoomView: React.FC<RoomViewProps> = ({
              {!isChatOpen && (
                 <button 
                   type="button" 
-                  onClick={() => setIsChatOpen(true)} 
+                  onClick={openChat} 
                   className={`w-12 h-12 flex items-center justify-center rounded-2xl border shrink-0 transition-colors ${darkMode ? 'bg-slate-900 border-white/5 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
                 >
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -547,7 +573,7 @@ const RoomView: React.FC<RoomViewProps> = ({
         {chatToast && (
           <div
             key={chatToast.id}
-            onClick={() => setIsChatOpen(true)}
+            onClick={openChat}
             className={`
               pointer-events-auto transition-all duration-300 ease-out cursor-pointer active:scale-95
               ${isToastVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-full'}
@@ -647,11 +673,11 @@ const RoomView: React.FC<RoomViewProps> = ({
 
       {isChatOpen && (
         <div className="fixed inset-0 z-[250] flex items-end justify-center animate-in fade-in duration-300">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsChatOpen(false)}></div>
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeChat}></div>
           <div className={`relative w-full max-w-md flex flex-col animate-in slide-in-from-bottom-10 duration-300 transition-all ${darkMode ? 'bg-slate-900 border-white/10' : 'bg-white border-slate-100'} h-[85dvh] rounded-t-[2.5rem] shadow-2xl border`}>
             <div className={`flex items-center justify-between p-4 border-b shrink-0 ${darkMode ? 'border-white/10' : 'border-slate-100'}`}>
               <h4 className="text-[10px] font-black uppercase tracking-widest text-misionero-amarillo ml-4">Historial del Chat</h4>
-              <button onClick={() => setIsChatOpen(false)} className={`w-8 h-8 rounded-full flex items-center justify-center ${darkMode ? 'bg-white/5 text-white' : 'bg-slate-100 text-slate-400'}`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
+              <button onClick={closeChat} className={`w-8 h-8 rounded-full flex items-center justify-center ${darkMode ? 'bg-white/5 text-white' : 'bg-slate-100 text-slate-400'}`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
             </div>
             <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 custom-scroll">
               {(room.chat || []).map((msg, idx) => (
