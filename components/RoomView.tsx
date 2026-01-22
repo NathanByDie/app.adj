@@ -164,6 +164,18 @@ const RoomView: React.FC<RoomViewProps> = ({
   roomRef.current = room;
 
   const transposedContentCache = useRef<Record<string, string>>({});
+  const prevSongsRef = useRef<Song[]>();
+
+  useEffect(() => {
+    // Cuando la lista principal de canciones se actualiza desde Firestore (p. ej., después de una edición),
+    // la caché de contenido transpuesto puede contener datos obsoletos. La limpiamos para asegurarnos
+    // de que todo el contenido de las canciones se vuelva a transponer con la última versión.
+    if (prevSongsRef.current && prevSongsRef.current !== songs) {
+      transposedContentCache.current = {};
+    }
+    // Actualiza la referencia a las canciones actuales para la próxima comparación.
+    prevSongsRef.current = songs;
+  }, [songs]);
 
   const repertoireSongsMap = useMemo(() => {
     const map: Record<string, Song> = {};
@@ -602,7 +614,9 @@ const RoomView: React.FC<RoomViewProps> = ({
         <div className={`flex items-center justify-between px-4 pt-12 pb-4 border-b shrink-0 ${darkMode ? 'border-white/5 bg-slate-900' : 'border-slate-100 bg-white'}`}><div className="flex items-center gap-3"><button onClick={closeParticipants} className="p-2 rounded-full"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button><div><h3 className="font-black uppercase text-sm">Participantes</h3><p className="text-[10px] font-bold text-slate-400">{(room.participants || []).length} usuarios</p></div></div></div>
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {(room.participants || []).map((username) => {
-              const isHost = username === room.host; const details = participantDetails[username]; const isAdminUser = details?.isAdmin;
+              const isHost = username === room.host;
+              const details = participantDetails[username];
+              const isAdminUser = details?.isAdmin;
               return (<div key={username} className={`flex items-center justify-between p-4 rounded-3xl border transition-colors ${darkMode ? 'bg-slate-900 border-white/5' : 'bg-slate-50 border-slate-100'}`}><div className="flex items-center gap-3"><div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm text-white ${isHost ? 'bg-misionero-amarillo shadow-lg' : 'bg-misionero-azul'}`}>{username.charAt(0).toUpperCase()}</div><div><p className="text-sm font-black uppercase flex items-center gap-1.5">{username}{isHost && <CrownIcon className="w-3.5 h-3.5 text-misionero-amarillo" />}</p><div className="flex gap-1.5">{isHost && <span className="text-[7px] font-black uppercase bg-misionero-amarillo/20 text-misionero-amarillo px-1.5 py-0.5 rounded">HOST</span>}{isAdminUser && <span className="text-[7px] font-black uppercase bg-misionero-rojo/20 text-misionero-rojo px-1.5 py-0.5 rounded">ADMIN</span>}</div></div></div>{isTheHost && username !== currentUser && (<div className="flex items-center gap-1.5"><button onClick={() => handleMakeHost(username)} title="Hacer Host" className="w-8 h-8 rounded-xl bg-misionero-amarillo/10 text-misionero-amarillo flex items-center justify-center active:scale-90"><CrownIcon /></button><button onClick={() => handleKickParticipant(username)} title="Expulsar" className="w-8 h-8 rounded-xl bg-misionero-rojo/10 text-misionero-rojo flex items-center justify-center active:scale-90"><DoorIcon /></button><button onClick={() => handleBanParticipant(username)} title="Bloquear" className="w-8 h-8 rounded-xl bg-slate-500/10 text-slate-500 flex items-center justify-center active:scale-90"><BanIcon /></button></div>)}</div>);
           })}
         </div>

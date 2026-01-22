@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { Song } from '../types';
 import { isChordLine, transposeSong } from '../services/musicUtils';
 
@@ -38,11 +38,35 @@ const SongViewer: React.FC<SongViewerProps> = ({
   const [showOptions, setShowOptions] = useState(false);
   const [showShareToast, setShowShareToast] = useState(false);
   const [isControlPanelOpen, setIsControlPanelOpen] = useState(false);
+  
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const optionsMenuRef = useRef<HTMLDivElement>(null);
+  const optionsButtonRef = useRef<HTMLButtonElement>(null);
 
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
   const minSwipeDistance = 50;
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        optionsMenuRef.current &&
+        !optionsMenuRef.current.contains(event.target as Node) &&
+        optionsButtonRef.current &&
+        !optionsButtonRef.current.contains(event.target as Node)
+      ) {
+        setShowOptions(false);
+      }
+    };
+
+    if (showOptions) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showOptions]);
 
   const isTransposeLocked = externalTranspose !== undefined && onTransposeChange === undefined;
   
@@ -83,20 +107,19 @@ const SongViewer: React.FC<SongViewerProps> = ({
   };
 
   const handleShare = async () => {
-    const webUrl = `${window.location.origin}${window.location.pathname}?song=${song.id}`;
-    const scheme = window.location.protocol.replace(':', '');
-    const host = window.location.host;
-    const path = window.location.pathname;
-    const query = `?song=${song.id}`;
-    const androidIntentUrl = `intent://${host}${path}${query}#Intent;scheme=${scheme};package=com.adj.adjstudios;S.browser_fallback_url=${encodeURIComponent(webUrl)};end`;
-
-    const shareData = { title: song.title, text: `Mira esta música en ADJStudios: ${song.title}`, url: androidIntentUrl };
+    const webUrl = `https://adjstudio.netlify.app/?song=${song.id}`;
+    
+    const shareData = {
+      title: song.title,
+      text: `Mira esta música en ADJStudios: ${song.title}`,
+      url: webUrl
+    };
 
     if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
       await navigator.share(shareData).catch(err => console.error("Error sharing:", err));
     } else {
       try {
-        await navigator.clipboard.writeText(androidIntentUrl);
+        await navigator.clipboard.writeText(webUrl);
         setShowShareToast(true);
         setTimeout(() => setShowShareToast(false), 2000);
       } catch (err) {
@@ -107,52 +130,78 @@ const SongViewer: React.FC<SongViewerProps> = ({
   };
 
   const downloadAsPDF = () => {
+    if (typeof (window as any).jspdf === 'undefined') {
+        alert("La librería para generar PDF no se pudo cargar. Revisa tu conexión a internet e inténtalo de nuevo.");
+        setShowOptions(false);
+        return;
+    }
+
     const { jsPDF } = (window as any).jspdf;
+    
     const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
     const margin = 20;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const maxWidth = pageWidth - (margin * 2);
     let y = margin;
+
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(20);
+    doc.setFontSize(18);
     doc.setTextColor(30, 41, 59);
-    doc.text(song.title.toUpperCase(), margin, y);
-    y += 10;
+    
+    const titleLines = doc.splitTextToSize(song.title.toUpperCase(), maxWidth);
+    doc.text(titleLines, margin, y);
+    y += (titleLines.length * 8);
+
     doc.setDrawColor(59, 130, 246);
-    doc.setLineWidth(0.8);
-    doc.line(margin, y, 190, y);
-    y += 8;
-    doc.setFontSize(10);
+    doc.setLineWidth(0.5);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 10;
+
+    doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(100, 116, 139);
     const transposedContentForPDF = transposeSong(song.content, currentTranspose);
     doc.text(`TONO ORIGINAL: ${song.key}`, margin, y);
-    doc.text(`TONO ACTUAL: (${currentTranspose >= 0 ? '+' : ''}${currentTranspose})`, 80, y);
-    doc.text(`CATEGORÍA: ${song.category.toUpperCase()}`, 140, y);
+    doc.text(`TONO ACTUAL: (${currentTranspose >= 0 ? '+' : ''}${currentTranspose})`, margin + 60, y);
+    doc.text(`CATEGORÍA: ${song.category.toUpperCase()}`, margin + 120, y);
     y += 12;
+
     const lines = transposedContentForPDF.split('\n');
-    doc.setFontSize(11);
+    doc.setFontSize(10);
+    const lineHeight = 5;
+
     lines.forEach((line) => {
-      if (y > 275) { doc.addPage(); y = margin; }
-      if (isChordLine(line)) { doc.setFont("courier", "bold"); doc.setTextColor(59, 130, 246); }
-      else { doc.setFont("courier", "normal"); doc.setTextColor(51, 65, 85); }
-      doc.text(line || ' ', margin, y);
-      y += 6;
+        if (y > pageHeight - margin) {
+            doc.addPage();
+            y = margin;
+        }
+        if (isChordLine(line)) {
+            doc.setFont("courier", "bold");
+            doc.setTextColor(59, 130, 246);
+        } else {
+            doc.setFont("courier", "normal");
+            doc.setTextColor(51, 65, 85);
+        }
+        const splitLines = doc.splitTextToSize(line || ' ', maxWidth);
+        splitLines.forEach((splitLine: string) => {
+            if (y > pageHeight - margin) {
+                doc.addPage();
+                y = margin;
+            }
+            doc.text(splitLine, margin, y);
+            y += lineHeight;
+        });
     });
 
     const sanitizedTitle = song.title.replace(/[\/\\?%*:|"<>]/g, '_').trim();
     const fileName = `${sanitizedTitle}.pdf`;
 
     try {
-      const pdfBlob = doc.output('blob');
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(pdfBlob);
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(link.href);
+        doc.save(fileName);
     } catch (error) {
-      console.error("Manual PDF download failed, falling back:", error);
-      doc.save(fileName);
+        console.error("PDF download failed:", error);
+        alert("No se pudo descargar el PDF. Por favor, intenta de nuevo.");
     }
 
     setShowOptions(false);
@@ -177,11 +226,11 @@ const SongViewer: React.FC<SongViewerProps> = ({
 
   return (
     <div 
-      className={`flex flex-col h-full ${darkMode ? 'bg-slate-950 text-white' : 'bg-white text-slate-900'} z-[70] fixed inset-0 animate-in slide-in-from-bottom-2 duration-200 transition-colors duration-500`}
+      className={`flex flex-col h-full ${darkMode ? 'bg-slate-950 text-white' : 'bg-white text-slate-900'} fixed inset-0 animate-in slide-in-from-bottom-2 duration-200`}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
     >
-      <header className={`px-4 pt-12 pb-2 border-b ${darkMode ? 'border-slate-800 bg-slate-950' : 'border-slate-100 bg-white'} flex items-center justify-between sticky top-0 z-10 shadow-sm transition-colors duration-500`}>
+      <header className={`px-4 pt-12 pb-2 flex items-center justify-between sticky top-0 z-30 glass-ui`}>
         <div className="flex items-center gap-1 shrink-0">
           <button onClick={onBack} className={`w-10 h-10 flex items-center justify-center ${darkMode ? 'text-slate-400' : 'text-slate-500'} active:scale-90`}>
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
@@ -222,25 +271,54 @@ const SongViewer: React.FC<SongViewerProps> = ({
           <button onClick={handleShare} className="w-10 h-10 flex items-center justify-center text-misionero-verde active:scale-90">
              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
           </button>
-          <button onClick={() => setShowOptions(!showOptions)} className={`w-10 h-10 flex items-center justify-center ${darkMode ? 'text-slate-500 active:bg-slate-800' : 'text-slate-400 active:bg-slate-50'} rounded-full transition-colors`}>
+          <button ref={optionsButtonRef} onClick={() => setShowOptions(!showOptions)} className={`w-10 h-10 flex items-center justify-center ${darkMode ? 'text-slate-500 active:bg-slate-800' : 'text-slate-400 active:bg-slate-50'} rounded-full transition-colors`}>
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 5v.01M12 12v.01M12 19v.01"/></svg>
           </button>
-          
-          {showOptions && (
-            <div className={`absolute right-4 top-12 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'} shadow-2xl rounded-2xl border w-44 overflow-hidden z-20 animate-in fade-in zoom-in duration-150 origin-top-right transition-colors duration-500`}>
-              <button onClick={handleShare} className={`w-full px-4 py-3.5 text-left text-[9px] font-black uppercase ${darkMode ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-600 hover:bg-slate-50'} border-b ${darkMode ? 'border-slate-800' : 'border-slate-50'} flex items-center gap-3`}><svg className="w-4 h-4 text-misionero-verde" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>Copiar Enlace App</button>
-              <button onClick={downloadAsPDF} className={`w-full px-4 py-3.5 text-left text-[9px] font-black uppercase ${darkMode ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-600 hover:bg-slate-50'} border-b ${darkMode ? 'border-slate-800' : 'border-slate-50'} flex items-center gap-3`}><svg className="w-4 h-4 text-misionero-rojo" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>Guardar PDF</button>
-              {onEdit && (<button onClick={() => { onEdit(); setShowOptions(false); }} className={`w-full px-4 py-3.5 text-left text-[9px] font-black uppercase ${darkMode ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-600 hover:bg-slate-50'} border-b ${darkMode ? 'border-slate-800' : 'border-slate-50'} flex items-center gap-3`}><svg className="w-4 h-4 text-misionero-azul" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>Editar música</button>)}
-              {onDelete && (<button onClick={() => { onDelete(); setShowOptions(false); }} className={`w-full px-4 py-3.5 text-left text-[9px] font-black uppercase text-misionero-rojo ${darkMode ? 'hover:bg-red-500/10' : 'hover:bg-red-50'} flex items-center gap-3`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>Eliminar</button>)}
-            </div>
-          )}
         </div>
       </header>
 
-      <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto p-5 transition-colors duration-500 ${darkMode ? 'bg-slate-950' : 'bg-white'} custom-scroll no-pull relative`}>
+      {showOptions && (
+        <div ref={optionsMenuRef} className="glass-ui absolute right-4 top-16 shadow-2xl rounded-2xl w-56 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200 origin-top-right">
+          <ul className="p-2 space-y-1">
+            <li>
+              <button onClick={handleShare} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-colors ${darkMode ? 'text-misionero-verde hover:bg-misionero-verde/10' : 'text-misionero-verde hover:bg-misionero-verde/5'}`}>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+                <span>Compartir Enlace</span>
+              </button>
+            </li>
+              <li>
+              <button onClick={downloadAsPDF} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-colors ${darkMode ? 'text-misionero-rojo hover:bg-misionero-rojo/10' : 'text-misionero-rojo hover:bg-misionero-rojo/5'}`}>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                <span>Descargar PDF</span>
+              </button>
+            </li>
+            {onEdit && (
+              <li>
+                <button onClick={() => { onEdit(); setShowOptions(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-colors ${darkMode ? 'text-misionero-azul hover:bg-misionero-azul/10' : 'text-misionero-azul hover:bg-misionero-azul/5'}`}>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                  <span>Editar Música</span>
+                </button>
+              </li>
+            )}
+            {onDelete && (
+              <>
+                <div className={`h-px my-1 ${darkMode ? 'bg-slate-700/50' : 'bg-slate-200'}`}></div>
+                <li>
+                  <button onClick={() => { onDelete(); setShowOptions(false); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-red-500 hover:bg-red-500/10 transition-colors">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    <span>Eliminar</span>
+                  </button>
+                </li>
+              </>
+            )}
+          </ul>
+        </div>
+      )}
+
+      <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto p-5 custom-scroll no-pull relative`}>
         {showShareToast && (
-          <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-misionero-verde text-white px-6 py-2 rounded-full text-[10px] font-black uppercase shadow-2xl z-[100] animate-in fade-in slide-in-from-top-4 duration-300">
-            ¡Enlace App copiado!
+          <div className="fixed top-20 left-1/2 -translate-x-1/2 glass-ui bg-misionero-verde/70 text-white px-6 py-2 rounded-full text-[10px] font-black uppercase shadow-2xl z-[100] animate-in fade-in slide-in-from-top-4 duration-300">
+            ¡Enlace copiado!
           </div>
         )}
         <div className={`leading-relaxed ${isChatVisible ? 'pb-40' : 'pb-24'}`}>{processedContent}</div>
@@ -249,37 +327,37 @@ const SongViewer: React.FC<SongViewerProps> = ({
       {/* --- Controles Flotantes --- */}
       <button 
         onClick={() => setIsControlPanelOpen(prev => !prev)} 
-        className={`fixed z-[80] right-6 bottom-24 transition-all duration-300 ease-in-out active:scale-90 w-14 h-14 rounded-full shadow-2xl flex items-center justify-center ${isControlPanelOpen ? 'bg-misionero-rojo text-white rotate-45' : 'bg-misionero-azul text-white'}`}
+        className={`fixed z-[80] right-6 bottom-24 transition-all duration-300 ease-in-out active:scale-90 w-14 h-14 rounded-full flex items-center justify-center glass-ui glass-interactive text-white ${isControlPanelOpen ? 'bg-misionero-rojo/70 rotate-45' : 'bg-misionero-azul/70'}`}
       >
         <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m6-6H6"/></svg>
       </button>
 
       {isControlPanelOpen && (
-        <div className={`fixed z-[79] right-6 bottom-40 w-48 p-2 rounded-2xl shadow-2xl border flex flex-col gap-1 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'} animate-in fade-in slide-in-from-bottom-4 duration-300`}>
+        <div className="fixed z-[79] right-6 bottom-40 w-40 p-1.5 rounded-2xl flex flex-col gap-1 glass-ui animate-in fade-in slide-in-from-bottom-4 duration-300">
           {!isTransposeLocked && (
             <>
-              <div className="flex items-center justify-between px-2 pt-1">
-                <span className="text-[9px] font-black uppercase text-slate-400">Tono</span>
-                <button onClick={() => onTransposeChange ? onTransposeChange(0) : setInternalTranspose(0)} disabled={currentTranspose === 0} className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-md transition-all ${currentTranspose !== 0 ? 'bg-misionero-rojo/20 text-misionero-rojo' : 'text-slate-400/50'}`}>0</button>
+              <div className="flex items-center justify-between px-1.5 pt-0.5">
+                <span className="text-[8px] font-black uppercase text-slate-400">Tono</span>
+                <button onClick={() => onTransposeChange ? onTransposeChange(0) : setInternalTranspose(0)} disabled={currentTranspose === 0} className={`text-[7px] font-black uppercase px-1.5 py-0.5 rounded transition-all ${currentTranspose !== 0 ? 'bg-misionero-rojo/20 text-misionero-rojo' : 'text-slate-400/50'}`}>0</button>
               </div>
-              <div className="flex items-center justify-between p-2 rounded-lg">
-                <button onClick={() => handleTransposeChange(-1)} className={`w-10 h-10 flex items-center justify-center rounded-full text-lg font-bold ${darkMode ? 'bg-slate-800 active:bg-slate-700' : 'bg-slate-100 active:bg-slate-200'}`}>-</button>
-                <span className={`text-xl font-black w-12 text-center ${darkMode ? 'text-misionero-amarillo' : 'text-misionero-azul'}`}>{currentTranspose > 0 ? `+${currentTranspose}` : currentTranspose}</span>
-                <button onClick={() => handleTransposeChange(1)} className={`w-10 h-10 flex items-center justify-center rounded-full text-lg font-bold ${darkMode ? 'bg-slate-800 active:bg-slate-700' : 'bg-slate-100 active:bg-slate-200'}`}>+</button>
+              <div className="flex items-center justify-between p-1 rounded-lg">
+                <button onClick={() => handleTransposeChange(-1)} className={`w-9 h-9 flex items-center justify-center rounded-full text-base font-bold ${darkMode ? 'bg-slate-800 active:bg-slate-700' : 'bg-slate-100 active:bg-slate-200'}`}>-</button>
+                <span className={`text-lg font-black w-10 text-center ${darkMode ? 'text-misionero-amarillo' : 'text-misionero-azul'}`}>{currentTranspose > 0 ? `+${currentTranspose}` : currentTranspose}</span>
+                <button onClick={() => handleTransposeChange(1)} className={`w-9 h-9 flex items-center justify-center rounded-full text-base font-bold ${darkMode ? 'bg-slate-800 active:bg-slate-700' : 'bg-slate-100 active:bg-slate-200'}`}>+</button>
               </div>
             </>
           )}
 
-          {!isTransposeLocked && <div className={`h-px my-1 ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}></div>}
+          {!isTransposeLocked && <div className={`h-px my-0.5 ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}></div>}
           
-          <div className="flex items-center justify-between px-2 pt-1">
-            <span className="text-[9px] font-black uppercase text-slate-400">Zoom</span>
-            <button onClick={() => setFontSize(11)} disabled={fontSize === 11} className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-md transition-all ${fontSize !== 11 ? 'bg-misionero-verde/20 text-misionero-verde' : 'text-slate-400/50'}`}>11</button>
+          <div className="flex items-center justify-between px-1.5 pt-0.5">
+            <span className="text-[8px] font-black uppercase text-slate-400">Zoom</span>
+            <button onClick={() => setFontSize(11)} disabled={fontSize === 11} className={`text-[7px] font-black uppercase px-1.5 py-0.5 rounded transition-all ${fontSize !== 11 ? 'bg-misionero-verde/20 text-misionero-verde' : 'text-slate-400/50'}`}>11</button>
           </div>
-          <div className="flex items-center justify-between p-2 rounded-lg">
-            <button onClick={() => adjustFontSize(-1)} className={`w-10 h-10 flex items-center justify-center rounded-full text-lg font-bold ${darkMode ? 'bg-slate-800 active:bg-slate-700' : 'bg-slate-100 active:bg-slate-200'}`}>-</button>
-            <span className="text-xl font-black w-12 text-center">{fontSize}</span>
-            <button onClick={() => adjustFontSize(1)} className={`w-10 h-10 flex items-center justify-center rounded-full text-lg font-bold ${darkMode ? 'bg-slate-800 active:bg-slate-700' : 'bg-slate-100 active:bg-slate-200'}`}>+</button>
+          <div className="flex items-center justify-between p-1 rounded-lg">
+            <button onClick={() => adjustFontSize(-1)} className={`w-9 h-9 flex items-center justify-center rounded-full text-base font-bold ${darkMode ? 'bg-slate-800 active:bg-slate-700' : 'bg-slate-100 active:bg-slate-200'}`}>-</button>
+            <span className="text-lg font-black w-10 text-center">{fontSize}</span>
+            <button onClick={() => adjustFontSize(1)} className={`w-9 h-9 flex items-center justify-center rounded-full text-base font-bold ${darkMode ? 'bg-slate-800 active:bg-slate-700' : 'bg-slate-100 active:bg-slate-200'}`}>+</button>
           </div>
         </div>
       )}

@@ -73,18 +73,48 @@ const LogoutIcon = () => (
   </svg>
 );
 
-const getLiturgicalCardClass = (category: LiturgicalTime) => {
+const EyeIcon = ({ className }: { className?: string }) => (
+    <svg className={className || "w-5 h-5"} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+    </svg>
+);
+
+const EyeOffIcon = ({ className }: { className?: string }) => (
+    <svg className={className || "w-5 h-5"} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
+    </svg>
+);
+
+const GlassToggle = ({ checked, onChange }: { checked: boolean, onChange: (checked: boolean) => void }) => {
+    return (
+        <button
+            role="switch"
+            aria-checked={checked}
+            data-checked={checked}
+            onClick={() => onChange(!checked)}
+            className="glass-toggle glass-ui"
+        >
+            <div className="glass-toggle-fill">
+                <div className="glass-toggle-fill-inner"></div>
+            </div>
+            <div className="glass-toggle-thumb"></div>
+        </button>
+    );
+};
+
+const getLiturgicalColorClass = (category: LiturgicalTime) => {
   const map: Record<LiturgicalTime, string> = {
-    [LiturgicalTime.ADVIENTO]: 'card-adviento',
-    [LiturgicalTime.NAVIDAD]: 'card-navidad',
-    [LiturgicalTime.CUARESMA]: 'card-cuaresma',
-    [LiturgicalTime.PASCUA]: 'card-pascua',
-    [LiturgicalTime.ORDINARIO]: 'card-ordinario',
-    [LiturgicalTime.ANIMACION]: 'card-animacion',
-    [LiturgicalTime.MEDITACION]: 'card-meditacion',
-    [LiturgicalTime.PURISIMA]: 'card-purisima',
+    [LiturgicalTime.ADVIENTO]: 'text-misionero-azul',
+    [LiturgicalTime.NAVIDAD]: 'text-misionero-amarillo',
+    [LiturgicalTime.CUARESMA]: 'text-misionero-rojo',
+    [LiturgicalTime.PASCUA]: 'text-misionero-amarillo',
+    [LiturgicalTime.ORDINARIO]: 'text-misionero-verde',
+    [LiturgicalTime.ANIMACION]: 'text-misionero-amarillo',
+    [LiturgicalTime.MEDITACION]: 'text-misionero-azul',
+    [LiturgicalTime.PURISIMA]: 'text-misionero-azul',
   };
-  return map[category] || '';
+  return map[category] || 'text-slate-400';
 };
 
 const translateAuthError = (errorCode: string): string => {
@@ -131,7 +161,12 @@ const App: React.FC = () => {
   const [passwordChangeData, setPasswordChangeData] = useState({ current: '', newPass: '', confirm: '' });
   const [passwordChangeMsg, setPasswordChangeMsg] = useState<{type: 'success' | 'error', text: string} | null>(null);
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [isUpdatingUsername, setIsUpdatingUsername] = useState(false);
   const [isJoiningRoom, setIsJoiningRoom] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState({ current: false, newPass: false, confirm: false });
+
+  const [showOpenInAppButton, setShowOpenInAppButton] = useState(false);
 
   // Estado para forzar actualización de listeners al volver del background
   const [connectionKey, setConnectionKey] = useState(0);
@@ -142,6 +177,10 @@ const App: React.FC = () => {
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
   const minSwipeDistance = 50;
+  
+  const toggleShowChangePassword = (field: 'current' | 'newPass' | 'confirm') => {
+    setShowChangePassword(prev => ({ ...prev, [field]: !prev[field] }));
+  };
 
   useEffect(() => {
     localStorage.setItem('theme', darkMode ? 'dark' : 'light');
@@ -325,19 +364,40 @@ const App: React.FC = () => {
   const favoriteSongs = useMemo(() => {
     return filteredSongs.filter(s => favorites.includes(s.id));
   }, [filteredSongs, favorites]);
+  
+  const handleOpenInApp = () => {
+    const songId = new URLSearchParams(window.location.search).get('song');
+    if (!songId) return;
+
+    const host = window.location.host; // adjstudio.netlify.app
+    const path = window.location.pathname; // /
+    const query = `?song=${songId}`;
+    const scheme = 'https';
+    const fallbackUrl = encodeURIComponent(`${scheme}://${host}${path}${query}`);
+    
+    // Formato de Android Intent para abrir la app si está instalada.
+    const intentUrl = `intent://${host}${path}${query}#Intent;scheme=${scheme};package=co.median.android.dyynjol;S.browser_fallback_url=${fallbackUrl};end`;
+    
+    window.location.href = intentUrl;
+  };
 
   useEffect(() => {
-    if (songs.length > 0 && !activeSong && !activeRoom && !editingSong) {
-      const urlParams = new URLSearchParams(window.location.search);
-      const sharedSongId = urlParams.get('song');
-      if (sharedSongId) {
-        const sharedSong = songs.find(s => s.id === sharedSongId);
-        if (sharedSong) {
-          openSongViewer(sharedSong);
-        }
+    const urlParams = new URLSearchParams(window.location.search);
+    const sharedSongId = urlParams.get('song');
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    
+    if (sharedSongId && isAndroid) {
+      setShowOpenInAppButton(true);
+    }
+    
+    if (songs.length > 0 && !activeSong && !activeRoom && !editingSong && sharedSongId) {
+      const sharedSong = songs.find(s => s.id === sharedSongId);
+      if (sharedSong) {
+        openSongViewer(sharedSong);
       }
     }
   }, [songs]);
+
 
   const onTouchStart = (e: React.TouchEvent) => {
     if (activeSong || editingSong || activeRoom) return;
@@ -461,10 +521,22 @@ const App: React.FC = () => {
           setIsAuthenticating(false);
           return;
         }
+
+        const newUsernameLower = authData.user.toLowerCase();
+        const q = query(collection(db, "users"), where("username_lowercase", "==", newUsernameLower), limit(1));
+        const querySnapshot = await getDocs(q);
+
+        if (!querySnapshot.empty) {
+          setAuthMsg({ type: 'error', text: 'Este nombre de usuario ya está en uso.' });
+          setIsAuthenticating(false);
+          return;
+        }
+
         const credential = await createUserWithEmailAndPassword(auth, authData.email, authData.pass);
         await updateProfile(credential.user, { displayName: authData.user });
         await setDoc(doc(db, "users", credential.user.uid), {
           username: authData.user,
+          username_lowercase: newUsernameLower,
           email: authData.email,
           role: 'member',
           favorites: []
@@ -503,6 +575,46 @@ const App: React.FC = () => {
     }
   };
 
+  const handleUpdateUsername = async () => {
+    if (!user || !auth.currentUser) return;
+
+    const trimmedUsername = newUsername.trim();
+    if (trimmedUsername.toLowerCase() === user.username.toLowerCase()) {
+        return;
+    }
+
+    if (trimmedUsername.length < 3) {
+        setGlobalAlert({ title: "Nombre muy corto", message: "El nombre de usuario debe tener al menos 3 caracteres.", type: 'error' });
+        return;
+    }
+
+    setIsUpdatingUsername(true);
+
+    const newUsernameLower = trimmedUsername.toLowerCase();
+    const q = query(collection(db, "users"), where("username_lowercase", "==", newUsernameLower), limit(1));
+    const querySnapshot = await getDocs(q);
+
+    if (!querySnapshot.empty) {
+        setGlobalAlert({ title: "Nombre no disponible", message: "Ese nombre de usuario ya está en uso. Elige otro.", type: 'error' });
+        setIsUpdatingUsername(false);
+        return;
+    }
+
+    try {
+        await updateProfile(auth.currentUser, { displayName: trimmedUsername });
+        await updateDoc(doc(db, "users", user.id), {
+            username: trimmedUsername,
+            username_lowercase: newUsernameLower
+        });
+        setGlobalAlert({ title: "Perfil Actualizado", message: "Tu nombre de usuario se ha cambiado.", type: 'success' });
+    } catch (error) {
+        console.error("Error updating username:", error);
+        setGlobalAlert({ title: "Error", message: "No se pudo actualizar el nombre de usuario.", type: 'error' });
+    } finally {
+        setIsUpdatingUsername(false);
+    }
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
@@ -510,8 +622,13 @@ const App: React.FC = () => {
         const data = userDoc.data();
         const username = data?.username || firebaseUser.displayName || 'Músico';
         setUser({ 
-            id: firebaseUser.uid, username, email: firebaseUser.email || '', 
-            role: data?.role || 'member', isAuthenticated: true, createdAt: firebaseUser.metadata.creationTime
+            id: firebaseUser.uid, 
+            username, 
+            username_lowercase: data?.username_lowercase || username.toLowerCase(),
+            email: firebaseUser.email || '', 
+            role: data?.role || 'member', 
+            isAuthenticated: true, 
+            createdAt: firebaseUser.metadata.creationTime
         });
         setNewUsername(username);
       } else setUser(null);
@@ -531,25 +648,72 @@ const App: React.FC = () => {
     return () => { unsubSongs(); unsubFavs(); };
   }, [user?.id]);
 
+  useEffect(() => {
+    // Sincroniza el visor de canciones activo si la lista de canciones cambia (p. ej., por una edición).
+    if (activeSong) {
+      const updatedActiveSong = songs.find(s => s.id === activeSong.id);
+      if (updatedActiveSong) {
+        // Compara propiedades clave para evitar bucles de renderizado innecesarios.
+        if (updatedActiveSong.content !== activeSong.content || updatedActiveSong.title !== activeSong.title || updatedActiveSong.key !== activeSong.key) {
+           setActiveSong(updatedActiveSong);
+        }
+      } else {
+        // La canción fue eliminada, así que cierra el visor.
+        setActiveSong(null);
+      }
+    }
+  }, [songs, activeSong]);
+
   if (loading) return <div className="fixed inset-0 bg-misionero-azul flex items-center justify-center text-white font-black animate-pulse">ADJSTUDIOS</div>;
 
   if (!user) {
     return (
       <div className="fixed inset-0 login-background flex flex-col items-center justify-center p-4 text-white font-sans overflow-hidden">
         <div className="w-full max-w-sm space-y-8 text-center">
-          <h1 className="text-4xl font-black tracking-tighter uppercase italic drop-shadow-lg leading-tight">Amiguitos de Jesus<br/><span className="text-3xl font-semibold tracking-widest">Studios</span></h1>
+          <h1 className="text-4xl font-black tracking-tighter uppercase italic leading-tight login-text-shadow">Amiguitos de Jesus<br/><span className="text-3xl font-semibold tracking-widest">Studios</span></h1>
           <form onSubmit={handleAuthSubmit} className="space-y-3">
-            {authMode === 'register' && <input type="text" placeholder="Usuario" className="w-full bg-black/20 border border-white/20 rounded-2xl px-4 py-3.5 text-sm font-bold text-white outline-none" required value={authData.user} onChange={e => setAuthData({...authData, user: e.target.value})} />}
-            <input type="email" placeholder="Correo" className="w-full bg-black/20 border border-white/20 rounded-2xl px-4 py-3.5 text-sm font-bold text-white outline-none" required value={authData.email} onChange={e => setAuthData({...authData, email: e.target.value})} />
-            {authMode !== 'forgot' && <input type="password" placeholder="Contraseña" className="w-full bg-black/20 border border-white/20 rounded-2xl px-4 py-3.5 text-sm font-bold text-white outline-none" required value={authData.pass} onChange={e => setAuthData({...authData, pass: e.target.value})} />}
-            {authMode === 'register' && <input type="password" placeholder="Confirmar" className="w-full bg-black/20 border border-white/20 rounded-2xl px-4 py-3.5 text-sm font-bold text-white outline-none" required value={authData.confirmPass} onChange={e => setAuthData({...authData, confirmPass: e.target.value})} />}
-            <button type="submit" disabled={isAuthenticating} className="w-full bg-misionero-verde text-white font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest shadow-lg active:scale-95 transition-all">
+            {authMode === 'register' && <input type="text" placeholder="Usuario" className="w-full glass-ui rounded-2xl px-4 py-3.5 text-sm font-bold text-white outline-none placeholder:text-white/40" required value={authData.user} onChange={e => setAuthData({...authData, user: e.target.value})} />}
+            <input type="email" placeholder="Correo" className="w-full glass-ui rounded-2xl px-4 py-3.5 text-sm font-bold text-white outline-none placeholder:text-white/40" required value={authData.email} onChange={e => setAuthData({...authData, email: e.target.value})} />
+            
+            {authMode !== 'forgot' && (
+              <div className="relative w-full">
+                <input 
+                  type={showPassword ? 'text' : 'password'} 
+                  placeholder="Contraseña" 
+                  className="w-full glass-ui rounded-2xl px-4 py-3.5 text-sm font-bold text-white outline-none placeholder:text-white/40" 
+                  required 
+                  value={authData.pass} 
+                  onChange={e => setAuthData({...authData, pass: e.target.value})} 
+                />
+                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute inset-y-0 right-0 flex items-center pr-4 text-white/50">
+                  {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                </button>
+              </div>
+            )}
+
+            {authMode === 'register' && (
+              <div className="relative w-full">
+                <input 
+                  type={showPassword ? 'text' : 'password'} 
+                  placeholder="Confirmar" 
+                  className="w-full glass-ui rounded-2xl px-4 py-3.5 text-sm font-bold text-white outline-none placeholder:text-white/40" 
+                  required 
+                  value={authData.confirmPass} 
+                  onChange={e => setAuthData({...authData, confirmPass: e.target.value})} 
+                />
+                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute inset-y-0 right-0 flex items-center pr-4 text-white/50">
+                  {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                </button>
+              </div>
+            )}
+
+            <button type="submit" disabled={isAuthenticating} className="w-full glass-ui glass-interactive bg-misionero-verde/50 text-white font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest active:scale-95 transition-all">
               {isAuthenticating ? '...' : (authMode === 'login' ? 'Entrar' : authMode === 'register' ? 'Registrar' : 'Recuperar')}
             </button>
           </form>
           <div className="flex flex-col gap-4">
-            <button onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthMsg(null); }} className="text-[10px] font-bold text-white uppercase text-center">{authMode === 'login' ? '¿No tienes cuenta? Regístrate' : '¿Ya tienes cuenta? Entra'}</button>
-            {authMode === 'login' && <button onClick={() => { setAuthMode('forgot'); setAuthMsg(null); }} className="text-[9px] font-bold text-white/60 uppercase text-center underline">Olvidé mi contraseña</button>}
+            <button onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthMsg(null); }} className="text-[10px] font-bold text-white uppercase text-center login-text-shadow">{authMode === 'login' ? '¿No tienes cuenta? Regístrate' : '¿Ya tienes cuenta? Entra'}</button>
+            {authMode === 'login' && <button onClick={() => { setAuthMode('forgot'); setAuthMsg(null); }} className="text-[9px] font-bold text-white/60 uppercase text-center underline login-text-shadow">Olvidé mi contraseña</button>}
           </div>
           {authMsg && <div className={`mt-4 p-3 rounded-xl text-[10px] font-bold text-center ${authMsg.type === 'error' ? 'text-red-300' : 'text-green-300'}`}>{authMsg.text}</div>}
         </div>
@@ -561,7 +725,7 @@ const App: React.FC = () => {
 
   return (
     <div className={`fixed inset-0 max-w-md mx-auto transition-colors duration-500 ${darkMode ? 'text-white bg-slate-950' : 'text-slate-900 bg-slate-50'} overflow-hidden flex flex-col`} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-      <header onTouchStart={(e) => e.stopPropagation()} className={`shrink-0 px-4 pt-12 pb-3 transition-colors duration-500 ${darkMode ? 'bg-slate-950/95 border-slate-800' : 'bg-white/95 border-slate-50'} border-b shadow-sm z-30`}>
+      <header onTouchStart={(e) => e.stopPropagation()} className={`shrink-0 px-4 pt-12 pb-3 z-30`}>
         <div className="flex justify-between items-center mb-3">
           <div>
             <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.3em] mb-0.5">ADJStudios</p>
@@ -581,10 +745,10 @@ const App: React.FC = () => {
         </div>
         {(view === 'feed' || view === 'favorites') && (
           <div className="space-y-3 animate-in fade-in duration-300">
-            <input type="text" placeholder="Buscar música..." className={`w-full transition-colors duration-500 ${darkMode ? 'bg-slate-900 border border-slate-800 text-white' : 'bg-slate-100 border-none text-slate-900'} rounded-2xl px-4 py-2 text-xs font-bold outline-none`} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+            <input type="text" placeholder="Buscar música..." className={`w-full glass-ui rounded-2xl px-4 py-2 text-xs font-bold outline-none ${darkMode ? 'text-white placeholder:text-slate-600' : 'text-slate-900 placeholder:text-slate-400'}`} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
             <div className="flex gap-2 overflow-x-auto pb-2 pt-1 no-swipe custom-scroll">
               {['Todos', ...Object.values(LiturgicalTime)].map(f => (
-                <button key={f} onClick={() => setActiveFilter(f as any)} className={`px-5 py-2 rounded-full text-[9px] font-black uppercase shrink-0 transition-all ${activeFilter === f ? 'bg-misionero-azul text-white' : darkMode ? 'bg-slate-900 text-slate-500' : 'bg-slate-50 text-slate-400'}`}>{f}</button>
+                <button key={f} onClick={() => setActiveFilter(f as any)} className={`px-5 py-2 rounded-full text-[9px] font-black uppercase shrink-0 transition-all ${activeFilter === f ? 'bg-misionero-azul text-white' : 'glass-ui text-slate-400'}`}>{f}</button>
               ))}
             </div>
           </div>
@@ -596,15 +760,19 @@ const App: React.FC = () => {
           className="flex h-full w-[400%] transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
           style={{ transform: `translateX(-${viewIndex * 25}%)` }}
         >
-          <div className="w-1/4 h-full overflow-y-auto custom-scroll px-4 py-4 space-y-3">
-             {filteredSongs.map(song => (
-                <div key={song.id} className={`${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'} rounded-[1.8rem] border shadow-sm relative overflow-hidden active:scale-[0.98] transition-all`} onClick={() => openSongViewer(song)}>
-                  <div className={`absolute inset-0 z-0 ${getLiturgicalCardClass(song.category)} opacity-40`}></div>
+          <div key={`feed-${activeFilter}-${searchQuery}`} className="w-1/4 h-full overflow-y-auto custom-scroll px-4 pt-4 pb-32 space-y-3">
+             {filteredSongs.map((song, index) => (
+                <div 
+                  key={song.id} 
+                  className="glass-ui glass-interactive rounded-[1.8rem] relative overflow-hidden active:scale-[0.98] transition-all animate-stagger-in" 
+                  style={{ animationDelay: `${index * 50}ms` }}
+                  onClick={() => openSongViewer(song)}
+                >
                   <button onClick={(e) => toggleFavorite(e, song.id)} className={`absolute top-3 right-3 z-20 p-2 ${favorites.includes(song.id) ? 'text-misionero-rojo' : 'text-slate-300'}`}>
                     <svg className="w-5 h-5" fill={favorites.includes(song.id) ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
                   </button>
                   <div className="relative z-10 p-4">
-                    <p className="text-[7px] font-black text-misionero-verde uppercase mb-1">{song.category}</p>
+                    <p className={`text-[7px] font-black uppercase mb-1 ${getLiturgicalColorClass(song.category)}`}>{song.category}</p>
                     <h4 className="font-black text-sm uppercase truncate pr-8">{song.title}</h4>
                     <p className="text-[9px] text-slate-400 font-bold">Tono: <span className="text-misionero-rojo">{song.key}</span> • Por: {song.author}</p>
                   </div>
@@ -612,16 +780,21 @@ const App: React.FC = () => {
              ))}
           </div>
 
-          <div className="w-1/4 h-full overflow-y-auto custom-scroll px-4 py-4 space-y-3">
+          <div key={`favs-${activeFilter}-${searchQuery}`} className="w-1/4 h-full overflow-y-auto custom-scroll px-4 pt-4 pb-32 space-y-3">
              {favoriteSongs.length === 0 ? (
                <div className="flex flex-col items-center justify-center h-full opacity-20"><p className="text-[10px] font-black uppercase">Sin favoritos</p></div>
-             ) : favoriteSongs.map(song => (
-                <div key={song.id} className={`${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'} rounded-[1.8rem] border shadow-sm relative overflow-hidden`} onClick={() => openSongViewer(song)}>
-                  <div className={`absolute inset-0 z-0 ${getLiturgicalCardClass(song.category)} opacity-40`}></div>
+             ) : favoriteSongs.map((song, index) => (
+                <div 
+                  key={song.id} 
+                  className="glass-ui glass-interactive rounded-[1.8rem] relative overflow-hidden active:scale-[0.98] transition-all animate-stagger-in" 
+                  style={{ animationDelay: `${index * 50}ms` }}
+                  onClick={() => openSongViewer(song)}
+                >
                   <button onClick={(e) => toggleFavorite(e, song.id)} className="absolute top-3 right-3 z-20 p-2 text-misionero-rojo">
                     <svg className="w-5 h-5" fill="currentColor" stroke="currentColor" viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
                   </button>
                   <div className="relative z-10 p-4">
+                     <p className={`text-[7px] font-black uppercase mb-1 ${getLiturgicalColorClass(song.category)}`}>{song.category}</p>
                     <h4 className="font-black text-sm uppercase truncate pr-8">{song.title}</h4>
                   </div>
                 </div>
@@ -637,45 +810,52 @@ const App: React.FC = () => {
               )}
               <div className="w-20 h-20 bg-misionero-azul/10 rounded-[2rem] flex items-center justify-center text-misionero-azul"><UsersIcon /></div>
               <div><h3 className="text-xl font-black uppercase mb-2">Sincronización</h3><p className="text-[10px] font-bold text-slate-400 uppercase leading-relaxed">Únete a una sala para ver los acordes en tiempo real.</p></div>
-              <input type="text" placeholder="CÓDIGO" className={`w-full ${darkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-100 text-slate-900'} border-2 rounded-2xl px-6 py-4 text-center font-black text-lg uppercase outline-none`} value={roomCodeInput} onChange={e => setRoomCodeInput(e.target.value)} />
-              <button onClick={handleJoinRoom} className="w-full bg-misionero-azul text-white font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest shadow-lg active:scale-95 transition-all">UNIRME</button>
-              {isAdmin && <button onClick={handleCreateRoom} className="w-full border-2 border-misionero-verde text-misionero-verde font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest active:scale-95 transition-all">CREAR SALA</button>}
+              <input type="text" placeholder="CÓDIGO" className="w-full glass-ui rounded-2xl px-6 py-4 text-center font-black text-lg uppercase outline-none" value={roomCodeInput} onChange={e => setRoomCodeInput(e.target.value)} />
+              <button onClick={handleJoinRoom} className="w-full glass-ui glass-interactive bg-misionero-azul/70 text-white font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest active:scale-95 transition-all">UNIRME</button>
+              {isAdmin && <button onClick={handleCreateRoom} className="w-full glass-ui glass-interactive bg-misionero-verde/30 text-misionero-verde font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest active:scale-95 transition-all">CREAR SALA</button>}
           </div>
 
           <div className="w-1/4 h-full overflow-y-auto custom-scroll px-6 py-4 space-y-8">
               <section className="space-y-4">
                  <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Apariencia</h3>
-                 <div className={`${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'} p-5 rounded-[2.5rem] border flex items-center justify-between`}>
+                 <div className="glass-ui p-5 rounded-[2.5rem] flex items-center justify-between">
                     <span className="text-[10px] font-black uppercase tracking-widest">{darkMode ? 'Modo Oscuro' : 'Modo Claro'}</span>
-                    <button onClick={() => setDarkMode(!darkMode)} className={`w-14 h-7 rounded-full relative transition-all ${darkMode ? 'bg-misionero-verde' : 'bg-slate-200'}`}>
-                      <div className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow-md transition-all ${darkMode ? 'left-8' : 'left-1'}`}></div>
-                    </button>
+                    <GlassToggle checked={darkMode} onChange={setDarkMode} />
                  </div>
               </section>
 
               <section className="space-y-4">
                  <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Perfil</h3>
-                 <div className={`${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'} p-6 rounded-[2.5rem] border space-y-4`}>
+                 <div className="glass-ui p-6 rounded-[2.5rem] space-y-4">
                     <div>
                       <div className="flex justify-between items-center mb-2">
                         <span className="text-[8px] font-black uppercase text-slate-400">Nombre de Usuario</span>
                       </div>
-                      <input type="text" className={`w-full ${darkMode ? 'bg-slate-800 text-white' : 'bg-slate-50 text-slate-900'} rounded-2xl px-4 py-4 text-sm font-bold outline-none`} value={newUsername} onChange={e => setNewUsername(e.target.value)} />
-                      <button onClick={() => { updateProfile(auth.currentUser!, { displayName: newUsername }).then(() => { updateDoc(doc(db, "users", user.id), { username: newUsername }); alert("Guardado"); }); }} className="w-full mt-3 bg-misionero-azul text-white font-black py-4 rounded-2xl text-[9px] uppercase tracking-widest">Guardar Cambios</button>
+                      <input type="text" className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} value={newUsername} onChange={e => setNewUsername(e.target.value)} />
+                      <button onClick={handleUpdateUsername} disabled={isUpdatingUsername} className="w-full mt-3 glass-ui glass-interactive bg-misionero-azul/70 text-white font-black py-4 rounded-2xl text-[9px] uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">{isUpdatingUsername ? 'Guardando...' : 'Guardar Cambios'}</button>
                     </div>
                  </div>
               </section>
 
               <section className="space-y-4 pb-8">
                  <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Seguridad</h3>
-                 <form onSubmit={handleChangePassword} className={`${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'} p-6 rounded-[2.5rem] border`}>
+                 <form onSubmit={handleChangePassword} className="glass-ui p-6 rounded-[2.5rem]">
                     <div className="space-y-3">
-                      <input type="password" placeholder="Contraseña Actual" value={passwordChangeData.current} onChange={e => setPasswordChangeData(p => ({...p, current: e.target.value}))} required className={`w-full ${darkMode ? 'bg-slate-800 text-white' : 'bg-slate-50 text-slate-900'} rounded-2xl px-4 py-4 text-sm font-bold outline-none`} />
-                      <input type="password" placeholder="Nueva Contraseña" value={passwordChangeData.newPass} onChange={e => setPasswordChangeData(p => ({...p, newPass: e.target.value}))} required className={`w-full ${darkMode ? 'bg-slate-800 text-white' : 'bg-slate-50 text-slate-900'} rounded-2xl px-4 py-4 text-sm font-bold outline-none`} />
-                      <input type="password" placeholder="Confirmar" value={passwordChangeData.confirm} onChange={e => setPasswordChangeData(p => ({...p, confirm: e.target.value}))} required className={`w-full ${darkMode ? 'bg-slate-800 text-white' : 'bg-slate-50 text-slate-900'} rounded-2xl px-4 py-4 text-sm font-bold outline-none`} />
+                      <div className="relative">
+                        <input type={showChangePassword.current ? 'text' : 'password'} placeholder="Contraseña Actual" value={passwordChangeData.current} onChange={e => setPasswordChangeData(p => ({...p, current: e.target.value}))} required className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} />
+                        <button type="button" onClick={() => toggleShowChangePassword('current')} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showChangePassword.current ? <EyeOffIcon/> : <EyeIcon/>}</button>
+                      </div>
+                      <div className="relative">
+                        <input type={showChangePassword.newPass ? 'text' : 'password'} placeholder="Nueva Contraseña" value={passwordChangeData.newPass} onChange={e => setPasswordChangeData(p => ({...p, newPass: e.target.value}))} required className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} />
+                        <button type="button" onClick={() => toggleShowChangePassword('newPass')} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showChangePassword.newPass ? <EyeOffIcon/> : <EyeIcon/>}</button>
+                      </div>
+                      <div className="relative">
+                        <input type={showChangePassword.confirm ? 'text' : 'password'} placeholder="Confirmar" value={passwordChangeData.confirm} onChange={e => setPasswordChangeData(p => ({...p, confirm: e.target.value}))} required className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} />
+                         <button type="button" onClick={() => toggleShowChangePassword('confirm')} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showChangePassword.confirm ? <EyeOffIcon/> : <EyeIcon/>}</button>
+                      </div>
                     </div>
                     {passwordChangeMsg && <div className={`mt-4 text-[9px] font-black text-center uppercase ${passwordChangeMsg.type === 'error' ? 'text-red-400' : 'text-green-400'}`}>{passwordChangeMsg.text}</div>}
-                    <button type="submit" disabled={isUpdatingPassword} className="w-full mt-4 bg-misionero-verde text-white font-black py-4 rounded-2xl text-[9px] uppercase tracking-widest active:scale-95 transition-all">{isUpdatingPassword ? '...' : 'Actualizar Pass'}</button>
+                    <button type="submit" disabled={isUpdatingPassword} className="w-full mt-4 glass-ui glass-interactive bg-misionero-verde/70 text-white font-black py-4 rounded-2xl text-[9px] uppercase tracking-widest active:scale-95 transition-all">{isUpdatingPassword ? '...' : 'Actualizar Pass'}</button>
                  </form>
               </section>
           </div>
@@ -683,14 +863,14 @@ const App: React.FC = () => {
       </main>
 
       {view === 'feed' && isAdmin && !activeSong && !editingSong && !activeRoom && (
-        <button onClick={() => openSongEditor(null)} className="fixed bottom-[5rem] right-6 w-16 h-16 bg-misionero-rojo text-white rounded-[1.8rem] shadow-2xl flex items-center justify-center z-40 animate-bounce-subtle active:scale-90 transition-transform"><PlusIcon /></button>
+        <button onClick={() => openSongEditor(null)} className="fixed bottom-[5rem] right-6 w-16 h-16 glass-ui glass-interactive bg-misionero-rojo/70 text-white rounded-[1.8rem] flex items-center justify-center z-40 animate-bounce-subtle active:scale-90 transition-transform"><PlusIcon /></button>
       )}
 
       {globalAlert && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200">
            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setGlobalAlert(null)}></div>
-           <div className={`relative w-full max-w-sm p-6 rounded-[2rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-slate-900 border-white/10' : 'bg-white border-slate-100'}`}>
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 mx-auto ${globalAlert.type === 'error' ? 'bg-misionero-rojo/10 text-misionero-rojo' : 'bg-misionero-azul/10 text-misionero-azul'}`}>
+           <div className="glass-ui relative w-full max-w-sm p-6 rounded-[2rem] animate-in zoom-in-95 duration-200">
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 mx-auto ${globalAlert.type === 'error' ? 'glass-ui bg-misionero-rojo/30 text-misionero-rojo' : 'glass-ui bg-misionero-azul/30 text-misionero-azul'}`}>
                  {globalAlert.type === 'error' ? (
                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
                  ) : (
@@ -699,20 +879,34 @@ const App: React.FC = () => {
               </div>
               <h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{globalAlert.title}</h3>
               <p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{globalAlert.message}</p>
-              <button onClick={() => setGlobalAlert(null)} className={`w-full py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest active:scale-95 transition-transform ${globalAlert.type === 'error' ? 'bg-misionero-rojo text-white' : 'bg-misionero-azul text-white'}`}>Entendido</button>
+              <button onClick={() => setGlobalAlert(null)} className={`w-full py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest active:scale-95 transition-transform glass-ui glass-interactive ${globalAlert.type === 'error' ? 'bg-misionero-rojo/70 text-white' : 'bg-misionero-azul/70 text-white'}`}>Entendido</button>
            </div>
         </div>
       )}
+      
+      {showOpenInAppButton && (
+        <div className="fixed bottom-[5rem] left-1/2 -translate-x-1/2 z-40 animate-in fade-in slide-in-from-bottom-5 duration-300">
+            <button 
+                onClick={handleOpenInApp}
+                className="glass-ui glass-interactive bg-misionero-azul/70 text-white flex items-center gap-3 px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-2xl active:scale-95 transition-transform"
+            >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+                <span>Abrir en la App</span>
+            </button>
+        </div>
+      )}
 
-      <nav onTouchStart={(e) => e.stopPropagation()} className={`shrink-0 transition-colors duration-500 ${darkMode ? 'bg-slate-950/90 border-slate-800' : 'bg-white/90 border-slate-100'} border-t w-full px-4 pt-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] flex justify-center gap-14 items-center z-50 max-w-md mx-auto shadow-[0_-10px_30px_rgba(0,0,0,0.05)]`}>
+      <nav onTouchStart={(e) => e.stopPropagation()} className="glass-ui shrink-0 w-full px-4 pt-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] flex justify-center gap-14 items-center z-50 max-w-md mx-auto">
         {VIEW_ORDER.map((v) => {
           const isActive = view === v;
-          let activeColorClass = 'text-slate-300';
+          let activeColorClass = 'text-slate-400 dark:text-slate-500';
           let bubbleColorClass = 'bg-slate-400/10';
-          if (v === 'feed') { activeColorClass = isActive ? 'text-misionero-azul' : 'text-slate-300'; bubbleColorClass = 'bg-misionero-azul/15'; }
-          else if (v === 'favorites') { activeColorClass = isActive ? 'text-misionero-rojo' : 'text-slate-300'; bubbleColorClass = 'bg-misionero-rojo/15'; }
-          else if (v === 'room') { activeColorClass = isActive ? 'text-misionero-verde' : 'text-slate-300'; bubbleColorClass = 'bg-misionero-verde/15'; }
-          else if (v === 'settings') { activeColorClass = isActive ? (darkMode ? 'text-white' : 'text-slate-900') : 'text-slate-300'; bubbleColorClass = darkMode ? 'bg-white/10' : 'bg-slate-900/10'; }
+          if (v === 'feed') { activeColorClass = isActive ? 'text-misionero-azul' : 'text-slate-400 dark:text-slate-500'; bubbleColorClass = 'bg-misionero-azul/15'; }
+          else if (v === 'favorites') { activeColorClass = isActive ? 'text-misionero-rojo' : 'text-slate-400 dark:text-slate-500'; bubbleColorClass = 'bg-misionero-rojo/15'; }
+          else if (v === 'room') { activeColorClass = isActive ? 'text-misionero-verde' : 'text-slate-400 dark:text-slate-500'; bubbleColorClass = 'bg-misionero-verde/15'; }
+          else if (v === 'settings') { activeColorClass = isActive ? (darkMode ? 'text-white' : 'text-slate-900') : 'text-slate-400 dark:text-slate-500'; bubbleColorClass = darkMode ? 'bg-white/10' : 'bg-slate-900/10'; }
           return (
             <button key={v} onClick={() => navigateTo(v)} className={`flex flex-col items-center gap-1.5 transition-all duration-300 ${activeColorClass}`}>
               <div className="relative flex items-center justify-center">

@@ -45,6 +45,7 @@ export interface Room {
 export interface User {
   id: string;
   username: string;
+  username_lowercase: string;
   email: string;
   role: UserRole;
   isAuthenticated: boolean;
