@@ -167,13 +167,9 @@ const RoomView: React.FC<RoomViewProps> = ({
   const prevSongsRef = useRef<Song[]>();
 
   useEffect(() => {
-    // Cuando la lista principal de canciones se actualiza desde Firestore (p. ej., después de una edición),
-    // la caché de contenido transpuesto puede contener datos obsoletos. La limpiamos para asegurarnos
-    // de que todo el contenido de las canciones se vuelva a transponer con la última versión.
     if (prevSongsRef.current && prevSongsRef.current !== songs) {
       transposedContentCache.current = {};
     }
-    // Actualiza la referencia a las canciones actuales para la próxima comparación.
     prevSongsRef.current = songs;
   }, [songs]);
 
@@ -250,8 +246,16 @@ const RoomView: React.FC<RoomViewProps> = ({
     if (currentChat.length > prevChatLength.current) {
       const lastMsg = currentChat[currentChat.length - 1];
       if (lastMsg.sender !== currentUser) {
-        notificationAudio.current?.play().catch(e => console.log("Audio play blocked"));
-        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) try { navigator.vibrate(200); } catch (e) {}
+        // 1. Prioridad: VIBRACIÓN (Soporta array para mayor compatibilidad)
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+            try { 
+                navigator.vibrate([200]); 
+            } catch (e) { console.debug("Vibration failed", e); }
+        }
+        
+        // 2. Audio (puede ser bloqueado por el navegador si no hay interacción previa)
+        notificationAudio.current?.play().catch(() => {});
+
         if (!isChatOpen) {
           if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
           if (toastExitTimerRef.current) clearTimeout(toastExitTimerRef.current);

@@ -256,7 +256,7 @@ const MainView = ({
         className="flex h-full w-[400%] transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
         style={{ transform: `translateX(-${VIEW_ORDER.indexOf(view) * 25}%)` }}
       >
-        <div key={`feed-${activeFilter}-${searchQuery}`} className="w-1/4 h-full overflow-y-auto custom-scroll px-4 pt-4 pb-32 space-y-3">
+        <div key="feed-panel" className="w-1/4 h-full overflow-y-auto custom-scroll px-4 pt-4 pb-32 space-y-3">
            {filteredSongs.map((song: Song, index: number) => (
               <div 
                 key={song.id} 
@@ -276,7 +276,7 @@ const MainView = ({
            ))}
         </div>
 
-        <div key={`favs-${activeFilter}-${searchQuery}`} className="w-1/4 h-full overflow-y-auto custom-scroll px-4 pt-4 pb-32 space-y-3">
+        <div key="favs-panel" className="w-1/4 h-full overflow-y-auto custom-scroll px-4 pt-4 pb-32 space-y-3">
            {favoriteSongs.length === 0 ? (
              <div className="flex flex-col items-center justify-center h-full opacity-20"><p className="text-[10px] font-black uppercase">Sin favoritos</p></div>
            ) : favoriteSongs.map((song: Song, index: number) => (
