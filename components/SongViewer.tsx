@@ -217,7 +217,7 @@ const SongViewer: React.FC<SongViewerProps> = ({
       <div 
         key={idx} 
         style={{ fontSize: `${fontSize}px` }}
-        className={`${isChordLine(line) ? (darkMode ? 'text-misionero-amarillo' : 'text-misionero-azul') : (darkMode ? 'text-slate-300' : 'text-slate-700')} chord-font font-black transition-colors duration-500 leading-tight mb-0.5 whitespace-pre`}
+        className={`${isChordLine(line) ? (darkMode ? 'text-misionero-amarillo neon-yellow' : 'text-misionero-azul neon-blue') : (darkMode ? 'text-slate-300' : 'text-slate-700')} chord-font font-black transition-colors duration-500 leading-tight mb-0.5 whitespace-pre`}
       >
         {line || '\u00A0'}
       </div>

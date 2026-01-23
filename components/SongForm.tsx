@@ -120,7 +120,7 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
           {showPreview ? (
             <div className={`p-5 min-h-[500px] animate-in fade-in duration-200 overflow-x-auto transition-colors duration-500 ${darkMode ? 'bg-slate-950 text-white' : 'bg-white text-slate-700'}`}>
               {content.split('\n').map((line, idx) => (
-                <div key={idx} className={`${isChordLine(line) ? (darkMode ? 'text-misionero-amarillo' : 'text-misionero-azul') : 'font-medium'} transition-colors duration-500 chord-font font-black text-[11px] leading-tight mb-1.5 whitespace-pre`}>
+                <div key={idx} className={`${isChordLine(line) ? (darkMode ? 'text-misionero-amarillo neon-yellow' : 'text-misionero-azul neon-blue') : 'font-medium'} transition-colors duration-500 chord-font font-black text-[11px] leading-tight mb-1.5 whitespace-pre`}>
                   {line || '\u00A0'}
                 </div>
               ))}
