@@ -134,10 +134,12 @@ const translateAuthError = (errorCode: string): string => {
     case 'auth/user-not-found': return 'No se encontró ninguna cuenta con este correo.';
     case 'auth/wrong-password':
     case 'auth/invalid-credential': return 'La contraseña es incorrecta.';
-    case 'auth/email-already-in-use': return 'Este correo ya está registrado.';
-    case 'auth/weak-password': return 'La contraseña es demasiado débil.';
-    case 'auth/too-many-requests': return 'Bloqueo temporal por seguridad.';
-    default: return 'Error inesperado. Inténtalo más tarde.';
+    case 'auth/email-already-in-use': return 'Este correo ya está registrado por otra persona.';
+    case 'auth/weak-password': return 'La contraseña es muy débil (mínimo 6 caracteres).';
+    case 'auth/too-many-requests': return 'Muchos intentos fallidos. Espera unos minutos.';
+    case 'auth/network-request-failed': return 'Error de conexión. Verifica tu internet.';
+    case 'auth/internal-error': return 'Error interno del servidor. Intenta de nuevo.';
+    default: return 'Ocurrió un error inesperado. Inténtalo más tarde.';
   }
 };
 
@@ -218,7 +220,8 @@ const MainView = ({
   isUpdatingUsername, isJoiningRoom, showChangePassword, showOpenInAppButton, globalAlert, activeSong, activeRoom, editingSong, isAdmin, hasElevatedPermissions,
   filteredSongs, favoriteSongs, navigateTo, onTouchStart, onTouchEnd, setActiveFilter, setSearchQuery, handleJoinRoom, setRoomCodeInput, handleCreateRoom,
   setNewUsername, handleUpdateUsername, setPasswordChangeData, toggleShowChangePassword, handleChangePassword, setDarkMode, setGlobalAlert, handleOpenInApp,
-  openSongEditor, toggleFavorite, openSongViewer, goBack, handleDeleteSong, exitRoom, handleUpdateRoom, db, ADMIN_EMAILS
+  openSongEditor, toggleFavorite, openSongViewer, goBack, handleDeleteSong, exitRoom, handleUpdateRoom, db, ADMIN_EMAILS,
+  usernameChangePassword, setUsernameChangePassword, showUsernamePass, setShowUsernamePass
 }: any) => (
   <div className={`fixed inset-0 max-w-md mx-auto transition-colors duration-500 ${darkMode ? 'text-white bg-slate-950' : 'text-slate-900 bg-slate-50'} overflow-hidden flex flex-col`} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
     <header onTouchStart={(e) => e.stopPropagation()} className={`shrink-0 px-4 pt-12 pb-3 z-30`}>
@@ -329,7 +332,19 @@ const MainView = ({
                       <span className="text-[8px] font-black uppercase text-slate-400">Nombre de Usuario</span>
                     </div>
                     <input type="text" className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} value={newUsername} onChange={e => setNewUsername(e.target.value)} />
-                    <button onClick={handleUpdateUsername} disabled={isUpdatingUsername} className="w-full mt-3 glass-ui glass-interactive bg-misionero-azul/70 text-white font-black py-4 rounded-2xl text-[9px] uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">{isUpdatingUsername ? 'Guardando...' : 'Guardar Cambios'}</button>
+                    
+                    <div className="relative mt-3">
+                        <input 
+                            type={showUsernamePass ? 'text' : 'password'} 
+                            placeholder="Confirma con tu contraseña" 
+                            className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none placeholder:text-slate-400/50 ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} 
+                            value={usernameChangePassword} 
+                            onChange={e => setUsernameChangePassword(e.target.value)} 
+                        />
+                         <button type="button" onClick={() => setShowUsernamePass(!showUsernamePass)} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showUsernamePass ? <EyeOffIcon/> : <EyeIcon/>}</button>
+                    </div>
+
+                    <button onClick={handleUpdateUsername} disabled={isUpdatingUsername || !usernameChangePassword} className="w-full mt-3 glass-ui glass-interactive bg-misionero-azul/70 text-white font-black py-4 rounded-2xl text-[9px] uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">{isUpdatingUsername ? 'Verificando...' : 'Guardar Cambios'}</button>
                   </div>
                </div>
             </section>
@@ -457,6 +472,8 @@ const App: React.FC = () => {
   const [authMsg, setAuthMsg] = useState<{type: 'success' | 'error', text: string} | null>(null);
   const [roomCodeInput, setRoomCodeInput] = useState('');
   const [newUsername, setNewUsername] = useState('');
+  const [usernameChangePassword, setUsernameChangePassword] = useState('');
+  const [showUsernamePass, setShowUsernamePass] = useState(false);
   
   const [passwordChangeData, setPasswordChangeData] = useState({ current: '', newPass: '', confirm: '' });
   const [passwordChangeMsg, setPasswordChangeMsg] = useState<{type: 'success' | 'error', text: string} | null>(null);
@@ -687,7 +704,7 @@ const App: React.FC = () => {
       } else if (authMode === 'register') {
         if (authData.pass !== authData.confirmPass) { setAuthMsg({ type: 'error', text: 'Las contraseñas no coinciden.' }); setIsAuthenticating(false); return; }
         const q = query(collection(db, "users"), where("username_lowercase", "==", authData.user.toLowerCase()), limit(1));
-        if (!(await getDocs(q)).empty) { setAuthMsg({ type: 'error', text: 'Este nombre de usuario ya está en uso.' }); setIsAuthenticating(false); return; }
+        if (!(await getDocs(q)).empty) { setAuthMsg({ type: 'error', text: 'El nombre de usuario ya está ocupado. Por favor elige otro.' }); setIsAuthenticating(false); return; }
         const cred = await createUserWithEmailAndPassword(auth, authData.email, authData.pass);
         await updateProfile(cred.user, { displayName: authData.user });
         await setDoc(doc(db, "users", cred.user.uid), { username: authData.user, username_lowercase: authData.user.toLowerCase(), email: authData.email, role: 'member', favorites: [] });
@@ -717,15 +734,64 @@ const App: React.FC = () => {
   const handleUpdateUsername = async () => {
     if (!user || !auth.currentUser) return;
     const trimmedUsername = newUsername.trim();
-    if (trimmedUsername.toLowerCase() === user.username.toLowerCase() || trimmedUsername.length < 3) return;
+    
+    // Basic validations
+    if (trimmedUsername.length < 3) {
+       setGlobalAlert({ title: "Nombre muy corto", message: "Mínimo 3 caracteres.", type: 'error' });
+       return;
+    }
+    if (trimmedUsername.toLowerCase() === user.username.toLowerCase()) return; // No change
+    
+    // Password validation
+    if (!usernameChangePassword) {
+        setGlobalAlert({ title: "Requerido", message: "Ingresa tu contraseña actual para confirmar.", type: 'info' });
+        return;
+    }
+
     setIsUpdatingUsername(true);
-    const q = query(collection(db, "users"), where("username_lowercase", "==", trimmedUsername.toLowerCase()), limit(1));
-    if (!(await getDocs(q)).empty) { setGlobalAlert({ title: "Nombre no disponible", message: "Ese nombre de usuario ya está en uso.", type: 'error' }); setIsUpdatingUsername(false); return; }
+
     try {
+        // 1. Re-authenticate user to confirm identity
+        if (auth.currentUser.email) {
+            const cred = EmailAuthProvider.credential(auth.currentUser.email, usernameChangePassword);
+            await reauthenticateWithCredential(auth.currentUser, cred);
+        } else {
+            throw new Error("No email associated");
+        }
+
+        // 2. Check if username is taken
+        const q = query(collection(db, "users"), where("username_lowercase", "==", trimmedUsername.toLowerCase()), limit(1));
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+             const docSnap = querySnapshot.docs[0];
+             // If found document is NOT the current user's document, then it's taken.
+             if (docSnap.id !== user.id) {
+                 setGlobalAlert({ title: "Nombre no disponible", message: "El nombre de usuario ya está ocupado.", type: 'error' }); 
+                 setIsUpdatingUsername(false); 
+                 return; 
+             }
+        }
+
+        // 3. Update profile
         await updateProfile(auth.currentUser, { displayName: trimmedUsername });
         await updateDoc(doc(db, "users", user.id), { username: trimmedUsername, username_lowercase: trimmedUsername.toLowerCase() });
+        
+        // UPDATE LOCAL STATE IMMEDIATELY to prevent stale state issues
+        setUser(prev => prev ? ({ ...prev, username: trimmedUsername, username_lowercase: trimmedUsername.toLowerCase() }) : null);
+
         setGlobalAlert({ title: "Perfil Actualizado", message: "Tu nombre de usuario se ha cambiado.", type: 'success' });
-    } catch (error) { setGlobalAlert({ title: "Error", message: "No se pudo actualizar el nombre de usuario.", type: 'error' }); } finally { setIsUpdatingUsername(false); }
+        setUsernameChangePassword(''); // Clear password field
+
+    } catch (error: any) { 
+        console.error(error);
+        if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+             setGlobalAlert({ title: "Contraseña Incorrecta", message: "La contraseña ingresada no es válida.", type: 'error' });
+        } else {
+             setGlobalAlert({ title: "Error", message: "No se pudo actualizar el nombre de usuario.", type: 'error' }); 
+        }
+    } finally { 
+        setIsUpdatingUsername(false); 
+    }
   };
 
   useEffect(() => {
@@ -803,6 +869,8 @@ const App: React.FC = () => {
             setDarkMode={setDarkMode} setGlobalAlert={setGlobalAlert} handleOpenInApp={handleOpenInApp} openSongEditor={openSongEditor}
             toggleFavorite={toggleFavorite} openSongViewer={openSongViewer} goBack={goBack} handleDeleteSong={handleDeleteSong} exitRoom={exitRoom}
             handleUpdateRoom={handleUpdateRoom} db={db} ADMIN_EMAILS={ADMIN_EMAILS}
+            usernameChangePassword={usernameChangePassword} setUsernameChangePassword={setUsernameChangePassword}
+            showUsernamePass={showUsernamePass} setShowUsernamePass={setShowUsernamePass}
           />
         </div>
       )}
