@@ -79,8 +79,8 @@ const SwipeableMessage: React.FC<SwipeableMessageProps> = ({ msg, currentUser, o
 
   const onTouchEnd = () => {
     if (Math.abs(translateX) > 50) {
-      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-        try { navigator.vibrate([30, 20, 30]); } catch(e) {}
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try { navigator.vibrate(50); } catch(e) {}
       }
       onReply(msg);
     }
@@ -246,14 +246,21 @@ const RoomView: React.FC<RoomViewProps> = ({
     if (currentChat.length > prevChatLength.current) {
       const lastMsg = currentChat[currentChat.length - 1];
       if (lastMsg.sender !== currentUser) {
-        // 1. Prioridad: VIBRACIÓN (Soporta array para mayor compatibilidad)
+        
+        // VIBRACIÓN MEJORADA
+        // Usamos patrón [vibrar, pausa, vibrar] para que sea más notable en Android.
+        // Si el dispositivo soporta el API pero falla el array, intentamos vibración simple.
         if (typeof navigator !== 'undefined' && navigator.vibrate) {
             try { 
-                navigator.vibrate([200]); 
-            } catch (e) { console.debug("Vibration failed", e); }
+                // Patrón de doble pulso fuerte
+                navigator.vibrate([500, 100, 500]); 
+            } catch (e) { 
+                // Fallback a vibración simple si el formato array falla en alguna versión específica de WebView
+                try { navigator.vibrate(500); } catch(err) {}
+            }
         }
         
-        // 2. Audio (puede ser bloqueado por el navegador si no hay interacción previa)
+        // 2. Audio
         notificationAudio.current?.play().catch(() => {});
 
         if (!isChatOpen) {
