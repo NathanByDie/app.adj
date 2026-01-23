@@ -16,6 +16,7 @@ interface SongViewerProps {
   hasPrev?: boolean;
   isChatVisible?: boolean;
   transposedContent?: string;
+  chatInputComponent?: React.ReactNode;
 }
 
 const SongViewer: React.FC<SongViewerProps> = ({ 
@@ -31,7 +32,8 @@ const SongViewer: React.FC<SongViewerProps> = ({
   hasNext = false,
   hasPrev = false,
   isChatVisible = false,
-  transposedContent
+  transposedContent,
+  chatInputComponent
 }) => {
   const [internalTranspose, setInternalTranspose] = useState(0);
   const [fontSize, setFontSize] = useState(11);
@@ -324,6 +326,12 @@ const SongViewer: React.FC<SongViewerProps> = ({
         <div className={`leading-relaxed ${isChatVisible ? 'pb-40' : 'pb-24'}`}>{processedContent}</div>
       </div>
       
+      {isChatVisible && chatInputComponent && (
+        <div className="fixed bottom-0 left-0 right-0 z-[140] max-w-md mx-auto">
+          {chatInputComponent}
+        </div>
+      )}
+
       {/* --- Controles Flotantes --- */}
       <button 
         onClick={() => setIsControlPanelOpen(prev => !prev)} 

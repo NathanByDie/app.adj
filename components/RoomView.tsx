@@ -77,9 +77,10 @@ const SwipeableMessage: React.FC<SwipeableMessageProps> = ({ msg, currentUser, o
     }
   };
 
-  const onTouchEnd = () => {
+  const onTouchEnd = (e: React.TouchEvent) => {
     if (Math.abs(translateX) > 50) {
       if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        // FIX: navigator.vibrate() requires at least one argument.
         try { navigator.vibrate(50); } catch(e) {}
       }
       onReply(msg);
@@ -147,6 +148,9 @@ const RoomView: React.FC<RoomViewProps> = ({
   const toastExitTimerRef = useRef<number | null>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLInputElement>(null);
+  
+  const [toastTranslateY, setToastTranslateY] = useState(0);
+  const toastTouchStartY = useRef<number | null>(null);
   
   const [isFollowingHost, setIsFollowingHost] = useState(true);
   const [addSongFilter, setAddSongFilter] = useState<LiturgicalTime | 'Todos'>('Todos');
@@ -244,39 +248,37 @@ const RoomView: React.FC<RoomViewProps> = ({
   useEffect(() => {
     const currentChat = room.chat || [];
     if (currentChat.length > prevChatLength.current) {
-      const lastMsg = currentChat[currentChat.length - 1];
-      if (lastMsg.sender !== currentUser) {
-        
-        // VIBRACIÓN MEJORADA
-        // Usamos patrón [vibrar, pausa, vibrar] para que sea más notable en Android.
-        // Si el dispositivo soporta el API pero falla el array, intentamos vibración simple.
-        if (typeof navigator !== 'undefined' && navigator.vibrate) {
-            try { 
-                // Patrón de doble pulso fuerte
-                navigator.vibrate([500, 100, 500]); 
-            } catch (e) { 
-                // Fallback a vibración simple si el formato array falla en alguna versión específica de WebView
-                try { navigator.vibrate(500); } catch(err) {}
+        const lastMsg = currentChat[currentChat.length - 1];
+        if (lastMsg.sender !== currentUser) {
+            if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                try { navigator.vibrate([500, 100, 500]); } catch (e) { try { navigator.vibrate(500); } catch(err) {} }
+            }
+            notificationAudio.current?.play().catch(() => {});
+
+            if (!isChatOpen) {
+                if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+                if (toastExitTimerRef.current) clearTimeout(toastExitTimerRef.current);
+                
+                setToastTranslateY(0);
+
+                const newToast = { sender: lastMsg.sender, text: lastMsg.text, id: Date.now() };
+                setChatToast(newToast);
+                requestAnimationFrame(() => setIsToastVisible(true));
+                
+                toastTimerRef.current = window.setTimeout(() => {
+                    setIsToastVisible(false);
+                    toastExitTimerRef.current = window.setTimeout(() => {
+                        setChatToast(prev => {
+                            if (prev?.id === newToast.id) {
+                                setToastTranslateY(0);
+                                return null;
+                            }
+                            return prev;
+                        });
+                    }, 500);
+                }, 4000);
             }
         }
-        
-        // 2. Audio
-        notificationAudio.current?.play().catch(() => {});
-
-        if (!isChatOpen) {
-          if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-          if (toastExitTimerRef.current) clearTimeout(toastExitTimerRef.current);
-          const newToast = { sender: lastMsg.sender, text: lastMsg.text, id: Date.now() };
-          setChatToast(newToast);
-          requestAnimationFrame(() => setIsToastVisible(true));
-          toastTimerRef.current = window.setTimeout(() => {
-              setIsToastVisible(false);
-              toastExitTimerRef.current = window.setTimeout(() => {
-                  setChatToast(prev => (prev?.id === newToast.id ? null : prev));
-              }, 500);
-          }, 4000);
-        }
-      }
     }
     prevChatLength.current = currentChat.length;
   }, [room.chat, currentUser, isChatOpen]);
@@ -482,22 +484,60 @@ const RoomView: React.FC<RoomViewProps> = ({
       .sort((a, b) => a.title.localeCompare(b.title));
   }, [songs, searchQuery, addSongFilter]);
 
+  const handleToastClick = () => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setIsToastVisible(false);
+    openChat();
+  };
+  
+  const handleToastTouchStart = (e: React.TouchEvent) => {
+      toastTouchStartY.current = e.targetTouches[0].clientY;
+      (e.currentTarget as HTMLDivElement).style.transition = 'none';
+  };
+  
+  const handleToastTouchMove = (e: React.TouchEvent) => {
+      if (toastTouchStartY.current === null) return;
+      const deltaY = e.targetTouches[0].clientY - toastTouchStartY.current;
+      if (deltaY > 0) setToastTranslateY(deltaY);
+  };
+  
+  const handleToastTouchEnd = (e: React.TouchEvent) => {
+      if (toastTouchStartY.current === null) return;
+      (e.currentTarget as HTMLDivElement).style.transition = 'all 0.3s ease-out';
+      if (toastTranslateY > 60) {
+          if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+          setIsToastVisible(false);
+      } else {
+          setToastTranslateY(0);
+      }
+      toastTouchStartY.current = null;
+  };
 
   return (
     <div className={`flex flex-col h-full transition-colors duration-500 ${darkMode ? 'bg-slate-950 text-white' : 'bg-white text-slate-900'} animate-in fade-in duration-300 overflow-hidden relative`}>
-      <div className="fixed top-28 left-1/2 -translate-x-1/2 z-[200] w-full max-w-xs flex flex-col items-center gap-2 pointer-events-none px-4">
-        {chatToast && (
-          <div key={chatToast.id} onClick={() => { setIsToastVisible(false); openChat(); }} className={`pointer-events-auto transition-all duration-300 ease-out cursor-pointer active:scale-95 ${isToastVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-full'}`}>
-            <div className={`rounded-2xl shadow-2xl border p-4 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} transition-all duration-500 ease-in-out`}>
-                <p className={`text-sm font-medium ${darkMode ? 'text-white' : 'text-slate-800'}`}><span className="font-black uppercase text-[10px] text-misionero-amarillo">{chatToast.sender}:</span><span className="ml-2">{chatToast.text}</span></p>
-            </div>
-          </div>
-        )}
+      <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[200] w-full max-w-xs flex flex-col items-center gap-2 pointer-events-none px-4">
         {notifications.map(n => (
           <div key={n.id} className={`p-3 rounded-2xl shadow-2xl border flex items-center gap-3 animate-in slide-in-from-top-4 duration-300 pointer-events-auto ${n.type === 'success' ? 'bg-misionero-verde/90' : n.type === 'alert' ? 'bg-misionero-rojo/90' : 'bg-misionero-azul/90'}`}>
             <p className="text-[10px] font-black uppercase text-white leading-tight">{n.message}</p>
           </div>
         ))}
+      </div>
+      
+      <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[200] w-full max-w-xs flex flex-col items-center gap-2 pointer-events-none px-4">
+        {chatToast && (
+          <div 
+            key={chatToast.id}
+            onTouchStart={handleToastTouchStart}
+            onTouchMove={handleToastTouchMove}
+            onTouchEnd={handleToastTouchEnd}
+            className={`pointer-events-auto transition-all duration-300 ease-out ${isToastVisible ? 'opacity-100' : 'opacity-0 translate-y-full'}`}
+            style={{ transform: `translateY(${toastTranslateY}px)` }}
+          >
+            <div onClick={handleToastClick} className={`rounded-2xl shadow-2xl border p-4 cursor-pointer active:scale-95 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+                <p className={`text-sm font-medium ${darkMode ? 'text-white' : 'text-slate-800'}`}><span className="font-black uppercase text-[10px] text-misionero-amarillo">{chatToast.sender}:</span><span className="ml-2">{chatToast.text}</span></p>
+            </div>
+          </div>
+        )}
       </div>
 
       {!songForViewer && (
@@ -620,7 +660,7 @@ const RoomView: React.FC<RoomViewProps> = ({
         )}
       </div>
 
-      <div className={`fixed bottom-0 left-0 right-0 z-[120] max-w-md mx-auto`}>{!isChatOpen && chatInputArea}</div>
+      <div className={`fixed bottom-0 left-0 right-0 z-[120] max-w-md mx-auto`}>{!isChatOpen && !songForViewer && chatInputArea}</div>
       {showParticipants && (<div className={`fixed inset-0 z-[160] flex flex-col animate-in slide-in-from-right duration-300 ${darkMode ? 'bg-slate-950' : 'bg-white'}`}>
         <div className={`flex items-center justify-between px-4 pt-12 pb-4 border-b shrink-0 ${darkMode ? 'border-white/5 bg-slate-900' : 'border-slate-100 bg-white'}`}><div className="flex items-center gap-3"><button onClick={closeParticipants} className="p-2 rounded-full"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button><div><h3 className="font-black uppercase text-sm">Participantes</h3><p className="text-[10px] font-bold text-slate-400">{(room.participants || []).length} usuarios</p></div></div></div>
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -634,7 +674,7 @@ const RoomView: React.FC<RoomViewProps> = ({
       </div>)}
       {isChatOpen && (<div className={`fixed inset-0 z-[150] flex flex-col animate-in slide-in-from-bottom duration-300 ${darkMode ? 'bg-slate-950' : 'bg-white'}`}><div className={`flex items-center justify-between px-4 pt-12 pb-4 border-b shrink-0 ${darkMode ? 'border-white/5 bg-slate-900' : 'border-slate-100 bg-white'}`}><div className="flex items-center gap-3"><button onClick={closeChat} className="p-2 rounded-full"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button><div><h3 className="font-black uppercase text-sm">Chat de Sala</h3><p className="text-[10px] font-bold text-slate-400">{(room.participants || []).length} conectados</p></div></div></div><div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">{(room.chat || []).map((msg, i) => <SwipeableMessage key={i} msg={msg} currentUser={currentUser} onReply={handleReply} darkMode={darkMode} formatTime={formatMessageTime} />)}</div>{chatInputArea}</div>)}
       {confirmModal && (<div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmModal(null)}></div><div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-slate-950 border-white/10' : 'bg-white border-slate-100'}`}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{confirmModal.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{confirmModal.message}</p><div className="flex gap-3"><button onClick={() => setConfirmModal(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button><button onClick={confirmModal.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform ${confirmModal.type === 'danger' ? 'bg-misionero-rojo' : 'bg-misionero-azul'}`}>Confirmar</button></div></div></div>)}
-      {songForViewer && (<div className={`fixed inset-0 z-[130] ${darkMode ? 'bg-slate-950' : 'bg-white'} flex flex-col animate-in slide-in-from-bottom-2`}>{(() => { const transposeValue = room.globalTranspositions?.[songForViewer.id] || 0; const cacheKey = `${songForViewer.id}-${transposeValue}`; const cachedContent = transposedContentCache.current[cacheKey]; return (<SongViewer song={songForViewer} onBack={() => window.history.back()} externalTranspose={transposeValue} transposedContent={cachedContent} onTransposeChange={canModify ? (val) => handleGlobalTranspose(songForViewer.id, val) : undefined} darkMode={darkMode} onEdit={canModify ? () => onEditSong(songForViewer) : undefined} onDelete={canModify ? () => { if (room.currentSongId === songForViewer.id) onUpdateRoom({ ...room, currentSongId: '' }); onDeleteSong(songForViewer.id); setSelectedSongId(null); } : undefined} onPrev={hasPrevSong ? () => navigateToSong(displayedRepertoire[currentSongIndex - 1]) : undefined} onNext={hasNextSong ? () => navigateToSong(displayedRepertoire[currentSongIndex + 1]) : undefined} hasPrev={hasPrevSong} hasNext={hasNextSong} isChatVisible={true} />); })()}</div>)}
+      {songForViewer && (<div className={`fixed inset-0 z-[130] ${darkMode ? 'bg-slate-950' : 'bg-white'} flex flex-col animate-in slide-in-from-bottom-2`}>{(() => { const transposeValue = room.globalTranspositions?.[songForViewer.id] || 0; const cacheKey = `${songForViewer.id}-${transposeValue}`; const cachedContent = transposedContentCache.current[cacheKey]; return (<SongViewer song={songForViewer} onBack={() => window.history.back()} externalTranspose={transposeValue} transposedContent={cachedContent} onTransposeChange={canModify ? (val) => handleGlobalTranspose(songForViewer.id, val) : undefined} darkMode={darkMode} onEdit={canModify ? () => onEditSong(songForViewer) : undefined} onDelete={canModify ? () => { if (room.currentSongId === songForViewer.id) onUpdateRoom({ ...room, currentSongId: '' }); onDeleteSong(songForViewer.id); setSelectedSongId(null); } : undefined} onPrev={hasPrevSong ? () => navigateToSong(displayedRepertoire[currentSongIndex - 1]) : undefined} onNext={hasNextSong ? () => navigateToSong(displayedRepertoire[currentSongIndex + 1]) : undefined} hasPrev={hasPrevSong} hasNext={hasNextSong} isChatVisible={true} chatInputComponent={chatInputArea} />); })()}</div>)}
       
       {isEditingRepertoire && isAddSongDrawerOpen && (
         <div className="fixed inset-0 z-[170] animate-in fade-in duration-300" onClick={() => setIsAddSongDrawerOpen(false)}>

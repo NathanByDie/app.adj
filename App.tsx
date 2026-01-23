@@ -626,9 +626,20 @@ const App: React.FC = () => {
   const handleOpenInApp = () => {
     const songId = new URLSearchParams(window.location.search).get('song');
     if (!songId) return;
-    const { host, pathname } = window.location;
-    const fallbackUrl = encodeURIComponent(`https://${host}${pathname}?song=${songId}`);
-    window.location.href = `intent://${host}${pathname}?song=${songId}#Intent;scheme=https;package=co.median.android.dyynjol;S.browser_fallback_url=${fallbackUrl};end`;
+
+    // The URL the app should receive.
+    const appUrl = window.location.href; 
+
+    // The Play Store URL is a better fallback if the app is not installed.
+    const fallbackUrl = encodeURIComponent(`https://play.google.com/store/apps/details?id=co.median.android.dyynjol`);
+
+    // Construct the intent URI by replacing the protocol.
+    const intentUri = appUrl.replace(/^https:\/\//, 'intent://');
+
+    // Assemble the final intent string.
+    const intentString = `${intentUri}#Intent;scheme=https;package=co.median.android.dyynjol;S.browser_fallback_url=${fallbackUrl};end`;
+
+    window.location.href = intentString;
   };
 
   useEffect(() => {

@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "co.median.android.dyynjol",
+      "sha256_cert_fingerprints": [
+        "01:DC:4D:90:9A:70:E7:EE:57:31:5C:24:70:F6:7F:58:F1:CB:F9:77:B9:E7:AF:E2:F4:92:60:C6:4D:B7:8F:18"
+      ]
+    }
+  }
+]
