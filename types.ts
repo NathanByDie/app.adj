@@ -7,7 +7,8 @@ export enum LiturgicalTime {
   ORDINARIO = 'Tiempo Ordinario',
   ANIMACION = 'Animación',
   MEDITACION = 'Meditación',
-  PURISIMA = 'Purísima'
+  PURISIMA = 'Purísima',
+  VIRGEN = 'Cantos de la Virgen'
 }
 
 export type UserRole = 'admin' | 'member';
@@ -16,7 +17,7 @@ export interface Song {
   id: string;
   title: string;
   key: string;
-  category: LiturgicalTime;
+  category: string; // Changed from LiturgicalTime to string for dynamic categories
   content: string; // The full text including chord lines
   author: string;
   createdAt: number;

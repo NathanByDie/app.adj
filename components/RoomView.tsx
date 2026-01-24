@@ -22,6 +22,7 @@ interface RoomViewProps {
   ADMIN_EMAILS: string[];
   onEditSong: (song: Song) => void;
   onDeleteSong: (songId: string) => void;
+  categories: string[];
 }
 
 interface Notification {
@@ -80,8 +81,7 @@ const SwipeableMessage: React.FC<SwipeableMessageProps> = ({ msg, currentUser, o
   const onTouchEnd = (e: React.TouchEvent) => {
     if (Math.abs(translateX) > 50) {
       if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        // FIX: navigator.vibrate() requires at least one argument.
-        try { navigator.vibrate(50); } catch(e) {}
+        try { navigator.vibrate([500, 100, 500]); } catch(e) { try { navigator.vibrate(500); } catch(err) {} }
       }
       onReply(msg);
     }
@@ -121,7 +121,7 @@ const SwipeableMessage: React.FC<SwipeableMessageProps> = ({ msg, currentUser, o
 
 const RoomView: React.FC<RoomViewProps> = ({ 
     room, songs, currentUser, isAdmin, onExit, onUpdateRoom, darkMode = false, db, ADMIN_EMAILS,
-    onEditSong, onDeleteSong
+    onEditSong, onDeleteSong, categories
 }) => {
   const [selectedSongId, setSelectedSongId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -153,7 +153,7 @@ const RoomView: React.FC<RoomViewProps> = ({
   const toastTouchStartY = useRef<number | null>(null);
   
   const [isFollowingHost, setIsFollowingHost] = useState(true);
-  const [addSongFilter, setAddSongFilter] = useState<LiturgicalTime | 'Todos'>('Todos');
+  const [addSongFilter, setAddSongFilter] = useState<string>('Todos');
   const [isAddSongDrawerOpen, setIsAddSongDrawerOpen] = useState(false);
 
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
@@ -692,8 +692,8 @@ const RoomView: React.FC<RoomViewProps> = ({
             <div className="px-5 pb-3 space-y-3 shrink-0">
               <input type="text" placeholder="Buscar para añadir..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className={`w-full text-xs font-bold rounded-xl px-4 py-3 outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-100 border-slate-200 text-slate-900'}`} />
               <div className="flex gap-2 overflow-x-auto pb-2 -mx-5 px-5 custom-scroll">
-                {['Todos', ...Object.values(LiturgicalTime)].map(f => (
-                  <button key={f} onClick={() => setAddSongFilter(f as any)} className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase shrink-0 transition-all ${addSongFilter === f ? 'bg-misionero-azul text-white' : (darkMode ? 'bg-slate-800 text-slate-500' : 'bg-slate-100 text-slate-400')}`}>{f}</button>
+                {['Todos', ...categories].map((f: string) => (
+                  <button key={f} onClick={() => setAddSongFilter(f)} className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase shrink-0 transition-all ${addSongFilter === f ? 'bg-misionero-azul text-white' : (darkMode ? 'bg-slate-800 text-slate-500' : 'bg-slate-100 text-slate-400')}`}>{f}</button>
                 ))}
               </div>
             </div>

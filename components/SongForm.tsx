@@ -7,12 +7,13 @@ interface SongFormProps {
   onSave: (song: Omit<Song, 'id' | 'createdAt'>) => void;
   onCancel: () => void;
   darkMode?: boolean;
+  categories: string[];
 }
 
-const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, darkMode = false }) => {
+const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, darkMode = false, categories }) => {
   const [title, setTitle] = useState('');
   const [key, setKey] = useState('DO');
-  const [category, setCategory] = useState<LiturgicalTime>(LiturgicalTime.ORDINARIO);
+  const [category, setCategory] = useState<string>(LiturgicalTime.ORDINARIO);
   const [content, setContent] = useState('');
   const [showPreview, setShowPreview] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -101,8 +102,8 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
             </div>
             <div className={`${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-100'} rounded-2xl p-4 border transition-colors duration-500`}>
               <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest block mb-2">Momento</label>
-              <select className={`w-full ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-misionero-verde'} rounded-xl px-3 py-2 text-[10px] font-black outline-none appearance-none transition-colors`} value={category} onChange={e => setCategory(e.target.value as LiturgicalTime)}>
-                {Object.values(LiturgicalTime).map(t => <option key={t} value={t}>{t}</option>)}
+              <select className={`w-full ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-misionero-verde'} rounded-xl px-3 py-2 text-[10px] font-black outline-none appearance-none transition-colors`} value={category} onChange={e => setCategory(e.target.value)}>
+                {categories.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
           </div>

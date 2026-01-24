@@ -59,6 +59,7 @@ setPersistence(auth, browserLocalPersistence).catch(err => console.error("Error 
 
 type AppView = 'feed' | 'favorites' | 'room' | 'settings';
 const VIEW_ORDER: AppView[] = ['feed', 'favorites', 'room', 'settings'];
+type AnimationDirection = 'left' | 'right' | 'fade';
 
 const ADMIN_EMAILS = [
   'johannino674@gmail.com',
@@ -67,16 +68,12 @@ const ADMIN_EMAILS = [
   'jitteryqwq@gmail.com'
 ];
 
-const LITURGICAL_IMAGES: Record<LiturgicalTime, string> = {
-  [LiturgicalTime.ADVIENTO]: 'https://i.imgur.com/rM73Tce.jpeg',
-  [LiturgicalTime.NAVIDAD]: 'https://i.imgur.com/gS4n5sF.jpeg',
-  [LiturgicalTime.CUARESMA]: 'https://i.imgur.com/GZI42Ye.jpeg',
-  [LiturgicalTime.PASCUA]: 'https://i.imgur.com/dCV2ENT.jpeg',
-  [LiturgicalTime.ORDINARIO]: 'https://i.imgur.com/7g4e1bX.png',
-  [LiturgicalTime.ANIMACION]: 'https://i.imgur.com/7g4e1bX.png',
-  [LiturgicalTime.MEDITACION]: 'https://i.imgur.com/rM73Tce.jpeg',
-  [LiturgicalTime.PURISIMA]: 'https://i.imgur.com/Fw5SA59.jpeg',
-};
+const LoadingSpinner = () => (
+    <div className="absolute inset-0 flex items-center justify-center bg-slate-50/50 dark:bg-slate-950/50 backdrop-blur-sm z-50">
+        <div className="w-10 h-10 border-4 border-misionero-azul/30 border-t-misionero-azul rounded-full animate-spin"></div>
+    </div>
+);
+
 
 const LogoutIcon = () => (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5">
@@ -114,8 +111,8 @@ const GlassToggle = ({ checked, onChange }: { checked: boolean, onChange: (check
     );
 };
 
-const getLiturgicalColorClass = (category: LiturgicalTime) => {
-  const map: Record<LiturgicalTime, string> = {
+const getLiturgicalColorClass = (category: string) => {
+  const map: Record<string, string> = {
     [LiturgicalTime.ADVIENTO]: 'text-misionero-azul',
     [LiturgicalTime.NAVIDAD]: 'text-misionero-amarillo',
     [LiturgicalTime.CUARESMA]: 'text-misionero-rojo',
@@ -124,6 +121,7 @@ const getLiturgicalColorClass = (category: LiturgicalTime) => {
     [LiturgicalTime.ANIMACION]: 'text-misionero-amarillo',
     [LiturgicalTime.MEDITACION]: 'text-misionero-azul',
     [LiturgicalTime.PURISIMA]: 'text-misionero-azul',
+    [LiturgicalTime.VIRGEN]: 'text-misionero-azul',
   };
   return map[category] || 'text-slate-400';
 };
@@ -215,248 +213,315 @@ const LoginView = ({ handleAuthSubmit, authData, setAuthData, authMode, setAuthM
   </div>
 );
 
-const MainView = ({
-  user, songs, favorites, view, darkMode, searchQuery, activeFilter, roomCodeInput, newUsername, passwordChangeData, passwordChangeMsg, isUpdatingPassword,
-  isUpdatingUsername, isJoiningRoom, showChangePassword, showOpenInAppButton, globalAlert, activeSong, activeRoom, editingSong, isAdmin, hasElevatedPermissions,
-  filteredSongs, favoriteSongs, navigateTo, onTouchStart, onTouchEnd, setActiveFilter, setSearchQuery, handleJoinRoom, setRoomCodeInput, handleCreateRoom,
-  setNewUsername, handleUpdateUsername, setPasswordChangeData, toggleShowChangePassword, handleChangePassword, setDarkMode, setGlobalAlert, handleOpenInApp,
-  openSongEditor, toggleFavorite, openSongViewer, goBack, handleDeleteSong, exitRoom, handleUpdateRoom, db, ADMIN_EMAILS,
-  usernameChangePassword, setUsernameChangePassword, showUsernamePass, setShowUsernamePass
-}: any) => (
-  <div className={`fixed inset-0 max-w-md mx-auto transition-colors duration-500 ${darkMode ? 'text-white bg-slate-950' : 'text-slate-900 bg-slate-50'} overflow-hidden flex flex-col`} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-    <header onTouchStart={(e) => e.stopPropagation()} className={`shrink-0 px-4 pt-12 pb-3 z-30`}>
-      <div className="flex justify-between items-center mb-3">
-        <div>
-          <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.3em] mb-0.5">ADJStudios</p>
-          <h2 className="text-lg font-black tracking-tight">
-            {view === 'feed' ? `Hola, ${user.username}` : view === 'favorites' ? 'Mis Favoritos' : view === 'room' ? 'Sala en Vivo' : 'Ajustes'}
-          </h2>
-        </div>
-        <div className="flex items-center gap-3">
-          {view === 'settings' && (
-            <button onClick={() => signOut(auth)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-misionero-rojo/10 text-misionero-rojo active:scale-95 transition-all">
-              <LogoutIcon />
-              <span className="text-[9px] font-black uppercase">Cerrar Sesión</span>
-            </button>
-          )}
-          {isAdmin && <span className="text-[7px] font-black bg-misionero-rojo text-white px-2 py-1 rounded-full uppercase animate-pulse">Admin</span>}
-        </div>
-      </div>
-      {(view === 'feed' || view === 'favorites') && (
-        <div className="space-y-3 animate-in fade-in duration-300">
-          <input type="text" placeholder="Buscar música..." className={`w-full glass-ui rounded-2xl px-4 py-2 text-xs font-bold outline-none ${darkMode ? 'text-white placeholder:text-slate-600' : 'text-slate-900 placeholder:text-slate-400'}`} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
-          <div className="flex gap-2 overflow-x-auto pb-2 pt-1 no-swipe custom-scroll">
-            {['Todos', ...Object.values(LiturgicalTime)].map(f => (
-              <button key={f} onClick={() => setActiveFilter(f as any)} className={`px-5 py-2 rounded-full text-[9px] font-black uppercase shrink-0 transition-all ${activeFilter === f ? 'bg-misionero-azul text-white' : 'glass-ui text-slate-400'}`}>{f}</button>
-            ))}
-          </div>
-        </div>
-      )}
-    </header>
-
-    <main className="flex-1 relative overflow-hidden">
-      <div 
-        className="flex h-full w-[400%] transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
-        style={{ transform: `translateX(-${VIEW_ORDER.indexOf(view) * 25}%)` }}
-      >
-        <div key="feed-panel" className="w-1/4 h-full overflow-y-auto custom-scroll px-4 pt-4 pb-32 space-y-3">
-           {filteredSongs.map((song: Song, index: number) => (
-              <div 
-                key={song.id} 
-                className="relative glass-ui rounded-[1.8rem] overflow-hidden active:scale-[0.98] transition-all animate-stagger-in"
-                style={{ animationDelay: `${index * 50}ms` }}
-                onClick={() => openSongViewer(song)}
-              >
-                <button onClick={(e) => toggleFavorite(e, song.id)} className={`absolute top-3 right-3 z-20 p-2 transition-colors ${favorites.includes(song.id) ? 'text-misionero-rojo' : `${darkMode ? 'text-white/30 hover:text-white/60' : 'text-black/20 hover:text-black/50'}`}`}>
-                  <svg className="w-5 h-5" fill={favorites.includes(song.id) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
-                </button>
-                <div className="p-4">
-                  <p className={`text-[7px] font-black uppercase mb-1 ${getLiturgicalColorClass(song.category)}`}>{song.category}</p>
-                  <h4 className={`font-black text-sm uppercase truncate pr-8 ${darkMode ? 'text-white' : 'text-slate-800'}`}>{song.title}</h4>
-                  <p className={`text-[9px] font-bold ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Tono: <span className={`${darkMode ? 'text-misionero-rojo/80' : 'text-misionero-rojo'}`}>{song.key}</span> • Por: {song.author}</p>
-                </div>
-              </div>
-           ))}
-        </div>
-
-        <div key="favs-panel" className="w-1/4 h-full overflow-y-auto custom-scroll px-4 pt-4 pb-32 space-y-3">
-           {favoriteSongs.length === 0 ? (
-             <div className="flex flex-col items-center justify-center h-full opacity-20"><p className="text-[10px] font-black uppercase">Sin favoritos</p></div>
-           ) : favoriteSongs.map((song: Song, index: number) => (
-              <div 
-                key={song.id} 
-                className="relative glass-ui rounded-[1.8rem] overflow-hidden active:scale-[0.98] transition-all animate-stagger-in"
-                style={{ animationDelay: `${index * 50}ms` }}
-                onClick={() => openSongViewer(song)}
-              >
-                <button onClick={(e) => toggleFavorite(e, song.id)} className={`absolute top-3 right-3 z-20 p-2 transition-colors ${favorites.includes(song.id) ? 'text-misionero-rojo' : `${darkMode ? 'text-white/30 hover:text-white/60' : 'text-black/20 hover:text-black/50'}`}`}>
-                  <svg className="w-5 h-5" fill={favorites.includes(song.id) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
-                </button>
-                <div className="p-4">
-                   <p className={`text-[7px] font-black uppercase mb-1 ${getLiturgicalColorClass(song.category)}`}>{song.category}</p>
-                  <h4 className={`font-black text-sm uppercase truncate pr-8 ${darkMode ? 'text-white' : 'text-slate-800'}`}>{song.title}</h4>
-                   <p className={`text-[9px] font-bold ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Tono: <span className={`${darkMode ? 'text-misionero-rojo/80' : 'text-misionero-rojo'}`}>{song.key}</span> • Por: {song.author}</p>
-                </div>
-              </div>
-           ))}
-        </div>
-
-        <div className="w-1/4 h-full flex flex-col items-center justify-center px-8 py-4 text-center space-y-6 relative">
-            {isJoiningRoom && (
-               <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/30 dark:bg-slate-950/30 backdrop-blur-md animate-in fade-in duration-300 rounded-[2.5rem]">
-                  <div className="w-12 h-12 border-4 border-misionero-azul border-t-transparent rounded-full animate-spin mb-4"></div>
-                  <p className="text-[10px] font-black uppercase tracking-widest animate-pulse">Cargando Sala...</p>
-               </div>
-            )}
-            <div className="w-20 h-20 bg-misionero-azul/10 rounded-[2rem] flex items-center justify-center text-misionero-azul"><UsersIcon /></div>
-            <div><h3 className="text-xl font-black uppercase mb-2">Sincronización</h3><p className="text-[10px] font-bold text-slate-400 uppercase leading-relaxed">Únete a una sala para ver los acordes en tiempo real.</p></div>
-            <input type="text" placeholder="CÓDIGO" className="w-full glass-ui rounded-2xl px-6 py-4 text-center font-black text-lg uppercase outline-none" value={roomCodeInput} onChange={e => setRoomCodeInput(e.target.value)} />
-            <button onClick={handleJoinRoom} className="w-full glass-ui glass-interactive bg-misionero-azul/70 text-white font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest active:scale-95 transition-all">UNIRME</button>
-            {isAdmin && <button onClick={handleCreateRoom} className="w-full glass-ui glass-interactive bg-misionero-verde/30 text-misionero-verde font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest active:scale-95 transition-all">CREAR SALA</button>}
-        </div>
-
-        <div className="w-1/4 h-full overflow-y-auto custom-scroll px-6 py-4 space-y-8">
-            <section className="space-y-4">
-               <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Apariencia</h3>
-               <div className="glass-ui p-5 rounded-[2.5rem] flex items-center justify-between">
-                  <span className="text-[10px] font-black uppercase tracking-widest">{darkMode ? 'Modo Oscuro' : 'Modo Claro'}</span>
-                  <GlassToggle checked={darkMode} onChange={setDarkMode} />
-               </div>
-            </section>
-
-            <section className="space-y-4">
-               <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Perfil</h3>
-               <div className="glass-ui p-6 rounded-[2.5rem] space-y-4">
-                  <div>
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-[8px] font-black uppercase text-slate-400">Nombre de Usuario</span>
-                    </div>
-                    <input type="text" className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} value={newUsername} onChange={e => setNewUsername(e.target.value)} />
-                    
-                    <div className="relative mt-3">
-                        <input 
-                            type={showUsernamePass ? 'text' : 'password'} 
-                            placeholder="Confirma con tu contraseña" 
-                            className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none placeholder:text-slate-400/50 ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} 
-                            value={usernameChangePassword} 
-                            onChange={e => setUsernameChangePassword(e.target.value)} 
-                        />
-                         <button type="button" onClick={() => setShowUsernamePass(!showUsernamePass)} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showUsernamePass ? <EyeOffIcon/> : <EyeIcon/>}</button>
-                    </div>
-
-                    <button onClick={handleUpdateUsername} disabled={isUpdatingUsername || !usernameChangePassword} className="w-full mt-3 glass-ui glass-interactive bg-misionero-azul/70 text-white font-black py-4 rounded-2xl text-[9px] uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">{isUpdatingUsername ? 'Verificando...' : 'Guardar Cambios'}</button>
-                  </div>
-               </div>
-            </section>
-
-            <section className="space-y-4 pb-8">
-               <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Seguridad</h3>
-               <form onSubmit={handleChangePassword} className="glass-ui p-6 rounded-[2.5rem]">
-                  <div className="space-y-3">
-                    <div className="relative">
-                      <input type={showChangePassword.current ? 'text' : 'password'} placeholder="Contraseña Actual" value={passwordChangeData.current} onChange={e => setPasswordChangeData(p => ({...p, current: e.target.value}))} required className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} />
-                      <button type="button" onClick={() => toggleShowChangePassword('current')} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showChangePassword.current ? <EyeOffIcon/> : <EyeIcon/>}</button>
-                    </div>
-                    <div className="relative">
-                      <input type={showChangePassword.newPass ? 'text' : 'password'} placeholder="Nueva Contraseña" value={passwordChangeData.newPass} onChange={e => setPasswordChangeData(p => ({...p, newPass: e.target.value}))} required className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} />
-                      <button type="button" onClick={() => toggleShowChangePassword('newPass')} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showChangePassword.newPass ? <EyeOffIcon/> : <EyeIcon/>}</button>
-                    </div>
-                    <div className="relative">
-                      <input type={showChangePassword.confirm ? 'text' : 'password'} placeholder="Confirmar" value={passwordChangeData.confirm} onChange={e => setPasswordChangeData(p => ({...p, confirm: e.target.value}))} required className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} />
-                       <button type="button" onClick={() => toggleShowChangePassword('confirm')} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showChangePassword.confirm ? <EyeOffIcon/> : <EyeIcon/>}</button>
-                    </div>
-                  </div>
-                  {passwordChangeMsg && <div className={`mt-4 text-[9px] font-black text-center uppercase ${passwordChangeMsg.type === 'error' ? 'text-red-400' : 'text-green-400'}`}>{passwordChangeMsg.text}</div>}
-                  <button type="submit" disabled={isUpdatingPassword} className="w-full mt-4 glass-ui glass-interactive bg-misionero-verde/70 text-white font-black py-4 rounded-2xl text-[9px] uppercase tracking-widest active:scale-95 transition-all">{isUpdatingPassword ? '...' : 'Actualizar Pass'}</button>
-               </form>
-            </section>
-        </div>
-      </div>
-    </main>
-
-    {view === 'feed' && isAdmin && !activeSong && !editingSong && !activeRoom && (
-      <button onClick={() => openSongEditor(null)} className="fixed bottom-[5rem] right-6 w-16 h-16 glass-ui glass-interactive bg-misionero-rojo/70 text-white rounded-[1.8rem] flex items-center justify-center z-40 animate-bounce-subtle active:scale-90 transition-transform"><PlusIcon /></button>
-    )}
-
-    {globalAlert && (
-      <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200">
-         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setGlobalAlert(null)}></div>
-         <div className="glass-ui relative w-full max-w-sm p-6 rounded-[2rem] animate-in zoom-in-95 duration-200">
-            <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 mx-auto ${globalAlert.type === 'error' ? 'glass-ui bg-misionero-rojo/30 text-misionero-rojo' : 'glass-ui bg-misionero-azul/30 text-misionero-azul'}`}>
-               {globalAlert.type === 'error' ? (
-                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-               ) : (
-                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-               )}
-            </div>
-            <h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{globalAlert.title}</h3>
-            <p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{globalAlert.message}</p>
-            <button onClick={() => setGlobalAlert(null)} className={`w-full py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest active:scale-95 transition-transform glass-ui glass-interactive ${globalAlert.type === 'error' ? 'bg-misionero-rojo/70 text-white' : 'bg-misionero-azul/70 text-white'}`}>Entendido</button>
-         </div>
-      </div>
-    )}
-    
-    {showOpenInAppButton && (
-      <div className="fixed bottom-[5rem] left-1/2 -translate-x-1/2 z-40 animate-in fade-in slide-in-from-bottom-5 duration-300">
-          <button 
-              onClick={handleOpenInApp}
-              className="glass-ui glass-interactive bg-misionero-azul/70 text-white flex items-center gap-3 px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-2xl active:scale-95 transition-transform"
+// --- VISTAS INDIVIDUALES ---
+const FeedView = ({ songs, favorites, openSongViewer, toggleFavorite, darkMode }: any) => (
+    <div className="w-full h-full overflow-y-auto custom-scroll px-4 pt-4 pb-32 space-y-3">
+       {songs.map((song: Song, index: number) => (
+          <div 
+            key={song.id} 
+            className="relative glass-ui rounded-[1.8rem] overflow-hidden active:scale-[0.98] transition-all animate-stagger-in"
+            style={{ animationDelay: `${index * 50}ms` }}
+            onClick={() => openSongViewer(song)}
           >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-              <span>Abrir en la App</span>
-          </button>
-      </div>
-    )}
-
-    <nav onTouchStart={(e) => e.stopPropagation()} className="glass-ui shrink-0 w-full px-4 pt-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] flex justify-center gap-14 items-center z-50 max-w-md mx-auto">
-      {VIEW_ORDER.map((v) => {
-        const isActive = view === v;
-        let activeColorClass = 'text-slate-400 dark:text-slate-500';
-        let bubbleColorClass = 'bg-slate-400/10';
-        if (v === 'feed') { activeColorClass = isActive ? 'text-misionero-azul' : 'text-slate-400 dark:text-slate-500'; bubbleColorClass = 'bg-misionero-azul/15'; }
-        else if (v === 'favorites') { activeColorClass = isActive ? 'text-misionero-rojo' : 'text-slate-400 dark:text-slate-500'; bubbleColorClass = 'bg-misionero-rojo/15'; }
-        else if (v === 'room') { activeColorClass = isActive ? 'text-misionero-verde' : 'text-slate-400 dark:text-slate-500'; bubbleColorClass = 'bg-misionero-verde/15'; }
-        else if (v === 'settings') { activeColorClass = isActive ? (darkMode ? 'text-white' : 'text-slate-900') : 'text-slate-400 dark:text-slate-500'; bubbleColorClass = darkMode ? 'bg-white/10' : 'bg-slate-900/10'; }
-        return (
-          <button key={v} onClick={() => navigateTo(v)} className={`flex flex-col items-center gap-1.5 transition-all duration-300 ${activeColorClass}`}>
-            <div className="relative flex items-center justify-center">
-              <div className={`absolute inset-x-[-12px] inset-y-[-4px] rounded-full transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${bubbleColorClass} ${isActive ? 'scale-100 opacity-100' : 'scale-0 opacity-0'}`}></div>
-              <div className={`relative transition-transform duration-300 z-10 ${isActive ? 'scale-110' : 'scale-100'}`}>
-                {v === 'feed' && <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>}
-                {v === 'favorites' && <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>}
-                {v === 'room' && <UsersIcon />}
-                {v === 'settings' && <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 15.5A3.5 3.5 0 1 1 15.5 12 3.5 3.5 0 0 1 12 15.5z"/></svg>}
-              </div>
+            <button onClick={(e) => toggleFavorite(e, song.id)} className={`absolute top-3 right-3 z-20 p-2 transition-colors ${favorites.includes(song.id) ? 'text-misionero-rojo' : `${darkMode ? 'text-white/30 hover:text-white/60' : 'text-black/20 hover:text-black/50'}`}`}>
+              <svg className="w-5 h-5" fill={favorites.includes(song.id) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
+            </button>
+            <div className="p-4">
+              <p className={`text-[7px] font-black uppercase mb-1 ${getLiturgicalColorClass(song.category)}`}>{song.category}</p>
+              <h4 className={`font-black text-sm uppercase truncate pr-8 ${darkMode ? 'text-white' : 'text-slate-800'}`}>{song.title}</h4>
+              <p className={`text-[9px] font-bold ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Tono: <span className={`${darkMode ? 'text-misionero-rojo/80' : 'text-misionero-rojo'}`}>{song.key}</span> • Por: {song.author}</p>
             </div>
-            <span className={`text-[8px] font-black uppercase tracking-tighter relative z-10 transition-colors duration-300`}>{v === 'feed' ? 'Inicio' : v === 'favorites' ? 'Favs' : v === 'room' ? 'Sala' : 'Ajustes'}</span>
-          </button>
-        );
-      })}
-    </nav>
-    {editingSong && hasElevatedPermissions && (
-      <div className="fixed inset-0 z-[300]">
-        <SongForm initialData={typeof editingSong === 'boolean' ? undefined : editingSong} onSave={async (data) => { if (typeof editingSong !== 'boolean' && editingSong) { await updateDoc(doc(db, "songs", editingSong.id), data); } else { await addDoc(collection(db, "songs"), { ...data, createdAt: Date.now(), author: user.username }); } goBack(); }} onCancel={goBack} darkMode={darkMode} />
-      </div>
-    )}
-    {activeSong && (
-      <div className="fixed inset-0 z-[100]">
-        <SongViewer song={activeSong} onBack={goBack} darkMode={darkMode} onEdit={hasElevatedPermissions ? () => openSongEditor(activeSong) : undefined} onDelete={hasElevatedPermissions ? () => handleDeleteSong(activeSong.id) : undefined} />
-      </div>
-    )}
-    {activeRoom && (
-      <div className="fixed inset-0 z-[200]">
-        <RoomView room={activeRoom} songs={songs} currentUser={user.username} isAdmin={isAdmin} onExit={exitRoom} onUpdateRoom={handleUpdateRoom} darkMode={darkMode} db={db} ADMIN_EMAILS={ADMIN_EMAILS} onEditSong={openSongEditor} onDeleteSong={handleDeleteSong} />
-      </div>
-    )}
-  </div>
+          </div>
+       ))}
+    </div>
 );
 
+const FavoritesView = ({ songs, favorites, openSongViewer, toggleFavorite, darkMode }: any) => (
+    <div className="w-full h-full overflow-y-auto custom-scroll px-4 pt-4 pb-32 space-y-3">
+       {songs.length === 0 ? (
+         <div className="flex flex-col items-center justify-center h-full opacity-20"><p className="text-[10px] font-black uppercase">Sin favoritos</p></div>
+       ) : songs.map((song: Song, index: number) => (
+          <div 
+            key={song.id} 
+            className="relative glass-ui rounded-[1.8rem] overflow-hidden active:scale-[0.98] transition-all animate-stagger-in"
+            style={{ animationDelay: `${index * 50}ms` }}
+            onClick={() => openSongViewer(song)}
+          >
+            <button onClick={(e) => toggleFavorite(e, song.id)} className={`absolute top-3 right-3 z-20 p-2 transition-colors ${favorites.includes(song.id) ? 'text-misionero-rojo' : `${darkMode ? 'text-white/30 hover:text-white/60' : 'text-black/20 hover:text-black/50'}`}`}>
+              <svg className="w-5 h-5" fill={favorites.includes(song.id) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
+            </button>
+            <div className="p-4">
+               <p className={`text-[7px] font-black uppercase mb-1 ${getLiturgicalColorClass(song.category)}`}>{song.category}</p>
+              <h4 className={`font-black text-sm uppercase truncate pr-8 ${darkMode ? 'text-white' : 'text-slate-800'}`}>{song.title}</h4>
+               <p className={`text-[9px] font-bold ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Tono: <span className={`${darkMode ? 'text-misionero-rojo/80' : 'text-misionero-rojo'}`}>{song.key}</span> • Por: {song.author}</p>
+            </div>
+          </div>
+       ))}
+    </div>
+);
+
+const RoomLobbyView = ({ roomCodeInput, setRoomCodeInput, handleJoinRoom, handleCreateRoom, isAdmin, isJoiningRoom }: any) => (
+    <div className="w-full h-full flex flex-col items-center justify-center px-8 py-4 text-center space-y-6 relative">
+        {isJoiningRoom && (
+           <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/30 dark:bg-slate-950/30 backdrop-blur-md animate-in fade-in duration-300 rounded-[2.5rem]">
+              <div className="w-12 h-12 border-4 border-misionero-azul border-t-transparent rounded-full animate-spin mb-4"></div>
+              <p className="text-[10px] font-black uppercase tracking-widest animate-pulse">Cargando Sala...</p>
+           </div>
+        )}
+        <div className="w-20 h-20 bg-misionero-azul/10 rounded-[2rem] flex items-center justify-center text-misionero-azul"><UsersIcon /></div>
+        <div><h3 className="text-xl font-black uppercase mb-2">Sincronización</h3><p className="text-[10px] font-bold text-slate-400 uppercase leading-relaxed">Únete a una sala para ver los acordes en tiempo real.</p></div>
+        <input type="text" placeholder="CÓDIGO" className="w-full glass-ui rounded-2xl px-6 py-4 text-center font-black text-lg uppercase outline-none" value={roomCodeInput} onChange={e => setRoomCodeInput(e.target.value)} />
+        <button onClick={handleJoinRoom} className="w-full glass-ui glass-interactive bg-misionero-azul/70 text-white font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest active:scale-95 transition-all">UNIRME</button>
+        {isAdmin && <button onClick={handleCreateRoom} className="w-full glass-ui glass-interactive bg-misionero-verde/30 text-misionero-verde font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest active:scale-95 transition-all">CREAR SALA</button>}
+    </div>
+);
+
+const SettingsView = ({ darkMode, setDarkMode, isAdmin, categories, newCategoryName, setNewCategoryName, onAddCategory, editingCategory, setEditingCategory, onSaveEditCategory, handleDeleteCategory, newUsername, setNewUsername, showUsernamePass, setShowUsernamePass, usernameChangePassword, setUsernameChangePassword, isUpdatingUsername, handleUpdateUsername, passwordChangeData, setPasswordChangeData, showChangePassword, toggleShowChangePassword, passwordChangeMsg, isUpdatingPassword, handleChangePassword, setCategoryConfirmModal }: any) => {
+    
+    const EditIcon = ({ className }: { className?: string }) => (
+      <svg className={className || "w-3 h-3"} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+      </svg>
+    );
+
+    return (
+    <div className="w-full h-full overflow-y-auto custom-scroll px-6 py-4 space-y-8">
+        <section className="space-y-4">
+           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Apariencia</h3>
+           <div className="glass-ui p-5 rounded-[2.5rem] flex items-center justify-between">
+              <span className="text-[10px] font-black uppercase tracking-widest">{darkMode ? 'Modo Oscuro' : 'Modo Claro'}</span>
+              <GlassToggle checked={darkMode} onChange={setDarkMode} />
+           </div>
+        </section>
+
+         {isAdmin && (
+          <section className="space-y-4">
+              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Administrar Categorías</h3>
+              <div className="glass-ui p-6 rounded-[2.5rem] space-y-4">
+                  <div className="flex gap-2">
+                      <input 
+                          type="text" 
+                          placeholder="Nueva Categoría" 
+                          className={`flex-1 glass-ui rounded-xl px-3 py-2 text-xs font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`}
+                          value={newCategoryName}
+                          onChange={e => setNewCategoryName(e.target.value)}
+                      />
+                      <button onClick={onAddCategory} className="bg-misionero-verde text-white p-2 rounded-xl active:scale-90 transition-transform">
+                          <PlusIcon />
+                      </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                      {categories.map((cat: {id: string, name: string}) => (
+                          <div key={cat.id} className={`flex items-center gap-2 pl-3 pr-1 py-1 rounded-lg text-[9px] font-black uppercase glass-ui ${darkMode ? 'bg-slate-800/40' : 'bg-white/40'}`}>
+                              {editingCategory?.id === cat.id ? (
+                                  <input 
+                                      autoFocus
+                                      className="bg-transparent outline-none w-20"
+                                      value={editingCategory.name}
+                                      onChange={e => setEditingCategory({...editingCategory, name: e.target.value})}
+                                      onBlur={onSaveEditCategory}
+                                      onKeyDown={e => e.key === 'Enter' && onSaveEditCategory()}
+                                  />
+                              ) : (
+                                  <span>{cat.name}</span>
+                              )}
+                              <button onClick={() => setEditingCategory({id: cat.id, name: cat.name})} className={`p-1 rounded-md transition-colors ${darkMode ? 'hover:bg-white/10 text-slate-400' : 'hover:bg-black/5 text-slate-500'}`}><EditIcon /></button>
+                              <button onClick={() => setCategoryConfirmModal({ title: 'Eliminar Categoría', message: `¿Seguro que quieres eliminar "${cat.name}"? Esta acción no se puede deshacer.`, action: () => { handleDeleteCategory(cat.id); setCategoryConfirmModal(null); }, type: 'danger' })} className={`p-1 rounded-md transition-colors ${darkMode ? 'hover:bg-red-500/10 text-red-400/70' : 'hover:bg-red-500/5 text-red-500/70'}`}>
+                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"/></svg>
+                              </button>
+                          </div>
+                      ))}
+                  </div>
+              </div>
+          </section>
+        )}
+
+        <section className="space-y-4">
+           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Perfil</h3>
+           <div className="glass-ui p-6 rounded-[2.5rem] space-y-4">
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-[8px] font-black uppercase text-slate-400">Nombre de Usuario</span>
+                </div>
+                <input type="text" className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} value={newUsername} onChange={e => setNewUsername(e.target.value)} />
+                
+                <div className="relative mt-3">
+                    <input 
+                        type={showUsernamePass ? 'text' : 'password'} 
+                        placeholder="Confirma con tu contraseña" 
+                        className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none placeholder:text-slate-400/50 ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} 
+                        value={usernameChangePassword} 
+                        onChange={e => setUsernameChangePassword(e.target.value)} 
+                    />
+                     <button type="button" onClick={() => setShowUsernamePass(!showUsernamePass)} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showUsernamePass ? <EyeOffIcon/> : <EyeIcon/>}</button>
+                </div>
+
+                <button onClick={handleUpdateUsername} disabled={isUpdatingUsername || !usernameChangePassword} className="w-full mt-3 glass-ui glass-interactive bg-misionero-azul/70 text-white font-black py-4 rounded-2xl text-[9px] uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">{isUpdatingUsername ? 'Verificando...' : 'Guardar Cambios'}</button>
+              </div>
+           </div>
+        </section>
+
+        <section className="space-y-4 pb-8">
+           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Seguridad</h3>
+           <form onSubmit={handleChangePassword} className="glass-ui p-6 rounded-[2.5rem]">
+              <div className="space-y-3">
+                <div className="relative">
+                  <input type={showChangePassword.current ? 'text' : 'password'} placeholder="Contraseña Actual" value={passwordChangeData.current} onChange={e => setPasswordChangeData(p => ({...p, current: e.target.value}))} required className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} />
+                  <button type="button" onClick={() => toggleShowChangePassword('current')} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showChangePassword.current ? <EyeOffIcon/> : <EyeIcon/>}</button>
+                </div>
+                <div className="relative">
+                  <input type={showChangePassword.newPass ? 'text' : 'password'} placeholder="Nueva Contraseña" value={passwordChangeData.newPass} onChange={e => setPasswordChangeData(p => ({...p, newPass: e.target.value}))} required className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} />
+                  <button type="button" onClick={() => toggleShowChangePassword('newPass')} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showChangePassword.newPass ? <EyeOffIcon/> : <EyeIcon/>}</button>
+                </div>
+                <div className="relative">
+                  <input type={showChangePassword.confirm ? 'text' : 'password'} placeholder="Confirmar" value={passwordChangeData.confirm} onChange={e => setPasswordChangeData(p => ({...p, confirm: e.target.value}))} required className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} />
+                   <button type="button" onClick={() => toggleShowChangePassword('confirm')} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showChangePassword.confirm ? <EyeOffIcon/> : <EyeIcon/>}</button>
+                </div>
+              </div>
+              {passwordChangeMsg && <div className={`mt-4 text-[9px] font-black text-center uppercase ${passwordChangeMsg.type === 'error' ? 'text-red-400' : 'text-green-400'}`}>{passwordChangeMsg.text}</div>}
+              <button type="submit" disabled={isUpdatingPassword} className="w-full mt-4 glass-ui glass-interactive bg-misionero-verde/70 text-white font-black py-4 rounded-2xl text-[9px] uppercase tracking-widest active:scale-95 transition-all">{isUpdatingPassword ? '...' : 'Actualizar Pass'}</button>
+           </form>
+        </section>
+    </div>
+    );
+};
+
+
+// --- COMPONENTE PRINCIPAL DE LA VISTA ---
+const MainView = ({
+  user, view, darkMode, setDarkMode, isAdmin, animationDirection, navigateTo,
+  // Props para todas las vistas
+  songs, favorites, openSongViewer, toggleFavorite,
+  searchQuery, setSearchQuery, activeFilter, setActiveFilter, categories,
+  // Props para Sala
+  roomCodeInput, setRoomCodeInput, handleJoinRoom, handleCreateRoom, isJoiningRoom,
+  // Props para Ajustes
+  handleCreateCategory, handleDeleteCategory, handleEditCategory, setCategoryConfirmModal,
+  newUsername, setNewUsername, showUsernamePass, setShowUsernamePass, usernameChangePassword, setUsernameChangePassword, isUpdatingUsername, handleUpdateUsername,
+  passwordChangeData, setPasswordChangeData, showChangePassword, toggleShowChangePassword, passwordChangeMsg, isUpdatingPassword, handleChangePassword
+}: any) => {
+  
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [editingCategory, setEditingCategory] = useState<{id: string, name: string} | null>(null);
+  const touchStartCoords = useRef<{x: number, y: number} | null>(null);
+  const minSwipeDistance = 60;
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    // Solo registrar el inicio si no hay un overlay activo (canción, sala, etc)
+    if (document.querySelector('[data-is-overlay="true"]')) return;
+    touchStartCoords.current = { x: e.targetTouches[0].clientX, y: e.targetTouches[0].clientY };
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+      if (!touchStartCoords.current) return;
+
+      const deltaX = e.changedTouches[0].clientX - touchStartCoords.current.x;
+      const deltaY = e.changedTouches[0].clientY - touchStartCoords.current.y;
+
+      // Asegurarse que es un swipe horizontal y no un scroll vertical
+      if (Math.abs(deltaX) > Math.abs(deltaY) * 1.5 && Math.abs(deltaX) > minSwipeDistance) {
+          const currentIndex = VIEW_ORDER.indexOf(view);
+          if (deltaX < 0 && currentIndex < VIEW_ORDER.length - 1) { // Swipe Izquierda
+              navigateTo(VIEW_ORDER[currentIndex + 1], 'left');
+          } else if (deltaX > 0 && currentIndex > 0) { // Swipe Derecha
+              navigateTo(VIEW_ORDER[currentIndex - 1], 'right');
+          }
+      }
+      touchStartCoords.current = null;
+  };
+
+
+  const onAddCategory = () => {
+    if(newCategoryName.trim()) {
+        handleCreateCategory(newCategoryName.trim());
+        setNewCategoryName('');
+    }
+  };
+
+  const onSaveEditCategory = () => {
+      if(editingCategory && editingCategory.name.trim()) {
+          handleEditCategory(editingCategory.id, editingCategory.name.trim());
+          setEditingCategory(null);
+      }
+  };
+  
+  const categoryNames = useMemo(() => categories.map((c: any) => c.name), [categories]);
+  const filteredSongs = useMemo(() => songs.filter((s: Song) => (s.title.toLowerCase().includes(searchQuery.toLowerCase()) || s.author.toLowerCase().includes(searchQuery.toLowerCase())) && (activeFilter === 'Todos' || s.category === activeFilter)).sort((a:Song, b:Song) => a.title.localeCompare(b.title)), [songs, searchQuery, activeFilter]);
+  const favoriteSongs = useMemo(() => filteredSongs.filter((s: Song) => favorites.includes(s.id)), [filteredSongs, favorites]);
+
+  const renderActiveView = () => {
+      switch(view) {
+          case 'feed':
+              return <FeedView songs={filteredSongs} favorites={favorites} openSongViewer={openSongViewer} toggleFavorite={toggleFavorite} darkMode={darkMode} />;
+          case 'favorites':
+              return <FavoritesView songs={favoriteSongs} favorites={favorites} openSongViewer={openSongViewer} toggleFavorite={toggleFavorite} darkMode={darkMode} />;
+          case 'room':
+              return <RoomLobbyView roomCodeInput={roomCodeInput} setRoomCodeInput={setRoomCodeInput} handleJoinRoom={handleJoinRoom} handleCreateRoom={handleCreateRoom} isAdmin={isAdmin} isJoiningRoom={isJoiningRoom} />;
+          case 'settings':
+              return <SettingsView 
+                        darkMode={darkMode} setDarkMode={setDarkMode} isAdmin={isAdmin} 
+                        categories={categories} newCategoryName={newCategoryName} setNewCategoryName={setNewCategoryName} onAddCategory={onAddCategory} 
+                        editingCategory={editingCategory} setEditingCategory={setEditingCategory} onSaveEditCategory={onSaveEditCategory} handleDeleteCategory={handleDeleteCategory}
+                        newUsername={newUsername} setNewUsername={setNewUsername} showUsernamePass={showUsernamePass} setShowUsernamePass={setShowUsernamePass}
+                        usernameChangePassword={usernameChangePassword} setUsernameChangePassword={setUsernameChangePassword} isUpdatingUsername={isUpdatingUsername} handleUpdateUsername={handleUpdateUsername}
+                        passwordChangeData={passwordChangeData} setPasswordChangeData={setPasswordChangeData} showChangePassword={showChangePassword}
+                        toggleShowChangePassword={toggleShowChangePassword} passwordChangeMsg={passwordChangeMsg} isUpdatingPassword={isUpdatingPassword} handleChangePassword={handleChangePassword}
+                        setCategoryConfirmModal={setCategoryConfirmModal}
+                     />;
+          default:
+              return null;
+      }
+  };
+
+  const animationClass = 
+    animationDirection === 'left' ? 'animate-slide-in-from-right' :
+    animationDirection === 'right' ? 'animate-slide-in-from-left' :
+    'animate-view-fade-in';
+
+  return (
+    <div className={`fixed inset-0 max-w-md mx-auto transition-colors duration-500 ${darkMode ? 'text-white bg-slate-950' : 'text-slate-900 bg-slate-50'} overflow-hidden flex flex-col`}>
+      <header onTouchStart={(e) => e.stopPropagation()} className={`shrink-0 px-4 pt-12 pb-3 z-30`}>
+        <div className="flex justify-between items-center mb-3">
+          <div>
+            <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.3em] mb-0.5">ADJStudios</p>
+            <h2 className="text-lg font-black tracking-tight">
+              {view === 'feed' ? `Hola, ${user.username}` : view === 'favorites' ? 'Mis Favoritos' : view === 'room' ? 'Sala en Vivo' : 'Ajustes'}
+            </h2>
+          </div>
+          <div className="flex items-center gap-3">
+            {view === 'settings' && (
+              <button onClick={() => signOut(auth)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-misionero-rojo/10 text-misionero-rojo active:scale-95 transition-all">
+                <LogoutIcon />
+                <span className="text-[9px] font-black uppercase">Cerrar Sesión</span>
+              </button>
+            )}
+            {isAdmin && <span className="text-[7px] font-black bg-misionero-rojo text-white px-2 py-1 rounded-full uppercase animate-pulse">Admin</span>}
+          </div>
+        </div>
+        {(view === 'feed' || view === 'favorites') && (
+          <div className="space-y-3">
+            <input type="text" placeholder="Buscar música..." className={`w-full glass-ui rounded-2xl px-4 py-2 text-xs font-bold outline-none ${darkMode ? 'text-white placeholder:text-slate-600' : 'text-slate-900 placeholder:text-slate-400'}`} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+            <div className="flex gap-2 overflow-x-auto pb-2 pt-1 no-swipe custom-scroll">
+              {['Todos', ...categoryNames].map((f: string) => (
+                <button key={f} onClick={() => setActiveFilter(f as any)} className={`px-5 py-2 rounded-full text-[9px] font-black uppercase shrink-0 transition-all ${activeFilter === f ? 'bg-misionero-azul text-white' : 'glass-ui text-slate-400'}`}>{f}</button>
+              ))}
+            </div>
+          </div>
+        )}
+      </header>
+      <main className="flex-1 relative overflow-hidden" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+        <div key={view} className={`w-full h-full ${animationClass}`}>
+            {renderActiveView()}
+        </div>
+      </main>
+    </div>
+  );
+};
 
 const App: React.FC = () => {
   const [user, setUser] = useState<AppUser | null>(null);
   const [songs, setSongs] = useState<Song[]>([]);
+  const [categories, setCategories] = useState<{id: string, name: string}[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [view, setView] = useState<AppView>('feed');
   const [activeSong, setActiveSong] = useState<Song | null>(null);
@@ -466,7 +531,7 @@ const App: React.FC = () => {
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<LiturgicalTime | 'Todos'>('Todos');
+  const [activeFilter, setActiveFilter] = useState<string>('Todos');
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot'>('login');
   const [authData, setAuthData] = useState({ user: '', email: '', pass: '', confirmPass: '' });
   const [authMsg, setAuthMsg] = useState<{type: 'success' | 'error', text: string} | null>(null);
@@ -486,14 +551,16 @@ const App: React.FC = () => {
   const [showOpenInAppButton, setShowOpenInAppButton] = useState(false);
   const [connectionKey, setConnectionKey] = useState(0);
   const [globalAlert, setGlobalAlert] = useState<{ title: string, message: string, type: 'error' | 'success' | 'info' } | null>(null);
+  const [animationDirection, setAnimationDirection] = useState<AnimationDirection>('fade');
+  const [categoryConfirmModal, setCategoryConfirmModal] = useState<{ title: string, message: string, action: () => void, type: 'danger' | 'warning' } | null>(null);
 
-  const touchStartX = useRef<number | null>(null);
-  const touchStartY = useRef<number | null>(null);
-  const minSwipeDistance = 50;
-  
+  const categoryNames = useMemo(() => categories.map(c => c.name), [categories]);
+
   const toggleShowChangePassword = (field: 'current' | 'newPass' | 'confirm') => {
     setShowChangePassword(prev => ({ ...prev, [field]: !prev[field] }));
   };
+  
+  const toggleFavorite = async (e: React.MouseEvent, songId: string) => { e.stopPropagation(); if (user) await updateDoc(doc(db, "users", user.id), { favorites: favorites.includes(songId) ? arrayRemove(songId) : arrayUnion(songId) }); };
 
   useEffect(() => {
     localStorage.setItem('theme', darkMode ? 'dark' : 'light');
@@ -517,11 +584,23 @@ const App: React.FC = () => {
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, []);
 
-  const navigateTo = useCallback((newView: AppView) => {
+  const navigateTo = useCallback((newView: AppView, dir?: 'left' | 'right') => {
     if (view === newView) return;
+    
+    let direction: AnimationDirection = 'fade';
+    if (dir) {
+        direction = dir;
+    } else {
+        const currentIndex = VIEW_ORDER.indexOf(view);
+        const nextIndex = VIEW_ORDER.indexOf(newView);
+        if (nextIndex > currentIndex) direction = 'left';
+        if (nextIndex < currentIndex) direction = 'right';
+    }
+    
+    setAnimationDirection(direction);
     window.history.pushState({ view: newView }, '', '');
     setView(newView);
-  }, [view]);
+}, [view]);
 
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
@@ -580,6 +659,68 @@ const App: React.FC = () => {
     return () => unsubscribe();
   }, [activeRoom?.id, connectionKey]);
 
+  useEffect(() => {
+      if (!user) return;
+      const q = query(collection(db, "song_categories"), orderBy("name"));
+      const unsubscribe = onSnapshot(q, async (snapshot) => {
+          if (snapshot.empty) {
+              try {
+                  const batch = writeBatch(db);
+                  Object.values(LiturgicalTime).forEach(catName => {
+                      const ref = doc(collection(db, "song_categories"));
+                      batch.set(ref, { name: catName });
+                  });
+                  await batch.commit();
+              } catch (e) {
+                  console.error("Error seeding categories:", e);
+              }
+          } else {
+              setCategories(snapshot.docs.map(d => ({ id: d.id, name: d.data().name })));
+          }
+      }, (error) => {
+          console.error("Error subscribing to categories:", error);
+      });
+      return () => unsubscribe();
+  }, [user]);
+
+  const handleCreateCategory = async (name: string) => {
+      if (categories.some(c => c.name.toLowerCase() === name.toLowerCase())) {
+        setGlobalAlert({ title: "Duplicado", message: "Esa categoría ya existe.", type: 'error' });
+        return;
+      }
+      try {
+        await addDoc(collection(db, "song_categories"), { name });
+        setGlobalAlert({ title: "Éxito", message: `Categoría "${name}" creada.`, type: 'success' });
+      } catch (e) {
+        console.error("Error creating category:", e);
+        setGlobalAlert({ title: "Error", message: "No se pudo crear la categoría.", type: 'error' });
+      }
+  };
+
+  const handleDeleteCategory = async (categoryId: string) => {
+      try {
+        await deleteDoc(doc(db, "song_categories", categoryId));
+        setGlobalAlert({ title: "Éxito", message: "Categoría eliminada.", type: 'success' });
+      } catch(e) {
+        console.error("Error deleting category:", e);
+        setGlobalAlert({ title: "Error", message: "No se pudo eliminar la categoría.", type: 'error' });
+      }
+  };
+
+  const handleEditCategory = async (categoryId: string, newName: string) => {
+      if (categories.some(c => c.name.toLowerCase() === newName.toLowerCase() && c.id !== categoryId)) {
+          setGlobalAlert({ title: "Error", message: "Esa categoría ya existe.", type: "error"});
+          return;
+      }
+      try {
+        await updateDoc(doc(db, "song_categories", categoryId), { name: newName });
+        setGlobalAlert({ title: "Éxito", message: `Categoría renombrada a "${newName}".`, type: 'success' });
+      } catch(e) {
+        console.error("Error editing category:", e);
+        setGlobalAlert({ title: "Error", message: "No se pudo editar la categoría.", type: 'error' });
+      }
+  };
+
   const goBack = () => window.history.back();
   const openSongViewer = (song: Song) => { setActiveSong(song); window.history.pushState({ overlay: 'song' }, '', ''); };
   const openSongEditor = (song: Song | null) => { setEditingSong(song || true); window.history.pushState({ overlay: 'editor' }, '', ''); };
@@ -607,72 +748,7 @@ const App: React.FC = () => {
       setActiveRoom(null);
     }
   };
-
-  const isAdmin = useMemo(() => {
-    if (!user) return false;
-    return user.role === 'admin' || ADMIN_EMAILS.some(e => e.toLowerCase() === user.email.toLowerCase());
-  }, [user]);
-
-  const hasElevatedPermissions = useMemo(() => {
-    if (!user) return false;
-    if (isAdmin) return true;
-    if (activeRoom && activeRoom.host === user.username) return true;
-    return false;
-  }, [user, isAdmin, activeRoom?.host]);
-
-  const filteredSongs = useMemo(() => songs.filter(s => (s.title.toLowerCase().includes(searchQuery.toLowerCase()) || s.author.toLowerCase().includes(searchQuery.toLowerCase())) && (activeFilter === 'Todos' || s.category === activeFilter)).sort((a, b) => a.title.localeCompare(b.title)), [songs, searchQuery, activeFilter]);
-  const favoriteSongs = useMemo(() => filteredSongs.filter(s => favorites.includes(s.id)), [filteredSongs, favorites]);
   
-  const handleOpenInApp = () => {
-    const songId = new URLSearchParams(window.location.search).get('song');
-    if (!songId) return;
-
-    // The URL the app should receive.
-    const appUrl = window.location.href; 
-
-    // The Play Store URL is a better fallback if the app is not installed.
-    const fallbackUrl = encodeURIComponent(`https://play.google.com/store/apps/details?id=co.median.android.dyynjol`);
-
-    // Construct the intent URI by replacing the protocol.
-    const intentUri = appUrl.replace(/^https:\/\//, 'intent://');
-
-    // Assemble the final intent string.
-    const intentString = `${intentUri}#Intent;scheme=https;package=co.median.android.dyynjol;S.browser_fallback_url=${fallbackUrl};end`;
-
-    window.location.href = intentString;
-  };
-
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const sharedSongId = urlParams.get('song');
-    if (sharedSongId && /Android/i.test(navigator.userAgent)) {
-      setShowOpenInAppButton(true);
-    }
-    if (songs.length > 0 && !activeSong && !activeRoom && !editingSong && sharedSongId) {
-      const sharedSong = songs.find(s => s.id === sharedSongId);
-      if (sharedSong) openSongViewer(sharedSong);
-    }
-  }, [songs]);
-
-  const onTouchStart = (e: React.TouchEvent) => {
-    if (activeSong || editingSong || activeRoom) return;
-    touchStartX.current = e.targetTouches[0].clientX;
-    touchStartY.current = e.targetTouches[0].clientY;
-  };
-
-  const onTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartX.current === null || touchStartY.current === null) return;
-    const dx = touchStartX.current - e.changedTouches[0].clientX;
-    const dy = touchStartY.current - e.changedTouches[0].clientY;
-    if (Math.abs(dx) > Math.abs(dy) * 1.5 && Math.abs(dx) > minSwipeDistance) {
-      const currentIndex = VIEW_ORDER.indexOf(view);
-      if (dx > 0 && currentIndex < VIEW_ORDER.length - 1) navigateTo(VIEW_ORDER[currentIndex + 1]);
-      else if (dx < 0 && currentIndex > 0) navigateTo(VIEW_ORDER[currentIndex - 1]);
-    }
-    touchStartX.current = null;
-    touchStartY.current = null;
-  };
-
   const handleCreateRoom = async () => {
     if (!user) return;
     setIsJoiningRoom(true);
@@ -703,7 +779,40 @@ const App: React.FC = () => {
   };
 
   const handleUpdateRoom = async (updatedRoom: Room) => { if (updatedRoom.id) await updateDoc(doc(db, "rooms", updatedRoom.id), updatedRoom); };
-  const toggleFavorite = async (e: React.MouseEvent, songId: string) => { e.stopPropagation(); if (user) await updateDoc(doc(db, "users", user.id), { favorites: favorites.includes(songId) ? arrayRemove(songId) : arrayUnion(songId) }); };
+
+  const isAdmin = useMemo(() => {
+    if (!user) return false;
+    return user.role === 'admin' || ADMIN_EMAILS.some(e => e.toLowerCase() === user.email.toLowerCase());
+  }, [user]);
+
+  const hasElevatedPermissions = useMemo(() => {
+    if (!user) return false;
+    if (isAdmin) return true;
+    if (activeRoom && activeRoom.host === user.username) return true;
+    return false;
+  }, [user, isAdmin, activeRoom?.host]);
+  
+  const handleOpenInApp = () => {
+    const songId = new URLSearchParams(window.location.search).get('song');
+    if (!songId) return;
+    const appUrl = window.location.href; 
+    const fallbackUrl = encodeURIComponent(`https://play.google.com/store/apps/details?id=co.median.android.dyynjol`);
+    const intentUri = appUrl.replace(/^https:\/\//, 'intent://');
+    const intentString = `${intentUri}#Intent;scheme=https;package=co.median.android.dyynjol;S.browser_fallback_url=${fallbackUrl};end`;
+    window.location.href = intentString;
+  };
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const sharedSongId = urlParams.get('song');
+    if (sharedSongId && /Android/i.test(navigator.userAgent)) {
+      setShowOpenInAppButton(true);
+    }
+    if (songs.length > 0 && !activeSong && !activeRoom && !editingSong && sharedSongId) {
+      const sharedSong = songs.find(s => s.id === sharedSongId);
+      if (sharedSong) openSongViewer(sharedSong);
+    }
+  }, [songs]);
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -746,14 +855,12 @@ const App: React.FC = () => {
     if (!user || !auth.currentUser) return;
     const trimmedUsername = newUsername.trim();
     
-    // Basic validations
     if (trimmedUsername.length < 3) {
        setGlobalAlert({ title: "Nombre muy corto", message: "Mínimo 3 caracteres.", type: 'error' });
        return;
     }
-    if (trimmedUsername.toLowerCase() === user.username.toLowerCase()) return; // No change
+    if (trimmedUsername.toLowerCase() === user.username.toLowerCase()) return;
     
-    // Password validation
     if (!usernameChangePassword) {
         setGlobalAlert({ title: "Requerido", message: "Ingresa tu contraseña actual para confirmar.", type: 'info' });
         return;
@@ -762,7 +869,6 @@ const App: React.FC = () => {
     setIsUpdatingUsername(true);
 
     try {
-        // 1. Re-authenticate user to confirm identity
         if (auth.currentUser.email) {
             const cred = EmailAuthProvider.credential(auth.currentUser.email, usernameChangePassword);
             await reauthenticateWithCredential(auth.currentUser, cred);
@@ -770,12 +876,10 @@ const App: React.FC = () => {
             throw new Error("No email associated");
         }
 
-        // 2. Check if username is taken
         const q = query(collection(db, "users"), where("username_lowercase", "==", trimmedUsername.toLowerCase()), limit(1));
         const querySnapshot = await getDocs(q);
         if (!querySnapshot.empty) {
              const docSnap = querySnapshot.docs[0];
-             // If found document is NOT the current user's document, then it's taken.
              if (docSnap.id !== user.id) {
                  setGlobalAlert({ title: "Nombre no disponible", message: "El nombre de usuario ya está ocupado.", type: 'error' }); 
                  setIsUpdatingUsername(false); 
@@ -783,15 +887,13 @@ const App: React.FC = () => {
              }
         }
 
-        // 3. Update profile
         await updateProfile(auth.currentUser, { displayName: trimmedUsername });
         await updateDoc(doc(db, "users", user.id), { username: trimmedUsername, username_lowercase: trimmedUsername.toLowerCase() });
         
-        // UPDATE LOCAL STATE IMMEDIATELY to prevent stale state issues
         setUser(prev => prev ? ({ ...prev, username: trimmedUsername, username_lowercase: trimmedUsername.toLowerCase() }) : null);
 
         setGlobalAlert({ title: "Perfil Actualizado", message: "Tu nombre de usuario se ha cambiado.", type: 'success' });
-        setUsernameChangePassword(''); // Clear password field
+        setUsernameChangePassword('');
 
     } catch (error: any) { 
         console.error(error);
@@ -822,8 +924,14 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!user?.id) return;
     const q = query(collection(db, "songs"), orderBy("createdAt", "desc"));
-    const unsubSongs = onSnapshot(q, (snap) => setSongs(snap.docs.map(d => ({ id: d.id, ...d.data() } as Song))));
-    const unsubFavs = onSnapshot(doc(db, "users", user.id), (docSnap) => { if (docSnap.exists()) setFavorites(docSnap.data().favorites || []); });
+    const unsubSongs = onSnapshot(q, 
+      (snap) => setSongs(snap.docs.map(d => ({ id: d.id, ...d.data() } as Song))),
+      (error) => console.error("Error subscribing to songs:", error)
+    );
+    const unsubFavs = onSnapshot(doc(db, "users", user.id), 
+      (docSnap) => { if (docSnap.exists()) setFavorites(docSnap.data().favorites || []); },
+      (error) => console.error("Error subscribing to favorites:", error)
+    );
     return () => { unsubSongs(); unsubFavs(); };
   }, [user?.id]);
 
@@ -849,6 +957,8 @@ const App: React.FC = () => {
     </div>
   );
 
+  const isOverlayVisible = activeSong || activeRoom || editingSong;
+
   return (
     <>
       <div className={`fixed inset-0 transition-opacity duration-500 ease-in-out ${user ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
@@ -867,23 +977,55 @@ const App: React.FC = () => {
       </div>
 
       {user && (
-        <div className={`fixed inset-0 transition-opacity duration-700 ease-in-out ${user ? 'opacity-100 delay-300' : 'opacity-0 pointer-events-none'}`}>
-          <MainView
-            user={user} songs={songs} favorites={favorites} view={view} darkMode={darkMode} searchQuery={searchQuery} activeFilter={activeFilter}
-            roomCodeInput={roomCodeInput} newUsername={newUsername} passwordChangeData={passwordChangeData} passwordChangeMsg={passwordChangeMsg}
-            isUpdatingPassword={isUpdatingPassword} isUpdatingUsername={isUpdatingUsername} isJoiningRoom={isJoiningRoom} showChangePassword={showChangePassword}
-            showOpenInAppButton={showOpenInAppButton} globalAlert={globalAlert} activeSong={activeSong} activeRoom={activeRoom} editingSong={editingSong}
-            isAdmin={isAdmin} hasElevatedPermissions={hasElevatedPermissions} filteredSongs={filteredSongs} favoriteSongs={favoriteSongs} navigateTo={navigateTo}
-            onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} setActiveFilter={setActiveFilter} setSearchQuery={setSearchQuery} handleJoinRoom={handleJoinRoom}
-            setRoomCodeInput={setRoomCodeInput} handleCreateRoom={handleCreateRoom} setNewUsername={setNewUsername} handleUpdateUsername={handleUpdateUsername}
-            setPasswordChangeData={setPasswordChangeData} toggleShowChangePassword={toggleShowChangePassword} handleChangePassword={handleChangePassword}
-            setDarkMode={setDarkMode} setGlobalAlert={setGlobalAlert} handleOpenInApp={handleOpenInApp} openSongEditor={openSongEditor}
-            toggleFavorite={toggleFavorite} openSongViewer={openSongViewer} goBack={goBack} handleDeleteSong={handleDeleteSong} exitRoom={exitRoom}
-            handleUpdateRoom={handleUpdateRoom} db={db} ADMIN_EMAILS={ADMIN_EMAILS}
-            usernameChangePassword={usernameChangePassword} setUsernameChangePassword={setUsernameChangePassword}
-            showUsernamePass={showUsernamePass} setShowUsernamePass={setShowUsernamePass}
-          />
-        </div>
+        <>
+            <MainView
+                user={user} view={view} darkMode={darkMode} setDarkMode={setDarkMode} isAdmin={isAdmin} animationDirection={animationDirection} navigateTo={navigateTo}
+                songs={songs} favorites={favorites} openSongViewer={openSongViewer} toggleFavorite={toggleFavorite}
+                searchQuery={searchQuery} setSearchQuery={setSearchQuery} activeFilter={activeFilter} setActiveFilter={setActiveFilter}
+                categories={categories}
+                roomCodeInput={roomCodeInput} setRoomCodeInput={setRoomCodeInput} handleJoinRoom={handleJoinRoom} handleCreateRoom={handleCreateRoom} isJoiningRoom={isJoiningRoom}
+                handleCreateCategory={handleCreateCategory} handleDeleteCategory={handleDeleteCategory} handleEditCategory={handleEditCategory} setCategoryConfirmModal={setCategoryConfirmModal}
+                newUsername={newUsername} setNewUsername={setNewUsername} showUsernamePass={showUsernamePass} setShowUsernamePass={setShowUsernamePass}
+                usernameChangePassword={usernameChangePassword} setUsernameChangePassword={setUsernameChangePassword} isUpdatingUsername={isUpdatingUsername} handleUpdateUsername={handleUpdateUsername}
+                passwordChangeData={passwordChangeData} setPasswordChangeData={setPasswordChangeData} showChangePassword={showChangePassword}
+                toggleShowChangePassword={toggleShowChangePassword} passwordChangeMsg={passwordChangeMsg} isUpdatingPassword={isUpdatingPassword} handleChangePassword={handleChangePassword}
+            />
+            
+            <nav onTouchStart={(e) => e.stopPropagation()} className="glass-ui fixed bottom-0 left-0 right-0 max-w-md mx-auto shrink-0 w-full px-4 pt-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] flex justify-center gap-14 items-center z-50">
+              {VIEW_ORDER.map((v) => {
+                const isActive = view === v;
+                let activeColorClass = 'text-slate-400 dark:text-slate-500';
+                let bubbleColorClass = 'bg-slate-400/10';
+                if (v === 'feed') { activeColorClass = isActive ? 'text-misionero-azul' : 'text-slate-400 dark:text-slate-500'; bubbleColorClass = 'bg-misionero-azul/15'; }
+                else if (v === 'favorites') { activeColorClass = isActive ? 'text-misionero-rojo' : 'text-slate-400 dark:text-slate-500'; bubbleColorClass = 'bg-misionero-rojo/15'; }
+                else if (v === 'room') { activeColorClass = isActive ? 'text-misionero-verde' : 'text-slate-400 dark:text-slate-500'; bubbleColorClass = 'bg-misionero-verde/15'; }
+                else if (v === 'settings') { activeColorClass = isActive ? (darkMode ? 'text-white' : 'text-slate-900') : 'text-slate-400 dark:text-slate-500'; bubbleColorClass = darkMode ? 'bg-white/10' : 'bg-slate-900/10'; }
+                return (
+                  <button key={v} onClick={() => navigateTo(v)} className={`flex flex-col items-center gap-1.5 transition-all duration-300 ${activeColorClass}`}>
+                    <div className="relative flex items-center justify-center">
+                      <div className={`absolute inset-x-[-12px] inset-y-[-4px] rounded-full transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${bubbleColorClass} ${isActive ? 'scale-100 opacity-100' : 'scale-0 opacity-0'}`}></div>
+                      <div className={`relative transition-transform duration-300 z-10 ${isActive ? 'scale-110' : 'scale-100'}`}>
+                        {v === 'feed' && <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>}
+                        {v === 'favorites' && <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>}
+                        {v === 'room' && <UsersIcon />}
+                        {v === 'settings' && <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 15.5A3.5 3.5 0 1 1 15.5 12 3.5 3.5 0 0 1 12 15.5z"/></svg>}
+                      </div>
+                    </div>
+                    <span className={`text-[8px] font-black uppercase tracking-tighter relative z-10 transition-colors duration-300`}>{v === 'feed' ? 'Inicio' : v === 'favorites' ? 'Favs' : v === 'room' ? 'Sala' : 'Ajustes'}</span>
+                  </button>
+                );
+              })}
+            </nav>
+            {view === 'feed' && isAdmin && !activeSong && !editingSong && !activeRoom && (
+              <button onClick={() => openSongEditor(null)} className="fixed bottom-[5rem] right-6 w-16 h-16 glass-ui glass-interactive bg-misionero-rojo/70 text-white rounded-[1.8rem] flex items-center justify-center z-40 animate-bounce-subtle active:scale-90 transition-transform"><PlusIcon /></button>
+            )}
+            {globalAlert && (<div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setGlobalAlert(null)}></div><div className="glass-ui relative w-full max-w-sm p-6 rounded-[2rem] animate-in zoom-in-95 duration-200"><div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 mx-auto ${globalAlert.type === 'error' ? 'glass-ui bg-misionero-rojo/30 text-misionero-rojo' : 'glass-ui bg-misionero-azul/30 text-misionero-azul'}`}>{globalAlert.type === 'error' ? ( <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>) : ( <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>)}</div><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{globalAlert.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{globalAlert.message}</p><button onClick={() => setGlobalAlert(null)} className={`w-full py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest active:scale-95 transition-transform glass-ui glass-interactive ${globalAlert.type === 'error' ? 'bg-misionero-rojo/70 text-white' : 'bg-misionero-azul/70 text-white'}`}>Entendido</button></div></div>)}
+            {categoryConfirmModal && (<div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setCategoryConfirmModal(null)}></div><div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-slate-950 border-white/10' : 'bg-white border-slate-100'}`}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{categoryConfirmModal.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{categoryConfirmModal.message}</p><div className="flex gap-3"><button onClick={() => setCategoryConfirmModal(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button><button onClick={categoryConfirmModal.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform ${categoryConfirmModal.type === 'danger' ? 'bg-misionero-rojo' : 'bg-misionero-azul'}`}>Confirmar</button></div></div></div>)}
+            {showOpenInAppButton && (<div className="fixed bottom-[5rem] left-1/2 -translate-x-1/2 z-40 animate-in fade-in slide-in-from-bottom-5 duration-300"><button onClick={handleOpenInApp} className="glass-ui glass-interactive bg-misionero-azul/70 text-white flex items-center gap-3 px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-2xl active:scale-95 transition-transform"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg><span>Abrir en la App</span></button></div>)}
+            {editingSong && hasElevatedPermissions && (<div data-is-overlay="true" className="fixed inset-0 z-[300]"><SongForm categories={categoryNames} initialData={typeof editingSong === 'boolean' ? undefined : editingSong} onSave={async (data) => { if (typeof editingSong !== 'boolean' && editingSong) { await updateDoc(doc(db, "songs", editingSong.id), data); } else { await addDoc(collection(db, "songs"), { ...data, createdAt: Date.now(), author: user.username }); } goBack(); }} onCancel={goBack} darkMode={darkMode} /></div>)}
+            {activeSong && (<div data-is-overlay="true" className="fixed inset-0 z-[100]"><SongViewer song={activeSong} onBack={goBack} darkMode={darkMode} onEdit={hasElevatedPermissions ? () => openSongEditor(activeSong) : undefined} onDelete={hasElevatedPermissions ? () => handleDeleteSong(activeSong.id) : undefined} /></div>)}
+            {activeRoom && (<div data-is-overlay="true" className="fixed inset-0 z-[200]"><RoomView categories={categoryNames} room={activeRoom} songs={songs} currentUser={user.username} isAdmin={isAdmin} onExit={exitRoom} onUpdateRoom={handleUpdateRoom} darkMode={darkMode} db={db} ADMIN_EMAILS={ADMIN_EMAILS} onEditSong={openSongEditor} onDeleteSong={handleDeleteSong} /></div>)}
+        </>
       )}
     </>
   );
