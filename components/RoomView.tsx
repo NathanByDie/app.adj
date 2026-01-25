@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Room, Song, ChatMessage, LiturgicalTime } from '../types';
 import SongViewer from './SongViewer';
 import { 
@@ -9,6 +9,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { Firestore } from 'firebase/firestore';
 import { transposeSong } from '../services/musicUtils';
+import { triggerHapticFeedback } from '../services/haptics';
 
 interface RoomViewProps {
   room: Room;
@@ -80,9 +81,7 @@ const SwipeableMessage: React.FC<SwipeableMessageProps> = ({ msg, currentUser, o
 
   const onTouchEnd = (e: React.TouchEvent) => {
     if (Math.abs(translateX) > 50) {
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        try { navigator.vibrate([500, 100, 500]); } catch(e) { try { navigator.vibrate(500); } catch(err) {} }
-      }
+      triggerHapticFeedback('light');
       onReply(msg);
     }
     setTranslateX(0);
@@ -216,22 +215,35 @@ const RoomView: React.FC<RoomViewProps> = ({
 
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
-        const overlay = event.state?.overlay;
-        if (overlay === 'chat') { setIsChatOpen(true); setShowParticipants(false); } 
-        else if (overlay === 'participants') { setShowParticipants(true); setIsChatOpen(false); } 
-        else if (overlay === 'room_song') { setShowParticipants(false); setIsChatOpen(false); } 
-        else {
-            setIsChatOpen(false);
-            setShowParticipants(false);
-            setSelectedSongId(null);
-            if (currentUser === roomRef.current.host && roomRef.current.currentSongId) {
-                onUpdateRoom({ ...roomRef.current, currentSongId: '' });
-            }
+      const overlay = event.state?.overlay;
+      const internalOverlays = ['room', 'room_song', 'chat', 'participants'];
+  
+      if (overlay && internalOverlays.includes(overlay)) {
+        setIsChatOpen(overlay === 'chat');
+        setShowParticipants(overlay === 'participants');
+        if (overlay === 'room') {
+          setSelectedSongId(null);
         }
+        return;
+      }
+  
+      window.history.pushState({ overlay: 'room' }, '', '');
+      setConfirmModal({
+        title: 'Salir de la Sala',
+        message: '¿Estás seguro de que quieres abandonar la sesión?',
+        type: 'danger',
+        action: () => {
+          setConfirmModal(null);
+          onExit();
+        },
+      });
     };
+  
     window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, [currentUser, onUpdateRoom]);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [onExit]);
 
   const openChat = () => { if (!isChatOpen) { window.history.pushState({ overlay: 'chat' }, '', ''); setIsChatOpen(true); setShowParticipants(false); } };
   const closeChat = () => window.history.back();
@@ -250,9 +262,7 @@ const RoomView: React.FC<RoomViewProps> = ({
     if (currentChat.length > prevChatLength.current) {
         const lastMsg = currentChat[currentChat.length - 1];
         if (lastMsg.sender !== currentUser) {
-            if (typeof navigator !== 'undefined' && navigator.vibrate) {
-                try { navigator.vibrate([500, 100, 500]); } catch (e) { try { navigator.vibrate(500); } catch(err) {} }
-            }
+            triggerHapticFeedback('notification');
             notificationAudio.current?.play().catch(() => {});
 
             if (!isChatOpen) {
@@ -338,7 +348,18 @@ const RoomView: React.FC<RoomViewProps> = ({
     prevParticipants.current = currentParts;
   }, [room.participants, currentUser]);
 
-  const handleExitRoom = () => onExit();
+  const handleExitRoom = () => {
+    setConfirmModal({
+      title: 'Salir de la Sala',
+      message: '¿Estás seguro de que quieres abandonar la sesión?',
+      type: 'danger',
+      action: () => {
+        setConfirmModal(null);
+        onExit();
+      }
+    });
+  };
+  
   const handleCopyCode = () => { navigator.clipboard.writeText(room.code); setCopied(true); setTimeout(() => setCopied(false), 2000); };
   
   const navigateToSong = (songId: string | null) => {
@@ -416,7 +437,7 @@ const RoomView: React.FC<RoomViewProps> = ({
   const formatMessageTime = (timestamp: number) => new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
 
   const chatInputArea = (
-    <div className={`px-3 pt-3 border-t shrink-0 ${darkMode ? 'border-white/5 bg-slate-950' : 'border-slate-100 bg-white'} pb-[calc(0.25rem+env(safe-area-inset-bottom))]`}>
+    <div className={`px-3 pt-3 border-t shrink-0 ${darkMode ? 'border-white/5 bg-black' : 'border-slate-100 bg-white'} pb-[calc(0.25rem+env(safe-area-inset-bottom))]`}>
         {replyingTo && (
             <div className={`flex items-center justify-between px-4 py-2 mb-2 rounded-xl text-xs font-medium border-l-4 border-misionero-azul ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-50 text-slate-600'}`}>
                 <span className="truncate">Respondiendo a <b>{replyingTo.sender}</b></span>
@@ -429,7 +450,7 @@ const RoomView: React.FC<RoomViewProps> = ({
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
                 </button>
              )}
-            <input ref={chatInputRef} type="text" value={chatMessage} onChange={e => setChatMessage(e.target.value)} placeholder="Mensaje..." className={`flex-1 min-w-0 rounded-2xl px-4 py-3.5 text-sm font-bold outline-none border transition-all ${darkMode ? 'bg-slate-950 border-white/5 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} />
+            <input ref={chatInputRef} type="text" value={chatMessage} onChange={e => setChatMessage(e.target.value)} placeholder="Mensaje..." className={`flex-1 min-w-0 rounded-2xl px-4 py-3.5 text-sm font-bold outline-none border transition-all ${darkMode ? 'bg-black border-white/5 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} />
             <button type="submit" disabled={!chatMessage.trim()} className="bg-misionero-verde text-white font-black w-12 h-12 rounded-2xl text-[10px] uppercase shadow-md active:scale-95 transition-transform disabled:opacity-30 flex items-center justify-center shrink-0">
                 <svg className="w-5 h-5 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
             </button>
@@ -514,7 +535,7 @@ const RoomView: React.FC<RoomViewProps> = ({
   };
 
   return (
-    <div className={`flex flex-col h-full transition-colors duration-500 ${darkMode ? 'bg-slate-950 text-white' : 'bg-white text-slate-900'} animate-in fade-in duration-300 overflow-hidden relative`}>
+    <div className={`flex flex-col h-full transition-colors duration-500 ${darkMode ? 'bg-black text-white' : 'bg-white text-slate-900'} animate-in fade-in duration-300 overflow-hidden relative`}>
       <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[200] w-full max-w-xs flex flex-col items-center gap-2 pointer-events-none px-4">
         {notifications.map(n => (
           <div key={n.id} className={`p-3 rounded-2xl shadow-2xl border flex items-center gap-3 animate-in slide-in-from-top-4 duration-300 pointer-events-auto ${n.type === 'success' ? 'bg-misionero-verde/90' : n.type === 'alert' ? 'bg-misionero-rojo/90' : 'bg-misionero-azul/90'}`}>
@@ -541,7 +562,7 @@ const RoomView: React.FC<RoomViewProps> = ({
       </div>
 
       {!songForViewer && (
-        <header className={`pt-12 px-4 shrink-0 transition-colors duration-500 ${isEditingRepertoire ? `sticky top-0 z-30 ${darkMode ? 'bg-slate-950 border-b border-slate-800' : 'bg-misionero-azul text-white'}` : `relative border-b shadow-sm ${darkMode ? 'bg-slate-950/95 border-slate-800' : 'bg-misionero-azul text-white border-transparent'}`}`}>
+        <header className={`pt-12 px-4 shrink-0 transition-colors duration-500 ${isEditingRepertoire ? `sticky top-0 z-30 ${darkMode ? 'bg-black border-b border-slate-800' : 'bg-misionero-azul text-white'}` : `relative border-b shadow-sm ${darkMode ? 'bg-black/95 border-slate-800' : 'bg-misionero-azul text-white border-transparent'}`}`}>
           {isEditingRepertoire ? (
             <div className="flex items-center justify-between pb-2">
                <button onClick={handleCancelEditing} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg active:scale-95 transition-transform ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button>
@@ -573,7 +594,7 @@ const RoomView: React.FC<RoomViewProps> = ({
         </header>
       )}
 
-      <div className={`flex-1 overflow-y-auto custom-scroll ${isEditingRepertoire ? 'px-0 pt-4' : 'px-5 py-8 space-y-8'} relative z-20 pb-40 transition-colors duration-500 ${!songForViewer && !isEditingRepertoire ? `rounded-t-[2.5rem] ${darkMode ? 'bg-slate-950' : 'bg-slate-50'}` : ''}`}>
+      <div className={`flex-1 overflow-y-auto custom-scroll ${isEditingRepertoire ? 'px-0 pt-4' : 'px-5 py-8 space-y-8'} relative z-20 pb-40 transition-colors duration-500 ${!songForViewer && !isEditingRepertoire ? `rounded-t-[2.5rem] ${darkMode ? 'bg-black' : 'bg-slate-50'}` : ''}`}>
         {(!isEditingRepertoire || !canModify) && !songForViewer && (
           <section className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex items-center justify-between mb-5 px-1">
@@ -585,7 +606,7 @@ const RoomView: React.FC<RoomViewProps> = ({
                      <span>EN VIVO</span>
                   </div>
                 ) : (
-                  <button onClick={toggleFollowing} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase transition-colors ${isFollowingHost ? 'bg-misionero-verde text-white' : (darkMode ? 'bg-slate-950 text-slate-400' : 'bg-slate-100 text-slate-500')}`}>
+                  <button onClick={toggleFollowing} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase transition-colors ${isFollowingHost ? 'bg-misionero-verde text-white' : (darkMode ? 'bg-black text-slate-400' : 'bg-slate-100 text-slate-500')}`}>
                     <span>{isFollowingHost ? 'Siguiendo' : 'Libre'}</span>
                   </button>
                 )}
@@ -600,7 +621,7 @@ const RoomView: React.FC<RoomViewProps> = ({
                   const tValue = room.globalTranspositions?.[songId] || 0;
                   const isHostHere = room.currentSongId === songId;
                   return (
-                    <div key={songId} onClick={() => navigateToSong(songId)} className={`flex items-center justify-between p-5 border rounded-3xl active:scale-[0.98] transition-all duration-300 relative ${selectedSongId === songId ? 'border-misionero-amarillo shadow-lg' : (darkMode ? 'bg-slate-900 border-white/5 text-white' : 'bg-white border-slate-100 text-slate-900')} ${isHostHere ? `ring-2 ring-misionero-rojo ring-offset-4 ${darkMode ? 'ring-offset-slate-950' : 'ring-offset-slate-50'}` : ''}`}>
+                    <div key={songId} onClick={() => navigateToSong(songId)} className={`flex items-center justify-between p-5 border rounded-3xl active:scale-[0.98] transition-all duration-300 relative ${selectedSongId === songId ? 'border-misionero-amarillo shadow-lg' : (darkMode ? 'bg-slate-900 border-white/5 text-white' : 'bg-white border-slate-100 text-slate-900')} ${isHostHere ? `ring-2 ring-misionero-rojo ring-offset-4 ${darkMode ? 'ring-offset-black' : 'ring-offset-slate-50'}` : ''}`}>
                       <div className="flex items-center gap-4 flex-1 truncate">
                         <div className={`w-9 h-9 shrink-0 rounded-2xl flex items-center justify-center font-black text-xs text-white transition-colors ${isHostHere ? 'bg-misionero-rojo animate-pulse' : 'bg-misionero-verde'}`}>{idx + 1}</div>
                         <div className="truncate">
@@ -622,7 +643,7 @@ const RoomView: React.FC<RoomViewProps> = ({
         
         {isEditingRepertoire && canModify && !songForViewer && (
           <React.Fragment>
-            <div className="px-5 pb-28 space-y-2" onDragLeave={handleDragLeave}>
+            <div className="px-5 pb-24 space-y-2" onDragLeave={handleDragLeave}>
                 {tempRepertoire.map((songId, idx) => {
                     const song = repertoireSongsMap[songId];
                     if (!song) return null;
@@ -650,18 +671,24 @@ const RoomView: React.FC<RoomViewProps> = ({
                     </div>
                 )}
             </div>
-            <div className={`sticky bottom-0 p-4 border-t ${darkMode ? 'bg-slate-950/80 backdrop-blur-md border-t-slate-800' : 'bg-white/80 backdrop-blur-md border-t-slate-100'} pb-[calc(1rem+env(safe-area-inset-bottom))] z-10`}>
-                <button onClick={() => setIsAddSongDrawerOpen(true)} className={`w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-sm font-black uppercase transition-colors ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-100 border-slate-200'} border`}>
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-                    Añadir Música
-                </button>
-            </div>
           </React.Fragment>
         )}
       </div>
 
-      <div className={`fixed bottom-0 left-0 right-0 z-[120] max-w-md mx-auto`}>{!isChatOpen && !songForViewer && chatInputArea}</div>
-      {showParticipants && (<div className={`fixed inset-0 z-[160] flex flex-col animate-in slide-in-from-right duration-300 ${darkMode ? 'bg-slate-950' : 'bg-white'}`}>
+      <div className={`fixed bottom-0 left-0 right-0 z-[120] max-w-md mx-auto`}>
+        {isEditingRepertoire && canModify ? (
+          <div className={`p-4 border-t ${darkMode ? 'bg-black/80 backdrop-blur-md border-t-slate-800' : 'bg-white/80 backdrop-blur-md border-t-slate-100'} pb-[calc(1rem+env(safe-area-inset-bottom))]`}>
+            <button onClick={() => setIsAddSongDrawerOpen(true)} className={`w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-sm font-black uppercase transition-colors ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-100 border-slate-200'} border`}>
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                Añadir Música
+            </button>
+          </div>
+        ) : (
+          !isChatOpen && !songForViewer && chatInputArea
+        )}
+      </div>
+
+      {showParticipants && (<div className={`fixed inset-0 z-[160] flex flex-col animate-in slide-in-from-right duration-300 ${darkMode ? 'bg-black' : 'bg-white'}`}>
         <div className={`flex items-center justify-between px-4 pt-12 pb-4 border-b shrink-0 ${darkMode ? 'border-white/5 bg-slate-900' : 'border-slate-100 bg-white'}`}><div className="flex items-center gap-3"><button onClick={closeParticipants} className="p-2 rounded-full"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button><div><h3 className="font-black uppercase text-sm">Participantes</h3><p className="text-[10px] font-bold text-slate-400">{(room.participants || []).length} usuarios</p></div></div></div>
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {(room.participants || []).map((username) => {
@@ -672,9 +699,9 @@ const RoomView: React.FC<RoomViewProps> = ({
           })}
         </div>
       </div>)}
-      {isChatOpen && (<div className={`fixed inset-0 z-[150] flex flex-col animate-in slide-in-from-bottom duration-300 ${darkMode ? 'bg-slate-950' : 'bg-white'}`}><div className={`flex items-center justify-between px-4 pt-12 pb-4 border-b shrink-0 ${darkMode ? 'border-white/5 bg-slate-900' : 'border-slate-100 bg-white'}`}><div className="flex items-center gap-3"><button onClick={closeChat} className="p-2 rounded-full"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button><div><h3 className="font-black uppercase text-sm">Chat de Sala</h3><p className="text-[10px] font-bold text-slate-400">{(room.participants || []).length} conectados</p></div></div></div><div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">{(room.chat || []).map((msg, i) => <SwipeableMessage key={i} msg={msg} currentUser={currentUser} onReply={handleReply} darkMode={darkMode} formatTime={formatMessageTime} />)}</div>{chatInputArea}</div>)}
-      {confirmModal && (<div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmModal(null)}></div><div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-slate-950 border-white/10' : 'bg-white border-slate-100'}`}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{confirmModal.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{confirmModal.message}</p><div className="flex gap-3"><button onClick={() => setConfirmModal(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button><button onClick={confirmModal.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform ${confirmModal.type === 'danger' ? 'bg-misionero-rojo' : 'bg-misionero-azul'}`}>Confirmar</button></div></div></div>)}
-      {songForViewer && (<div className={`fixed inset-0 z-[130] ${darkMode ? 'bg-slate-950' : 'bg-white'} flex flex-col animate-in slide-in-from-bottom-2`}>{(() => { const transposeValue = room.globalTranspositions?.[songForViewer.id] || 0; const cacheKey = `${songForViewer.id}-${transposeValue}`; const cachedContent = transposedContentCache.current[cacheKey]; return (<SongViewer song={songForViewer} onBack={() => window.history.back()} externalTranspose={transposeValue} transposedContent={cachedContent} onTransposeChange={canModify ? (val) => handleGlobalTranspose(songForViewer.id, val) : undefined} darkMode={darkMode} onEdit={canModify ? () => onEditSong(songForViewer) : undefined} onDelete={canModify ? () => { if (room.currentSongId === songForViewer.id) onUpdateRoom({ ...room, currentSongId: '' }); onDeleteSong(songForViewer.id); setSelectedSongId(null); } : undefined} onPrev={hasPrevSong ? () => navigateToSong(displayedRepertoire[currentSongIndex - 1]) : undefined} onNext={hasNextSong ? () => navigateToSong(displayedRepertoire[currentSongIndex + 1]) : undefined} hasPrev={hasPrevSong} hasNext={hasNextSong} isChatVisible={true} chatInputComponent={chatInputArea} />); })()}</div>)}
+      {isChatOpen && (<div className={`fixed inset-0 z-[150] flex flex-col animate-in slide-in-from-bottom duration-300 ${darkMode ? 'bg-black' : 'bg-white'}`}><div className={`flex items-center justify-between px-4 pt-12 pb-4 border-b shrink-0 ${darkMode ? 'border-white/5 bg-slate-900' : 'border-slate-100 bg-white'}`}><div className="flex items-center gap-3"><button onClick={closeChat} className="p-2 rounded-full"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button><div><h3 className="font-black uppercase text-sm">Chat de Sala</h3><p className="text-[10px] font-bold text-slate-400">{(room.participants || []).length} conectados</p></div></div></div><div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">{(room.chat || []).map((msg, i) => <SwipeableMessage key={i} msg={msg} currentUser={currentUser} onReply={handleReply} darkMode={darkMode} formatTime={formatMessageTime} />)}</div>{chatInputArea}</div>)}
+      {confirmModal && (<div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmModal(null)}></div><div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{confirmModal.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{confirmModal.message}</p><div className="flex gap-3"><button onClick={() => setConfirmModal(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button><button onClick={confirmModal.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform ${confirmModal.type === 'danger' ? 'bg-misionero-rojo' : 'bg-misionero-azul'}`}>Confirmar</button></div></div></div>)}
+      {songForViewer && (<div className={`fixed inset-0 z-[130] ${darkMode ? 'bg-black' : 'bg-white'} flex flex-col animate-in slide-in-from-bottom-2`}>{(() => { const transposeValue = room.globalTranspositions?.[songForViewer.id] || 0; const cacheKey = `${songForViewer.id}-${transposeValue}`; const cachedContent = transposedContentCache.current[cacheKey]; return (<SongViewer song={songForViewer} onBack={() => window.history.back()} externalTranspose={transposeValue} transposedContent={cachedContent} onTransposeChange={canModify ? (val) => handleGlobalTranspose(songForViewer.id, val) : undefined} darkMode={darkMode} onEdit={canModify ? () => onEditSong(songForViewer) : undefined} onDelete={canModify ? () => { if (room.currentSongId === songForViewer.id) onUpdateRoom({ ...room, currentSongId: '' }); onDeleteSong(songForViewer.id); setSelectedSongId(null); } : undefined} onPrev={hasPrevSong ? () => navigateToSong(displayedRepertoire[currentSongIndex - 1]) : undefined} onNext={hasNextSong ? () => navigateToSong(displayedRepertoire[currentSongIndex + 1]) : undefined} hasPrev={hasPrevSong} hasNext={hasNextSong} isChatVisible={true} chatInputComponent={chatInputArea} />); })()}</div>)}
       
       {isEditingRepertoire && isAddSongDrawerOpen && (
         <div className="fixed inset-0 z-[170] animate-in fade-in duration-300" onClick={() => setIsAddSongDrawerOpen(false)}>
@@ -701,7 +728,7 @@ const RoomView: React.FC<RoomViewProps> = ({
               {availableSongsToAdd.map(song => {
                 const isAdded = tempRepertoire.includes(song.id);
                 return (
-                  <div key={song.id} className={`flex items-center justify-between p-3 border rounded-2xl transition-colors ${darkMode ? 'bg-slate-950 border-white/5' : 'bg-white border-slate-100'}`}>
+                  <div key={song.id} className={`flex items-center justify-between p-3 border rounded-2xl transition-colors ${darkMode ? 'bg-black border-white/5' : 'bg-white border-slate-100'}`}>
                     <div className="truncate"><h4 className="font-black text-sm uppercase truncate">{song.title}</h4><span className={`text-[9px] font-bold ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{song.key} • {song.category}</span></div>
                     <button onClick={() => !isAdded && handleAddToRepertoire(song.id)} disabled={isAdded} className={`w-10 h-10 flex items-center justify-center rounded-xl active:scale-90 transition-all ${isAdded ? 'bg-misionero-verde/20 text-misionero-verde' : 'bg-misionero-verde/10 text-misionero-verde/70 hover:bg-misionero-verde/20'}`}>
                       {isAdded ? (<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>) : (<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>)}
@@ -718,4 +745,5 @@ const RoomView: React.FC<RoomViewProps> = ({
   );
 };
 
+// Fix: Changed export from 'App' to 'RoomView'
 export default RoomView;

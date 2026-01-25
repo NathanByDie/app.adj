@@ -3,8 +3,8 @@
   "short_name": "ADJStudios",
   "start_url": ".",
   "display": "standalone",
-  "background_color": "#020617",
-  "theme_color": "#020617",
+  "background_color": "#000000",
+  "theme_color": "#000000",
   "description": "Una plataforma para músicos litúrgicos de ADJStudios para compartir, transponer y organizar repertorios.",
   "orientation": "portrait",
   "icons": [

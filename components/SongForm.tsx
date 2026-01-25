@@ -82,15 +82,15 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
   };
 
   return (
-    <div className={`fixed inset-0 ${darkMode ? 'bg-slate-950 text-white' : 'bg-white text-slate-900'} z-[80] flex flex-col overflow-hidden animate-in slide-in-from-right duration-200 transition-colors duration-500`}>
-      <header className={`px-4 pt-12 pb-3 border-b ${darkMode ? 'border-slate-800 bg-slate-950' : 'border-slate-100 bg-white'} flex items-center justify-between shrink-0 z-20 transition-colors duration-500`}>
+    <div className={`fixed inset-0 ${darkMode ? 'bg-black text-white' : 'bg-white text-slate-900'} z-[80] flex flex-col overflow-hidden animate-in slide-in-from-right duration-200 transition-colors duration-500`}>
+      <header className={`px-4 pt-12 pb-3 border-b ${darkMode ? 'border-slate-800 bg-black' : 'border-slate-100 bg-white'} flex items-center justify-between shrink-0 z-20 transition-colors duration-500`}>
         <button onClick={onCancel} className={`text-[10px] font-black uppercase ${darkMode ? 'text-slate-500 bg-slate-900 active:bg-slate-800' : 'text-slate-400 bg-slate-50 active:bg-slate-100'} px-3 py-2 rounded-xl transition-colors`}>Cerrar</button>
         <h2 className="text-[10px] font-black uppercase tracking-widest">{initialData ? 'Editor de Obra' : 'Nueva Música'}</h2>
         <button onClick={handleSubmit} className="bg-misionero-verde text-white px-6 py-2.5 rounded-2xl font-black text-[10px] uppercase disabled:opacity-30 shadow-lg active:scale-95 transition-all" disabled={!title || !content}>{initialData ? 'Guardar' : 'Publicar'}</button>
       </header>
 
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto flex flex-col custom-scroll no-pull">
-        <div className={`px-5 py-6 space-y-6 transition-all duration-500 ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-50'} border-b ${isFocused ? 'max-h-0 opacity-0 pointer-events-none -translate-y-4' : 'max-h-[500px] opacity-100'}`}>
+        <div className={`px-5 py-6 space-y-6 transition-all duration-500 ${darkMode ? 'bg-black border-slate-800' : 'bg-white border-slate-50'} border-b ${isFocused ? 'max-h-0 opacity-0 pointer-events-none -translate-y-4' : 'max-h-[500px] opacity-100'}`}>
           <div className="space-y-1">
             <label className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Título de la Música</label>
             <input type="text" placeholder="Ej: Alma Misionera" className={`w-full text-2xl font-black border-none focus:ring-0 p-0 transition-colors duration-500 ${darkMode ? 'bg-transparent text-white placeholder:text-slate-800' : 'bg-transparent text-slate-900 placeholder:text-slate-200'}`} value={title} onChange={e => setTitle(e.target.value)} />
@@ -109,7 +109,7 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
           </div>
         </div>
 
-        <div className={`flex-1 flex flex-col transition-colors duration-500 ${darkMode ? 'bg-slate-950' : 'bg-white'}`}>
+        <div className={`flex-1 flex flex-col transition-colors duration-500 ${darkMode ? 'bg-black' : 'bg-white'}`}>
           <div className={`flex items-center justify-between px-5 py-3 border-b transition-colors duration-500 ${darkMode ? 'border-slate-800 bg-slate-900/30' : 'border-slate-100 bg-slate-50/50'}`}>
             <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Contenido Musical</label>
             <div className="flex gap-2">
@@ -119,7 +119,7 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
           </div>
 
           {showPreview ? (
-            <div className={`p-5 min-h-[500px] animate-in fade-in duration-200 overflow-x-auto transition-colors duration-500 ${darkMode ? 'bg-slate-950 text-white' : 'bg-white text-slate-700'}`}>
+            <div className={`p-5 min-h-[500px] animate-in fade-in duration-200 overflow-x-auto transition-colors duration-500 ${darkMode ? 'bg-black text-white' : 'bg-white text-slate-700'}`}>
               {content.split('\n').map((line, idx) => (
                 <div key={idx} className={`${isChordLine(line) ? (darkMode ? 'text-misionero-amarillo neon-yellow' : 'text-misionero-azul neon-blue') : 'font-medium'} transition-colors duration-500 chord-font font-black text-[11px] leading-tight mb-1.5 whitespace-pre`}>
                   {line || '\u00A0'}
@@ -128,7 +128,7 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
             </div>
           ) : (
             <div className="relative flex-1 flex flex-col min-h-[60vh]">
-              <textarea ref={textareaRef} className={`flex-1 w-full chord-font text-[11px] border-none px-4 py-5 focus:ring-0 outline-none leading-[1.8] resize-none transition-all duration-500 ${darkMode ? 'bg-slate-950 text-white placeholder:text-slate-900' : 'bg-white text-slate-900 placeholder:text-slate-200'} ${isFocused ? 'pb-48' : 'pb-24'}`} placeholder="Escribe letra y acordes...&#10;DO           FA&#10;Señor ten piedad..." value={content} onChange={e => setContent(e.target.value)} onFocus={() => setIsFocused(true)} />
+              <textarea ref={textareaRef} className={`flex-1 w-full chord-font text-[11px] border-none px-4 py-5 focus:ring-0 outline-none leading-[1.8] resize-none transition-all duration-500 ${darkMode ? 'bg-black text-white placeholder:text-slate-900' : 'bg-white text-slate-900 placeholder:text-slate-200'} ${isFocused ? 'pb-48' : 'pb-24'}`} placeholder="Escribe letra y acordes...&#10;DO           FA&#10;Señor ten piedad..." value={content} onChange={e => setContent(e.target.value)} onFocus={() => setIsFocused(true)} />
               {isFocused && (
                 <div className={`fixed bottom-0 left-0 right-0 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} border-t p-2 flex gap-2 overflow-x-auto z-[100] shadow-[0_-15px_30px_rgba(0,0,0,0.15)] animate-in slide-in-from-bottom duration-300 transition-all ${isKeyboardVisible ? 'pb-[calc(0.5rem+env(safe-area-inset-bottom))]' : 'pb-[calc(1.5rem+env(safe-area-inset-bottom))]'}`}>
                   <div className="flex gap-2 px-2 items-center">

@@ -228,7 +228,7 @@ const SongViewer: React.FC<SongViewerProps> = ({
 
   return (
     <div 
-      className={`flex flex-col h-full ${darkMode ? 'bg-slate-950 text-white' : 'bg-white text-slate-900'} fixed inset-0 animate-in slide-in-from-bottom-2 duration-200`}
+      className={`flex flex-col h-full ${darkMode ? 'bg-black text-white' : 'bg-white text-slate-900'} fixed inset-0 animate-in slide-in-from-bottom-2 duration-200`}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
     >

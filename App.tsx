@@ -60,6 +60,7 @@ setPersistence(auth, browserLocalPersistence).catch(err => console.error("Error 
 type AppView = 'feed' | 'favorites' | 'room' | 'settings';
 const VIEW_ORDER: AppView[] = ['feed', 'favorites', 'room', 'settings'];
 type AnimationDirection = 'left' | 'right' | 'fade';
+type Theme = 'light' | 'dark' | 'system';
 
 const ADMIN_EMAILS = [
   'johannino674@gmail.com',
@@ -69,7 +70,7 @@ const ADMIN_EMAILS = [
 ];
 
 const LoadingSpinner = () => (
-    <div className="absolute inset-0 flex items-center justify-center bg-slate-50/50 dark:bg-slate-950/50 backdrop-blur-sm z-50">
+    <div className="absolute inset-0 flex items-center justify-center bg-slate-50/50 dark:bg-black/50 backdrop-blur-sm z-50">
         <div className="w-10 h-10 border-4 border-misionero-azul/30 border-t-misionero-azul rounded-full animate-spin"></div>
     </div>
 );
@@ -93,23 +94,6 @@ const EyeOffIcon = ({ className }: { className?: string }) => (
         <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
     </svg>
 );
-
-const GlassToggle = ({ checked, onChange }: { checked: boolean, onChange: (checked: boolean) => void }) => {
-    return (
-        <button
-            role="switch"
-            aria-checked={checked}
-            data-checked={checked}
-            onClick={() => onChange(!checked)}
-            className="glass-toggle glass-ui"
-        >
-            <div className="glass-toggle-fill">
-                <div className="glass-toggle-fill-inner"></div>
-            </div>
-            <div className="glass-toggle-thumb"></div>
-        </button>
-    );
-};
 
 const getLiturgicalColorClass = (category: string) => {
   const map: Record<string, string> = {
@@ -215,7 +199,7 @@ const LoginView = ({ handleAuthSubmit, authData, setAuthData, authMode, setAuthM
 
 // --- VISTAS INDIVIDUALES ---
 const FeedView = ({ songs, favorites, openSongViewer, toggleFavorite, darkMode }: any) => (
-    <div className="w-full h-full overflow-y-auto custom-scroll px-4 pt-4 pb-32 space-y-3">
+    <div className="w-full h-full overflow-y-auto custom-scroll px-4 pt-4 pb-48 space-y-3">
        {songs.map((song: Song, index: number) => (
           <div 
             key={song.id} 
@@ -237,7 +221,7 @@ const FeedView = ({ songs, favorites, openSongViewer, toggleFavorite, darkMode }
 );
 
 const FavoritesView = ({ songs, favorites, openSongViewer, toggleFavorite, darkMode }: any) => (
-    <div className="w-full h-full overflow-y-auto custom-scroll px-4 pt-4 pb-32 space-y-3">
+    <div className="w-full h-full overflow-y-auto custom-scroll px-4 pt-4 pb-48 space-y-3">
        {songs.length === 0 ? (
          <div className="flex flex-col items-center justify-center h-full opacity-20"><p className="text-[10px] font-black uppercase">Sin favoritos</p></div>
        ) : songs.map((song: Song, index: number) => (
@@ -263,7 +247,7 @@ const FavoritesView = ({ songs, favorites, openSongViewer, toggleFavorite, darkM
 const RoomLobbyView = ({ roomCodeInput, setRoomCodeInput, handleJoinRoom, handleCreateRoom, isAdmin, isJoiningRoom }: any) => (
     <div className="w-full h-full flex flex-col items-center justify-center px-8 py-4 text-center space-y-6 relative">
         {isJoiningRoom && (
-           <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/30 dark:bg-slate-950/30 backdrop-blur-md animate-in fade-in duration-300 rounded-[2.5rem]">
+           <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/30 dark:bg-black/30 backdrop-blur-md animate-in fade-in duration-300 rounded-[2.5rem]">
               <div className="w-12 h-12 border-4 border-misionero-azul border-t-transparent rounded-full animate-spin mb-4"></div>
               <p className="text-[10px] font-black uppercase tracking-widest animate-pulse">Cargando Sala...</p>
            </div>
@@ -276,7 +260,7 @@ const RoomLobbyView = ({ roomCodeInput, setRoomCodeInput, handleJoinRoom, handle
     </div>
 );
 
-const SettingsView = ({ darkMode, setDarkMode, isAdmin, categories, newCategoryName, setNewCategoryName, onAddCategory, editingCategory, setEditingCategory, onSaveEditCategory, handleDeleteCategory, newUsername, setNewUsername, showUsernamePass, setShowUsernamePass, usernameChangePassword, setUsernameChangePassword, isUpdatingUsername, handleUpdateUsername, passwordChangeData, setPasswordChangeData, showChangePassword, toggleShowChangePassword, passwordChangeMsg, isUpdatingPassword, handleChangePassword, setCategoryConfirmModal }: any) => {
+const SettingsView = ({ darkMode, theme, setTheme, isAdmin, categories, newCategoryName, setNewCategoryName, onAddCategory, editingCategory, setEditingCategory, onSaveEditCategory, handleDeleteCategory, newUsername, setNewUsername, showUsernamePass, setShowUsernamePass, usernameChangePassword, setUsernameChangePassword, isUpdatingUsername, handleUpdateUsername, passwordChangeData, setPasswordChangeData, showChangePassword, toggleShowChangePassword, passwordChangeMsg, isUpdatingPassword, handleChangePassword, setCategoryConfirmModal }: any) => {
     
     const EditIcon = ({ className }: { className?: string }) => (
       <svg className={className || "w-3 h-3"} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
@@ -285,13 +269,27 @@ const SettingsView = ({ darkMode, setDarkMode, isAdmin, categories, newCategoryN
     );
 
     return (
-    <div className="w-full h-full overflow-y-auto custom-scroll px-6 py-4 space-y-8">
+    <div className="w-full h-full overflow-y-auto custom-scroll px-6 py-4 pb-48 space-y-8">
         <section className="space-y-4">
            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Apariencia</h3>
-           <div className="glass-ui p-5 rounded-[2.5rem] flex items-center justify-between">
-              <span className="text-[10px] font-black uppercase tracking-widest">{darkMode ? 'Modo Oscuro' : 'Modo Claro'}</span>
-              <GlassToggle checked={darkMode} onChange={setDarkMode} />
-           </div>
+           <div className="glass-ui p-4 rounded-[2.5rem] flex flex-col gap-3">
+              <div className={`p-1 rounded-full grid grid-cols-3 gap-1 ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                {(['light', 'dark', 'system'] as const).map((t) => {
+                  let label = 'Claro';
+                  if (t === 'dark') label = 'Oscuro';
+                  if (t === 'system') label = 'Sistema';
+                  return (
+                    <button 
+                      key={t} 
+                      onClick={() => setTheme(t)}
+                      className={`px-4 py-2 rounded-full text-[9px] font-black uppercase transition-all ${theme === t ? (darkMode ? 'bg-slate-700 text-white' : 'bg-white text-slate-900 shadow-sm') : 'text-slate-400'}`}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
         </section>
 
          {isAdmin && (
@@ -361,7 +359,7 @@ const SettingsView = ({ darkMode, setDarkMode, isAdmin, categories, newCategoryN
            </div>
         </section>
 
-        <section className="space-y-4 pb-8">
+        <section className="space-y-4">
            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Seguridad</h3>
            <form onSubmit={handleChangePassword} className="glass-ui p-6 rounded-[2.5rem]">
               <div className="space-y-3">
@@ -389,7 +387,7 @@ const SettingsView = ({ darkMode, setDarkMode, isAdmin, categories, newCategoryN
 
 // --- COMPONENTE PRINCIPAL DE LA VISTA ---
 const MainView = ({
-  user, view, darkMode, setDarkMode, isAdmin, animationDirection, navigateTo,
+  user, view, darkMode, theme, setTheme, isAdmin, animationDirection, navigateTo,
   // Props para todas las vistas
   songs, favorites, openSongViewer, toggleFavorite,
   searchQuery, setSearchQuery, activeFilter, setActiveFilter, categories,
@@ -459,7 +457,7 @@ const MainView = ({
               return <RoomLobbyView roomCodeInput={roomCodeInput} setRoomCodeInput={setRoomCodeInput} handleJoinRoom={handleJoinRoom} handleCreateRoom={handleCreateRoom} isAdmin={isAdmin} isJoiningRoom={isJoiningRoom} />;
           case 'settings':
               return <SettingsView 
-                        darkMode={darkMode} setDarkMode={setDarkMode} isAdmin={isAdmin} 
+                        darkMode={darkMode} theme={theme} setTheme={setTheme} isAdmin={isAdmin} 
                         categories={categories} newCategoryName={newCategoryName} setNewCategoryName={setNewCategoryName} onAddCategory={onAddCategory} 
                         editingCategory={editingCategory} setEditingCategory={setEditingCategory} onSaveEditCategory={onSaveEditCategory} handleDeleteCategory={handleDeleteCategory}
                         newUsername={newUsername} setNewUsername={setNewUsername} showUsernamePass={showUsernamePass} setShowUsernamePass={setShowUsernamePass}
@@ -479,7 +477,7 @@ const MainView = ({
     'animate-view-fade-in';
 
   return (
-    <div className={`fixed inset-0 max-w-md mx-auto transition-colors duration-500 ${darkMode ? 'text-white bg-slate-950' : 'text-slate-900 bg-slate-50'} overflow-hidden flex flex-col`}>
+    <div className={`fixed inset-0 max-w-md mx-auto transition-colors duration-500 ${darkMode ? 'text-white bg-black' : 'text-slate-900 bg-slate-50'} overflow-hidden flex flex-col`}>
       <header onTouchStart={(e) => e.stopPropagation()} className={`shrink-0 px-4 pt-12 pb-3 z-30`}>
         <div className="flex justify-between items-center mb-3">
           <div>
@@ -518,6 +516,12 @@ const MainView = ({
   );
 };
 
+const isValidUsername = (username: string): boolean => {
+  // Must be between 3 and 15 characters, letters and accents only.
+  const regex = /^[a-zA-ZáéíóúÁÉÍÓÚñÑ]{3,15}$/;
+  return regex.test(username);
+};
+
 const App: React.FC = () => {
   const [user, setUser] = useState<AppUser | null>(null);
   const [songs, setSongs] = useState<Song[]>([]);
@@ -529,7 +533,8 @@ const App: React.FC = () => {
   const [editingSong, setEditingSong] = useState<Song | boolean | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
-  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
+  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('theme') as Theme | null) || 'system');
+  const [systemPrefersDark, setSystemPrefersDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<string>('Todos');
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot'>('login');
@@ -554,6 +559,20 @@ const App: React.FC = () => {
   const [animationDirection, setAnimationDirection] = useState<AnimationDirection>('fade');
   const [categoryConfirmModal, setCategoryConfirmModal] = useState<{ title: string, message: string, action: () => void, type: 'danger' | 'warning' } | null>(null);
 
+  const [showProfileUpdateModal, setShowProfileUpdateModal] = useState(false);
+  const [profileUpdateData, setProfileUpdateData] = useState({ username: '', email: '', password: '' });
+  const [profileUpdateError, setProfileUpdateError] = useState<string | null>(null);
+  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+  const [profileUpdateReason, setProfileUpdateReason] = useState<'invalid_name' | 'missing_data' | null>(null);
+  const [showUpdatePassword, setShowUpdatePassword] = useState(false);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const isExitingApp = useRef(false);
+
+  const darkMode = useMemo(() => {
+    if (theme === 'system') return systemPrefersDark;
+    return theme === 'dark';
+  }, [theme, systemPrefersDark]);
+
   const categoryNames = useMemo(() => categories.map(c => c.name), [categories]);
 
   const toggleShowChangePassword = (field: 'current' | 'newPass' | 'confirm') => {
@@ -561,12 +580,22 @@ const App: React.FC = () => {
   };
   
   const toggleFavorite = async (e: React.MouseEvent, songId: string) => { e.stopPropagation(); if (user) await updateDoc(doc(db, "users", user.id), { favorites: favorites.includes(songId) ? arrayRemove(songId) : arrayUnion(songId) }); };
+  
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = () => setSystemPrefersDark(mediaQuery.matches);
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem('theme', darkMode ? 'dark' : 'light');
-    if (darkMode) document.documentElement.classList.add('dark');
-    else document.documentElement.classList.remove('dark');
-  }, [darkMode]);
+    localStorage.setItem('theme', theme);
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [theme, darkMode]);
 
   useEffect(() => {
     if (!window.history.state) {
@@ -582,6 +611,12 @@ const App: React.FC = () => {
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, []);
+  
+  const handleConfirmExit = useCallback(() => {
+    isExitingApp.current = true;
+    setShowExitConfirm(false);
+    window.history.back();
   }, []);
 
   const navigateTo = useCallback((newView: AppView, dir?: 'left' | 'right') => {
@@ -602,48 +637,45 @@ const App: React.FC = () => {
     setView(newView);
 }, [view]);
 
-  useEffect(() => {
+useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
-      if (editingSong) { setEditingSong(null); return; }
-      if (activeSong) { 
-        setActiveSong(null); 
-        if (window.location.search.includes('song=')) {
-          window.history.replaceState(null, '', window.location.pathname);
-        }
-        return; 
-      }
-      
-      if (activeRoom) { 
-        const state = event.state;
-        const currentOverlay = state?.overlay;
-        if (currentOverlay === 'room') {
-            window.dispatchEvent(new CustomEvent('closeRoomSong'));
-            return;
-        }
-        if (currentOverlay === 'room_song' || currentOverlay === 'chat' || currentOverlay === 'participants') {
-            return;
-        }
-        if (state?.view) {
-            setActiveRoom(null);
-            setView(state.view as AppView);
-            return;
-        }
-        if (!state) {
-            setActiveRoom(null);
-            setView('feed');
-        }
-        return; 
-      }
+        if (isExitingApp.current) return;
 
-      if (event.state && event.state.view) {
-        setView(event.state.view as AppView);
-      } else {
-        setView('feed');
-      }
+        if (activeRoom) return;
+        if (editingSong) { setEditingSong(null); return; }
+        if (activeSong) {
+            setActiveSong(null);
+            if (window.location.search.includes('song=')) {
+                window.history.replaceState(null, '', window.location.pathname);
+            }
+            return;
+        }
+
+        if (event.state && event.state.view) {
+            setView(event.state.view as AppView);
+        } else {
+            // This is an attempt to exit the app
+            window.history.pushState({ view: 'feed' }, '', '');
+            setShowExitConfirm(true);
+        }
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [activeSong, activeRoom, editingSong, view]);
+}, [activeSong, activeRoom, editingSong]);
+  
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+        if (user) {
+            e.preventDefault();
+            e.returnValue = '¿Estás seguro de que quieres salir?';
+            return e.returnValue;
+        }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!activeRoom?.id) return;
@@ -738,16 +770,16 @@ const App: React.FC = () => {
   };
 
   const enterRoom = (room: Room) => { setActiveRoom(room); window.history.pushState({ overlay: 'room' }, '', ''); };
-  const exitRoom = () => {
+  
+  const exitRoom = useCallback(() => {
     if (activeRoom && user) {
-      updateDoc(doc(db, "rooms", activeRoom.id), { participants: arrayRemove(user.username) });
+      updateDoc(doc(db, "rooms", activeRoom.id), {
+        participants: arrayRemove(user.username),
+      });
     }
-    if (window.history.state?.overlay?.startsWith('room')) {
-      window.history.back();
-    } else {
-      setActiveRoom(null);
-    }
-  };
+    setActiveRoom(null);
+    // Let the popstate handler manage history
+  }, [activeRoom, user]);
   
   const handleCreateRoom = async () => {
     if (!user) return;
@@ -823,6 +855,11 @@ const App: React.FC = () => {
         await signInWithEmailAndPassword(auth, authData.email, authData.pass);
       } else if (authMode === 'register') {
         if (authData.pass !== authData.confirmPass) { setAuthMsg({ type: 'error', text: 'Las contraseñas no coinciden.' }); setIsAuthenticating(false); return; }
+        if (!isValidUsername(authData.user)) {
+          setAuthMsg({ type: 'error', text: 'El nombre de usuario debe tener 3-15 caracteres y solo puede contener letras y tildes.' });
+          setIsAuthenticating(false);
+          return;
+        }
         const q = query(collection(db, "users"), where("username_lowercase", "==", authData.user.toLowerCase()), limit(1));
         if (!(await getDocs(q)).empty) { setAuthMsg({ type: 'error', text: 'El nombre de usuario ya está ocupado. Por favor elige otro.' }); setIsAuthenticating(false); return; }
         const cred = await createUserWithEmailAndPassword(auth, authData.email, authData.pass);
@@ -855,8 +892,8 @@ const App: React.FC = () => {
     if (!user || !auth.currentUser) return;
     const trimmedUsername = newUsername.trim();
     
-    if (trimmedUsername.length < 3) {
-       setGlobalAlert({ title: "Nombre muy corto", message: "Mínimo 3 caracteres.", type: 'error' });
+    if (!isValidUsername(trimmedUsername)) {
+       setGlobalAlert({ title: "Nombre no válido", message: "El usuario debe tener 3-15 caracteres y solo puede contener letras y tildes.", type: 'error' });
        return;
     }
     if (trimmedUsername.toLowerCase() === user.username.toLowerCase()) return;
@@ -907,15 +944,100 @@ const App: React.FC = () => {
     }
   };
 
+   const handleProfileUpdate = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!user || !auth.currentUser?.email) return;
+        setProfileUpdateError(null);
+
+        if (!isValidUsername(profileUpdateData.username)) {
+            setProfileUpdateError('El nombre de usuario debe tener 3-15 caracteres, solo letras y tildes.');
+            return;
+        }
+        if (!profileUpdateData.password) {
+            setProfileUpdateError('Por favor, ingresa tu contraseña para confirmar.');
+            return;
+        }
+
+        setIsUpdatingProfile(true);
+        try {
+            const credential = EmailAuthProvider.credential(auth.currentUser.email, profileUpdateData.password);
+            await reauthenticateWithCredential(auth.currentUser, credential);
+            
+            const newUsernameLower = profileUpdateData.username.toLowerCase();
+            if (newUsernameLower !== user.username_lowercase) {
+                const q = query(collection(db, "users"), where("username_lowercase", "==", newUsernameLower), limit(1));
+                const querySnapshot = await getDocs(q);
+                if (!querySnapshot.empty && querySnapshot.docs[0].id !== user.id) {
+                    setProfileUpdateError('Este nombre de usuario ya está ocupado. Elige otro.');
+                    setIsUpdatingProfile(false);
+                    return;
+                }
+            }
+            
+            const updatePayload = {
+                username: profileUpdateData.username,
+                username_lowercase: newUsernameLower,
+                email: profileUpdateData.email,
+                profileValidated: true // Flag to prevent showing modal again
+            };
+
+            await updateProfile(auth.currentUser, { displayName: profileUpdateData.username });
+            await updateDoc(doc(db, "users", user.id), updatePayload);
+            
+            setUser(prev => prev ? ({ ...prev, ...updatePayload }) : null);
+            setNewUsername(profileUpdateData.username);
+            setShowProfileUpdateModal(false);
+
+        } catch (error: any) {
+            console.error("Error updating profile:", error);
+            if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+                setProfileUpdateError('La contraseña es incorrecta.');
+            } else {
+                setProfileUpdateError('Ocurrió un error. Inténtalo de nuevo.');
+            }
+        } finally {
+            setIsUpdatingProfile(false);
+        }
+    };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
+        const userDocRef = doc(db, "users", firebaseUser.uid);
+        const userDoc = await getDoc(userDocRef);
         const data = userDoc.data();
-        const username = data?.username || firebaseUser.displayName || 'Músico';
-        setUser({ id: firebaseUser.uid, username, username_lowercase: data?.username_lowercase || username.toLowerCase(), email: firebaseUser.email || '', role: data?.role || 'member', isAuthenticated: true, createdAt: firebaseUser.metadata.creationTime });
-        setNewUsername(username);
-      } else setUser(null);
+        
+        const username = data?.username || firebaseUser.displayName || '';
+        const email = data?.email || firebaseUser.email || '';
+        
+        const currentUserData = { 
+          id: firebaseUser.uid, 
+          username, 
+          username_lowercase: data?.username_lowercase || username.toLowerCase(), 
+          email: email, 
+          role: data?.role || 'member', 
+          isAuthenticated: true, 
+          createdAt: firebaseUser.metadata.creationTime 
+        };
+        
+        setUser(currentUserData);
+
+        const profileValidated = data?.profileValidated || false;
+        const isDataMissing = !data?.username || !data?.email;
+        const isUsernameInvalid = username && !isValidUsername(username);
+
+        if (!profileValidated && (isDataMissing || isUsernameInvalid)) {
+          setProfileUpdateReason(isDataMissing ? 'missing_data' : 'invalid_name');
+          setProfileUpdateData({ username: username, email: email, password: '' });
+          setShowProfileUpdateModal(true);
+        } else {
+          setNewUsername(username);
+          setShowProfileUpdateModal(false);
+        }
+
+      } else {
+        setUser(null);
+      }
       setLoading(false);
     });
     return () => unsubscribe();
@@ -957,8 +1079,6 @@ const App: React.FC = () => {
     </div>
   );
 
-  const isOverlayVisible = activeSong || activeRoom || editingSong;
-
   return (
     <>
       <div className={`fixed inset-0 transition-opacity duration-500 ease-in-out ${user ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
@@ -976,10 +1096,10 @@ const App: React.FC = () => {
         />
       </div>
 
-      {user && (
+      {user && !showProfileUpdateModal && (
         <>
             <MainView
-                user={user} view={view} darkMode={darkMode} setDarkMode={setDarkMode} isAdmin={isAdmin} animationDirection={animationDirection} navigateTo={navigateTo}
+                user={user} view={view} darkMode={darkMode} theme={theme} setTheme={setTheme} isAdmin={isAdmin} animationDirection={animationDirection} navigateTo={navigateTo}
                 songs={songs} favorites={favorites} openSongViewer={openSongViewer} toggleFavorite={toggleFavorite}
                 searchQuery={searchQuery} setSearchQuery={setSearchQuery} activeFilter={activeFilter} setActiveFilter={setActiveFilter}
                 categories={categories}
@@ -991,7 +1111,7 @@ const App: React.FC = () => {
                 toggleShowChangePassword={toggleShowChangePassword} passwordChangeMsg={passwordChangeMsg} isUpdatingPassword={isUpdatingPassword} handleChangePassword={handleChangePassword}
             />
             
-            <nav onTouchStart={(e) => e.stopPropagation()} className="glass-ui fixed bottom-0 left-0 right-0 max-w-md mx-auto shrink-0 w-full px-4 pt-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] flex justify-center gap-14 items-center z-50">
+            <nav onTouchStart={(e) => e.stopPropagation()} className="fixed bottom-0 left-0 right-0 max-w-md mx-auto shrink-0 w-full px-4 pt-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] flex justify-center gap-14 items-center z-50 bg-white dark:bg-black border-t border-slate-200 dark:border-white/10 transition-colors duration-500">
               {VIEW_ORDER.map((v) => {
                 const isActive = view === v;
                 let activeColorClass = 'text-slate-400 dark:text-slate-500';
@@ -1020,12 +1140,66 @@ const App: React.FC = () => {
               <button onClick={() => openSongEditor(null)} className="fixed bottom-[5rem] right-6 w-16 h-16 glass-ui glass-interactive bg-misionero-rojo/70 text-white rounded-[1.8rem] flex items-center justify-center z-40 animate-bounce-subtle active:scale-90 transition-transform"><PlusIcon /></button>
             )}
             {globalAlert && (<div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setGlobalAlert(null)}></div><div className="glass-ui relative w-full max-w-sm p-6 rounded-[2rem] animate-in zoom-in-95 duration-200"><div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 mx-auto ${globalAlert.type === 'error' ? 'glass-ui bg-misionero-rojo/30 text-misionero-rojo' : 'glass-ui bg-misionero-azul/30 text-misionero-azul'}`}>{globalAlert.type === 'error' ? ( <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>) : ( <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>)}</div><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{globalAlert.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{globalAlert.message}</p><button onClick={() => setGlobalAlert(null)} className={`w-full py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest active:scale-95 transition-transform glass-ui glass-interactive ${globalAlert.type === 'error' ? 'bg-misionero-rojo/70 text-white' : 'bg-misionero-azul/70 text-white'}`}>Entendido</button></div></div>)}
-            {categoryConfirmModal && (<div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setCategoryConfirmModal(null)}></div><div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-slate-950 border-white/10' : 'bg-white border-slate-100'}`}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{categoryConfirmModal.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{categoryConfirmModal.message}</p><div className="flex gap-3"><button onClick={() => setCategoryConfirmModal(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button><button onClick={categoryConfirmModal.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform ${categoryConfirmModal.type === 'danger' ? 'bg-misionero-rojo' : 'bg-misionero-azul'}`}>Confirmar</button></div></div></div>)}
+            {categoryConfirmModal && (<div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setCategoryConfirmModal(null)}></div><div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{categoryConfirmModal.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{categoryConfirmModal.message}</p><div className="flex gap-3"><button onClick={() => setCategoryConfirmModal(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button><button onClick={categoryConfirmModal.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform ${categoryConfirmModal.type === 'danger' ? 'bg-misionero-rojo' : 'bg-misionero-azul'}`}>Confirmar</button></div></div></div>)}
+            {showExitConfirm && (<div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowExitConfirm(null)}></div><div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Salir</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>¿Estás seguro de que quieres salir?</p><div className="flex gap-3"><button onClick={() => setShowExitConfirm(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button><button onClick={handleConfirmExit} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform bg-misionero-rojo`}>Salir</button></div></div></div>)}
             {showOpenInAppButton && (<div className="fixed bottom-[5rem] left-1/2 -translate-x-1/2 z-40 animate-in fade-in slide-in-from-bottom-5 duration-300"><button onClick={handleOpenInApp} className="glass-ui glass-interactive bg-misionero-azul/70 text-white flex items-center gap-3 px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-2xl active:scale-95 transition-transform"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg><span>Abrir en la App</span></button></div>)}
             {editingSong && hasElevatedPermissions && (<div data-is-overlay="true" className="fixed inset-0 z-[300]"><SongForm categories={categoryNames} initialData={typeof editingSong === 'boolean' ? undefined : editingSong} onSave={async (data) => { if (typeof editingSong !== 'boolean' && editingSong) { await updateDoc(doc(db, "songs", editingSong.id), data); } else { await addDoc(collection(db, "songs"), { ...data, createdAt: Date.now(), author: user.username }); } goBack(); }} onCancel={goBack} darkMode={darkMode} /></div>)}
             {activeSong && (<div data-is-overlay="true" className="fixed inset-0 z-[100]"><SongViewer song={activeSong} onBack={goBack} darkMode={darkMode} onEdit={hasElevatedPermissions ? () => openSongEditor(activeSong) : undefined} onDelete={hasElevatedPermissions ? () => handleDeleteSong(activeSong.id) : undefined} /></div>)}
             {activeRoom && (<div data-is-overlay="true" className="fixed inset-0 z-[200]"><RoomView categories={categoryNames} room={activeRoom} songs={songs} currentUser={user.username} isAdmin={isAdmin} onExit={exitRoom} onUpdateRoom={handleUpdateRoom} darkMode={darkMode} db={db} ADMIN_EMAILS={ADMIN_EMAILS} onEditSong={openSongEditor} onDeleteSong={handleDeleteSong} /></div>)}
         </>
+      )}
+
+      {showProfileUpdateModal && user && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 animate-in fade-in duration-300 bg-black/70 backdrop-blur-md">
+              <div className={`relative w-full max-w-sm p-8 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}>
+                  <h3 className={`text-center font-black text-xl uppercase mb-3 ${darkMode ? 'text-white' : 'text-slate-900'}`}>
+                    {profileUpdateReason === 'missing_data' ? 'Completa tu Perfil' : 'Actualiza tu Usuario'}
+                  </h3>
+                  <p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                    {profileUpdateReason === 'missing_data' 
+                      ? 'Para continuar, necesitamos que completes tu perfil. Confirma tu identidad con tu contraseña.'
+                      : 'Tu nombre de usuario no es válido. Elige uno nuevo (3-15 caracteres, solo letras y tildes) y confirma tu identidad con tu contraseña.'
+                    }
+                  </p>
+                  <form onSubmit={handleProfileUpdate} className="space-y-3">
+                      <input 
+                          type="text" 
+                          placeholder="Nuevo nombre de usuario"
+                          value={profileUpdateData.username} 
+                          onChange={e => setProfileUpdateData(d => ({...d, username: e.target.value}))} 
+                          className={`w-full text-center glass-ui rounded-2xl px-4 py-3.5 text-lg font-bold outline-none border ${profileUpdateError ? 'border-red-500/50' : (darkMode ? 'border-transparent' : 'border-slate-200/50')} ${darkMode ? 'bg-slate-800/50 text-white placeholder:text-slate-400' : 'bg-slate-50 text-slate-900 placeholder:text-slate-400'}`}
+                      />
+                      <input 
+                          type="email" 
+                          placeholder="Correo Electrónico"
+                          value={profileUpdateData.email}
+                          readOnly={!!user.email}
+                          onChange={e => setProfileUpdateData(d => ({...d, email: e.target.value}))} 
+                          className={`w-full text-center glass-ui rounded-2xl px-4 py-3.5 text-sm font-bold outline-none border ${darkMode ? 'border-transparent bg-slate-800/50 text-white placeholder:text-slate-400' : 'border-slate-200/50 bg-slate-50 text-slate-900 placeholder:text-slate-400'} ${!!user.email ? 'opacity-70' : ''}`}
+                      />
+                      <div className="relative">
+                        <input 
+                            type={showUpdatePassword ? 'text' : 'password'}
+                            placeholder="Tu contraseña actual"
+                            value={profileUpdateData.password}
+                            onChange={e => setProfileUpdateData(d => ({...d, password: e.target.value}))} 
+                            className={`w-full text-center glass-ui rounded-2xl px-4 py-3.5 text-sm font-bold outline-none border ${profileUpdateError?.includes('contraseña') ? 'border-red-500/50' : (darkMode ? 'border-transparent' : 'border-slate-200/50')} ${darkMode ? 'bg-slate-800/50 text-white placeholder:text-slate-400' : 'bg-slate-50 text-slate-900 placeholder:text-slate-400'}`}
+                        />
+                        <button type="button" onClick={() => setShowUpdatePassword(!showUpdatePassword)} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showUpdatePassword ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}</button>
+                      </div>
+
+                      {profileUpdateError && <p className="text-center text-xs font-bold text-red-400">{profileUpdateError}</p>}
+                      
+                      <button 
+                          type="submit" 
+                          disabled={isUpdatingProfile} 
+                          className="w-full !mt-5 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform bg-misionero-verde disabled:opacity-50"
+                      >
+                          {isUpdatingProfile ? 'Verificando...' : 'Guardar y Continuar'}
+                      </button>
+                  </form>
+              </div>
+          </div>
       )}
     </>
   );
