@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Room, Song, ChatMessage, LiturgicalTime } from '../types';
 import SongViewer from './SongViewer';
@@ -14,7 +15,7 @@ import { Firestore } from 'firebase/firestore';
 import { 
   getDatabase, ref as refRtdb, onValue as onValueRtdb, query as queryRtdb, 
   orderByChild, equalTo, limitToFirst, push as pushRtdb, serverTimestamp as serverTimestampRtdb, 
-  set as setRtdb, remove as removeRtdb, onChildAdded 
+  set as setRtdb, remove as removeRtdb, onChildAdded, onDisconnect 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 import { transposeSong } from '../services/musicUtils';
 import { triggerHapticFeedback } from '../services/haptics';
@@ -126,34 +127,6 @@ const SwipeableMessage: React.FC<SwipeableMessageProps> = ({ msg, currentUser, o
   );
 };
 
-const useUserStatus = (rtdb: any, username: string) => {
-    const [isOnline, setIsOnline] = useState(false);
-    useEffect(() => {
-        if (!rtdb || !username) {
-          setIsOnline(false);
-          return;
-        };
-
-        const q = queryRtdb(refRtdb(rtdb, '/status'), orderByChild('username'), equalTo(username), limitToFirst(1));
-        
-        const unsubscribe = onValueRtdb(q, (snapshot) => {
-            if (snapshot.exists()) {
-                const data = snapshot.val();
-                const userId = Object.keys(data)[0];
-                setIsOnline(data[userId]?.isOnline || false);
-            } else {
-                setIsOnline(false);
-            }
-        });
-        
-        // FIX: Directly return the unsubscribe function from onValueRtdb for useEffect cleanup.
-        // FIX: The `useEffect` cleanup function was calling unsubscribe wrapped in another function. Returning it directly resolves the error.
-        return unsubscribe;
-    }, [rtdb, username]);
-    
-    return isOnline;
-};
-
 const LiveReactionsOverlay = ({ reactions }: { reactions: { id: string, emoji: string }[] }) => {
     return (
         <div className="absolute inset-0 pointer-events-none z-[135] overflow-hidden">
@@ -179,6 +152,9 @@ const RoomView: React.FC<RoomViewProps> = ({
   const [isEditingRepertoire, setIsEditingRepertoire] = useState(room.repertoire.length === 0 && canModify);
   const [tempRepertoire, setTempRepertoire] = useState<string[]>([]);
   const [displayedRepertoire, setDisplayedRepertoire] = useState<string[]>(room.repertoire);
+  
+  // Realtime Presence State
+  const [onlineParticipants, setOnlineParticipants] = useState<string[]>([]);
   
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [showParticipants, setShowParticipants] = useState(false);
@@ -211,7 +187,7 @@ const RoomView: React.FC<RoomViewProps> = ({
   const [liveReactions, setLiveReactions] = useState<{ id: string, emoji: string }[]>([]);
   const typingTimeoutRef = useRef<number | null>(null);
 
-  const prevParticipants = useRef<string[]>(room.participants || []);
+  const prevParticipants = useRef<string[]>([]);
   const prevChatLength = useRef<number>(room.chat?.length || 0);
   const notificationAudio = useRef<HTMLAudioElement | null>(null);
   const lastSyncedHostSongId = useRef<string | undefined>(undefined);
@@ -228,6 +204,33 @@ const RoomView: React.FC<RoomViewProps> = ({
     prevSongsRef.current = songs;
   }, [songs]);
 
+  // --- REALTIME PRESENCE SYSTEM ---
+  useEffect(() => {
+    if (!room.id || !rtdb || !currentUser) return;
+
+    // 1. Registrarse a sí mismo en RTDB con onDisconnect
+    const myPresenceRef = refRtdb(rtdb, `rooms/${room.id}/online/${currentUser}`);
+    setRtdb(myPresenceRef, { isOnline: true, role: isAdmin ? 'admin' : 'member' });
+    onDisconnect(myPresenceRef).remove();
+
+    // 2. Escuchar la lista de usuarios online
+    const onlineUsersRef = refRtdb(rtdb, `rooms/${room.id}/online`);
+    const unsubscribe = onValueRtdb(onlineUsersRef, (snapshot) => {
+        if (snapshot.exists()) {
+            const users = Object.keys(snapshot.val());
+            setOnlineParticipants(users);
+        } else {
+            setOnlineParticipants([]);
+        }
+    });
+
+    return () => {
+        removeRtdb(myPresenceRef); // Limpieza manual al desmontar
+        (unsubscribe as any)();
+    };
+  }, [room.id, rtdb, currentUser, isAdmin]);
+
+  // --- TYPING & REACTIONS ---
   useEffect(() => {
     if (!room.id || !rtdb) return;
     const typingRef = refRtdb(rtdb, `rooms/${room.id}/liveState/typing`);
@@ -247,10 +250,10 @@ const RoomView: React.FC<RoomViewProps> = ({
     });
 
     return () => {
-        typingListener();
-        reactionsListener();
+        (typingListener as any)();
+        (reactionsListener as any)();
     };
-}, [room.id, rtdb, currentUser]);
+  }, [room.id, rtdb, currentUser]);
 
 
   const repertoireSongsMap = useMemo(() => {
@@ -372,6 +375,7 @@ const RoomView: React.FC<RoomViewProps> = ({
     prevChatLength.current = currentChat.length;
   }, [room.chat, currentUser, isChatOpen]);
 
+  // Si el usuario no está en la lista de Firestore, lo sacamos (Control de acceso persistente)
   useEffect(() => { if (room.participants && !room.participants.includes(currentUser)) onExit(); }, [room.participants, currentUser, onExit]);
 
   useEffect(() => {
@@ -388,10 +392,13 @@ const RoomView: React.FC<RoomViewProps> = ({
   }, [room.currentSongId, isFollowingHost, isTheHost]);
 
   useEffect(() => {
-    if (!db || !room.participants || room.participants.length === 0) return;
+    if (!db || onlineParticipants.length === 0) return;
     const fetchParticipantDetails = async () => {
         const usersRef = collection(db, "users");
-        const participantsToFetch = room.participants.slice(0, 30);
+        // Hacemos chunks si son muchos usuarios, pero por ahora limitamos a 30
+        const participantsToFetch = onlineParticipants.slice(0, 30);
+        if (participantsToFetch.length === 0) return;
+        
         const q = query(usersRef, where("username", "in", participantsToFetch));
         try {
             const querySnapshot = await getDocs(q);
@@ -405,7 +412,7 @@ const RoomView: React.FC<RoomViewProps> = ({
         } catch (error) { console.error("Error fetching details:", error); }
     };
     fetchParticipantDetails();
-  }, [db, room.participants]);
+  }, [db, onlineParticipants]);
 
   const addNotification = (message: string, type: Notification['type'] = 'info') => {
     const id = Date.now() + Math.random();
@@ -415,17 +422,18 @@ const RoomView: React.FC<RoomViewProps> = ({
 
   useEffect(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }, [room.chat, isChatOpen]);
   useEffect(() => { if (isChatOpen && chatInputRef.current) setTimeout(() => chatInputRef.current?.focus(), 100); }, [isChatOpen]);
+  
+  // Usamos onlineParticipants para las notificaciones de entrada/salida reales
   useEffect(() => {
-    const currentParts = room.participants || [];
-    if (currentParts.length > prevParticipants.current.length) {
-      const newUsers = currentParts.filter(p => !prevParticipants.current.includes(p));
+    if (prevParticipants.current.length > 0) {
+      const newUsers = onlineParticipants.filter(p => !prevParticipants.current.includes(p));
+      const leftUsers = prevParticipants.current.filter(p => !onlineParticipants.includes(p));
+      
       newUsers.forEach(u => { if (u !== currentUser) addNotification(`${u} se ha unido`, 'success'); });
-    } else if (currentParts.length < prevParticipants.current.length) {
-      const leftUsers = prevParticipants.current.filter(p => !currentParts.includes(p));
-      leftUsers.forEach(u => { addNotification(`${u} ha salido`, 'alert'); });
+      leftUsers.forEach(u => { if (u !== currentUser) addNotification(`${u} ha salido`, 'alert'); });
     }
-    prevParticipants.current = currentParts;
-  }, [room.participants, currentUser]);
+    prevParticipants.current = onlineParticipants;
+  }, [onlineParticipants, currentUser]);
 
   const handleExitRoom = () => {
     setConfirmModal({
@@ -446,6 +454,7 @@ const RoomView: React.FC<RoomViewProps> = ({
     if (isTheHost) {
       lastSyncedHostSongId.current = songId || '';
       setSelectedSongId(songId);
+      // Actualizamos Firestore con la canción actual
       onUpdateRoom(room.id, { currentSongId: songId || '' });
     } else {
       setSelectedSongId(songId);
@@ -668,12 +677,14 @@ const RoomView: React.FC<RoomViewProps> = ({
       }
       toastTouchStartY.current = null;
   };
-// FIX: The ParticipantItem component was wrapped in a useCallback, but it used the useUserStatus hook internally. This is a violation of the Rules of Hooks. The useCallback has been removed, resolving the issue.
+
   const ParticipantItem = ({ username }: { username: string}) => {
     const isHost = username === room.host;
     const details = participantDetails[username];
     const isAdminUser = details?.isAdmin;
-    const isOnline = useUserStatus(rtdb, username);
+    
+    // Al estar usando la lista "online", el punto verde es redundante, pero lo mantenemos por estética
+    const isOnline = true; 
 
     return (
       <div className={`flex items-center justify-between p-4 rounded-3xl border transition-colors ${darkMode ? 'bg-slate-900 border-white/5' : 'bg-slate-50 border-slate-100'}`}>
@@ -750,7 +761,7 @@ const RoomView: React.FC<RoomViewProps> = ({
                 <div className="flex items-center gap-2 shrink-0 pl-3">
                     <button onClick={openParticipants} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-colors ${darkMode ? 'bg-black/40 border-white/5' : 'bg-black/20 border-white/10'}`}>
                         <svg className={`w-3.5 h-3.5 ${darkMode ? 'text-misionero-amarillo' : 'text-white'}`} fill="currentColor" viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
-                        <span className={`text-[10px] font-black ${darkMode ? 'text-misionero-amarillo' : 'text-white'}`}>{(room.participants || []).length}</span>
+                        <span className={`text-[10px] font-black ${darkMode ? 'text-misionero-amarillo' : 'text-white'}`}>{onlineParticipants.length}</span>
                     </button>
                     <button onClick={handleExitRoom} className="bg-misionero-rojo text-white px-5 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg active:scale-95 transition-transform">SALIR</button>
                 </div>
@@ -854,12 +865,12 @@ const RoomView: React.FC<RoomViewProps> = ({
       </div>
 
       {showParticipants && (<div className={`fixed inset-0 z-[160] flex flex-col animate-in slide-in-from-right duration-300 ${darkMode ? 'bg-black' : 'bg-white'}`}>
-        <div className={`flex items-center justify-between px-4 pt-12 pb-4 border-b shrink-0 ${darkMode ? 'border-white/5 bg-slate-900' : 'border-slate-100 bg-white'}`}><div className="flex items-center gap-3"><button onClick={closeParticipants} className="p-2 rounded-full"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button><div><h3 className="font-black uppercase text-sm">Participantes</h3><p className="text-[10px] font-bold text-slate-400">{(room.participants || []).length} usuarios</p></div></div></div>
+        <div className={`flex items-center justify-between px-4 pt-12 pb-4 border-b shrink-0 ${darkMode ? 'border-white/5 bg-slate-900' : 'border-slate-100 bg-white'}`}><div className="flex items-center gap-3"><button onClick={closeParticipants} className="p-2 rounded-full"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button><div><h3 className="font-black uppercase text-sm">Participantes</h3><p className="text-[10px] font-bold text-slate-400">{onlineParticipants.length} usuarios</p></div></div></div>
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {(room.participants || []).map((username) => <ParticipantItem key={username} username={username} />)}
+          {onlineParticipants.map((username) => <ParticipantItem key={username} username={username} />)}
         </div>
       </div>)}
-      {isChatOpen && (<div className={`fixed inset-0 z-[150] flex flex-col animate-in slide-in-from-bottom duration-300 ${darkMode ? 'bg-black' : 'bg-white'}`}><div className={`flex items-center justify-between px-4 pt-12 pb-4 border-b shrink-0 ${darkMode ? 'border-white/5 bg-slate-900' : 'border-slate-100 bg-white'}`}><div className="flex items-center gap-3"><button onClick={closeChat} className="p-2 rounded-full"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button><div><h3 className="font-black uppercase text-sm">Chat de Sala</h3><p className="text-[10px] font-bold text-slate-400">{(room.participants || []).length} conectados</p></div></div></div><div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">{(room.chat || []).map((msg, i) => <SwipeableMessage key={i} msg={msg} currentUser={currentUser} onReply={handleReply} darkMode={darkMode} formatTime={formatMessageTime} />)}</div>{chatInputArea}</div>)}
+      {isChatOpen && (<div className={`fixed inset-0 z-[150] flex flex-col animate-in slide-in-from-bottom duration-300 ${darkMode ? 'bg-black' : 'bg-white'}`}><div className={`flex items-center justify-between px-4 pt-12 pb-4 border-b shrink-0 ${darkMode ? 'border-white/5 bg-slate-900' : 'border-slate-100 bg-white'}`}><div className="flex items-center gap-3"><button onClick={closeChat} className="p-2 rounded-full"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button><div><h3 className="font-black uppercase text-sm">Chat de Sala</h3><p className="text-[10px] font-bold text-slate-400">{onlineParticipants.length} conectados</p></div></div></div><div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">{(room.chat || []).map((msg, i) => <SwipeableMessage key={i} msg={msg} currentUser={currentUser} onReply={handleReply} darkMode={darkMode} formatTime={formatMessageTime} />)}</div>{chatInputArea}</div>)}
       {confirmModal && (<div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmModal(null)}></div><div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{confirmModal.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{confirmModal.message}</p><div className="flex gap-3"><button onClick={() => setConfirmModal(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button><button onClick={confirmModal.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform ${confirmModal.type === 'danger' ? 'bg-misionero-rojo' : 'bg-misionero-azul'}`}>Confirmar</button></div></div></div>)}
       {songForViewer && (<div className={`fixed inset-0 z-[130] ${darkMode ? 'bg-black' : 'bg-white'} flex flex-col animate-in slide-in-from-bottom-2`}>{(() => {
           const transposeValue = room.globalTranspositions?.[songForViewer.id] || 0;
@@ -868,7 +879,12 @@ const RoomView: React.FC<RoomViewProps> = ({
           return (
             <SongViewer 
               song={songForViewer} 
-              onBack={() => window.history.back()} 
+              onBack={() => {
+                  if (isTheHost) {
+                      onUpdateRoom(room.id, { currentSongId: '' });
+                  }
+                  window.history.back();
+              }} 
               externalTranspose={transposeValue} 
               transposedContent={cachedContent} 
               onTransposeChange={canModify ? (val) => handleGlobalTranspose(songForViewer.id, val) : undefined} 
@@ -930,5 +946,4 @@ const RoomView: React.FC<RoomViewProps> = ({
   );
 };
 
-// FIX: Corrected export statement
 export default RoomView;

@@ -36,7 +36,7 @@ import {
   arrayRemove,
   writeBatch
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-import { getDatabase, ref, onValue, set, onDisconnect, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+import { getDatabase, ref, onValue, set, onDisconnect, serverTimestamp, update as updateRtdb } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
 import { User as AppUser, Song, LiturgicalTime, Room, UserRole } from './types';
 import { PlusIcon, UsersIcon } from './constants';
@@ -624,9 +624,9 @@ const MainView = ({
 };
 
 const isValidUsername = (username: string): boolean => {
-  // Must be between 3 and 15 characters, letters and accents only.
-  const regex = /^[a-zA-ZáéíóúÁÉÍÓÚñÑ]{3,15}$/;
-  return regex.test(username);
+  // Must be between 3 and 24 characters, letters, accents and spaces allowed.
+  const regex = /^[a-zA-ZáéíóúÁÉÍÓÚñÑ ]{3,24}$/;
+  return regex.test(username) && username.trim().length >= 3;
 };
 
 const App: React.FC = () => {
@@ -1041,7 +1041,7 @@ useEffect(() => {
       } else if (authMode === 'register') {
         if (authData.pass !== authData.confirmPass) { setAuthMsg({ type: 'error', text: 'Las contraseñas no coinciden.' }); setIsAuthenticating(false); return; }
         if (!isValidUsername(authData.user)) {
-          setAuthMsg({ type: 'error', text: 'El nombre de usuario debe tener 3-15 caracteres y solo puede contener letras y tildes.' });
+          setAuthMsg({ type: 'error', text: 'El nombre de usuario debe tener 3-24 caracteres y solo puede contener letras, tildes y espacios.' });
           setIsAuthenticating(false);
           return;
         }
@@ -1070,11 +1070,11 @@ useEffect(() => {
         if (!userDoc.exists()) {
             const generateBaseUsername = (displayName: string | null, email: string | null): string => {
                 if (displayName) {
-                    const sanitized = displayName.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ]/g, '');
-                    if (sanitized.length >= 3) return sanitized.substring(0, 15);
+                    const sanitized = displayName.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ ]/g, '');
+                    if (sanitized.trim().length >= 3) return sanitized.trim().substring(0, 24);
                 }
                 if (email) {
-                    return email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').substring(0, 15);
+                    return email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').substring(0, 24);
                 }
                 return `user${Math.floor(1000 + Math.random() * 9000)}`;
             };
@@ -1090,7 +1090,7 @@ useEffect(() => {
                 if (existingUser.empty) {
                     isUnique = true;
                 } else {
-                    finalUsername = `${baseUsername.substring(0, 12)}${Math.floor(100 + Math.random() * 900)}`;
+                    finalUsername = `${baseUsername.substring(0, 21)}${Math.floor(100 + Math.random() * 900)}`;
                     attempts++;
                 }
             }
@@ -1152,7 +1152,7 @@ useEffect(() => {
     const trimmedUsername = newUsername.trim();
     
     if (!isValidUsername(trimmedUsername)) {
-       setGlobalAlert({ title: "Nombre no válido", message: "El usuario debe tener 3-15 caracteres y solo puede contener letras y tildes.", type: 'error' });
+       setGlobalAlert({ title: "Nombre no válido", message: "El usuario debe tener 3-24 caracteres y solo puede contener letras, tildes y espacios.", type: 'error' });
        return;
     }
     if (trimmedUsername.toLowerCase() === user.username.toLowerCase()) return;
@@ -1182,12 +1182,44 @@ useEffect(() => {
             return; 
         }
 
+        // --- INICIO LÓGICA DE ACTUALIZACIÓN EN CASCADA ---
+        const batch = writeBatch(db);
+
+        // 1. Actualizar documento del usuario
+        const userRef = doc(db, "users", user.id);
+        batch.update(userRef, {
+            username: trimmedUsername,
+            username_lowercase: trimmedUsername.toLowerCase()
+        });
+
+        // 2. Actualizar todas las canciones creadas por este usuario
+        // Buscamos canciones donde 'author' coincida con el nombre de usuario anterior
+        const songsRef = collection(db, "songs");
+        const qSongs = query(songsRef, where("author", "==", user.username));
+        const songsSnapshot = await getDocs(qSongs);
+        let songsUpdatedCount = 0;
+
+        songsSnapshot.forEach((songDoc) => {
+            batch.update(songDoc.ref, { author: trimmedUsername });
+            songsUpdatedCount++;
+        });
+
+        // 3. Ejecutar el batch
+        await batch.commit();
+        // --- FIN LÓGICA DE ACTUALIZACIÓN EN CASCADA ---
+
+        // Actualizar perfil de Auth
         await updateProfile(auth.currentUser, { displayName: trimmedUsername });
-        await updateDoc(doc(db, "users", user.id), { username: trimmedUsername, username_lowercase: trimmedUsername.toLowerCase() });
+
+        // Actualizar RTDB Status (Opcional, pero recomendado para mantener consistencia inmediata)
+        const userStatusDatabaseRef = ref(rtdb, '/status/' + user.id);
+        // Usamos update de RTDB para no sobrescribir el estado 'isOnline' si no es necesario, aunque set funciona bien aquí.
+        updateRtdb(userStatusDatabaseRef, { username: trimmedUsername });
         
+        // Actualizar estado local
         setUser(prev => prev ? ({ ...prev, username: trimmedUsername, username_lowercase: trimmedUsername.toLowerCase() }) : null);
 
-        setGlobalAlert({ title: "Perfil Actualizado", message: "Tu nombre de usuario se ha cambiado.", type: 'success' });
+        setGlobalAlert({ title: "Perfil Actualizado", message: `Nombre cambiado a ${trimmedUsername}. Se actualizaron ${songsUpdatedCount} canciones.`, type: 'success' });
         setUsernameChangePassword('');
 
     } catch (error: any) { 
@@ -1208,7 +1240,7 @@ useEffect(() => {
         setProfileUpdateError(null);
 
         if (!isValidUsername(profileUpdateData.username)) {
-            setProfileUpdateError('El nombre de usuario debe tener 3-15 caracteres, solo letras y tildes.');
+            setProfileUpdateError('El nombre de usuario debe tener 3-24 caracteres, solo letras, tildes y espacios.');
             return;
         }
         if (!profileUpdateData.password) {
@@ -1233,15 +1265,34 @@ useEffect(() => {
                 return;
             }
             
+            // --- INICIO LÓGICA DE ACTUALIZACIÓN EN CASCADA (MODAL INICIAL) ---
+            const batch = writeBatch(db);
+
+            const userRef = doc(db, "users", user.id);
             const updatePayload = {
                 username: profileUpdateData.username,
                 username_lowercase: newUsernameLower,
                 profileValidated: true,
                 role: user.role || 'member'
             };
+            batch.update(userRef, updatePayload);
+
+            // Si el usuario tenía un nombre anterior (aunque sea inválido), intentamos actualizar sus canciones
+            // Nota: En el flujo de 'completar perfil', a veces el username es el display name de Google o vacío.
+            // Si tenía un nombre previo y creó canciones con él, las actualizamos.
+            if (user.username) {
+                const songsRef = collection(db, "songs");
+                const qSongs = query(songsRef, where("author", "==", user.username));
+                const songsSnapshot = await getDocs(qSongs);
+                songsSnapshot.forEach((songDoc) => {
+                    batch.update(songDoc.ref, { author: profileUpdateData.username });
+                });
+            }
+
+            await batch.commit();
+            // --- FIN ---
 
             await updateProfile(auth.currentUser, { displayName: profileUpdateData.username });
-            await updateDoc(doc(db, "users", user.id), updatePayload);
             
             setUser(prev => prev ? ({ ...prev, ...updatePayload }) : null);
             setNewUsername(profileUpdateData.username);
@@ -1471,7 +1522,7 @@ useEffect(() => {
                   <p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                     {profileUpdateReason === 'missing_data' 
                       ? 'Para continuar, necesitamos que completes tu perfil. Confirma tu identidad con tu contraseña.'
-                      : 'Tu nombre de usuario no es válido. Elige uno nuevo (3-15 caracteres, solo letras y tildes) y confirma tu identidad con tu contraseña.'
+                      : 'Tu nombre de usuario no es válido. Elige uno nuevo (3-24 caracteres, solo letras, tildes y espacios) y confirma tu identidad con tu contraseña.'
                     }
                   </p>
                   <form onSubmit={handleProfileUpdate} className="space-y-3">

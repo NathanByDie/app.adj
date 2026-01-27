@@ -144,7 +144,7 @@ const SongViewer: React.FC<SongViewerProps> = ({
   };
 
   const handleShare = async () => {
-    const webUrl = `https://adjstudio.netlify.app/?song=${song.id}`;
+    const webUrl = `https://myadjstudios.netlify.app/?song=${song.id}`;
     
     const shareData = {
       title: song.title,
