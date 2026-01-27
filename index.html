@@ -248,6 +248,21 @@
         .neon-yellow {
              text-shadow: 0 0 2px rgba(250, 204, 21, 0.5), 0 0 8px rgba(250, 204, 21, 0.2);
         }
+        
+        /* LIVE REACTIONS */
+        @keyframes float-up {
+            from {
+                transform: translateY(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateY(-200px);
+                opacity: 0;
+            }
+        }
+        .animate-float-up {
+            animation: float-up 3s ease-out forwards;
+        }
 
     </style>
     <script>

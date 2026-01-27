@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { Song } from '../types';
-import { isChordLine, transposeSong } from '../services/musicUtils';
+import { isChordLine, transposeSong, transposeRoot, findBestCapo } from '../services/musicUtils';
+import { set as setRtdb, ref as refRtdb } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
 interface SongViewerProps {
   song: Song;
@@ -17,7 +18,22 @@ interface SongViewerProps {
   isChatVisible?: boolean;
   transposedContent?: string;
   chatInputComponent?: React.ReactNode;
+  rtdb?: any;
+  roomId?: string;
+  isHost?: boolean;
+  onSendReaction?: (emoji: string) => void;
 }
+
+const MagicWandIcon = () => (
+  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14.5 2L18 5.5 6 17.5 2 22l4.5-4L14.5 2z"></path>
+    <path d="M12 5l-2.5 2.5"></path>
+    <path d="M7 10l-2.5 2.5"></path>
+    <path d="M19 8l2.5-2.5"></path>
+    <path d="M14 13l2.5-2.5"></path>
+  </svg>
+);
+
 
 const SongViewer: React.FC<SongViewerProps> = ({ 
   song, 
@@ -33,10 +49,15 @@ const SongViewer: React.FC<SongViewerProps> = ({
   hasPrev = false,
   isChatVisible = false,
   transposedContent,
-  chatInputComponent
+  chatInputComponent,
+  rtdb,
+  roomId,
+  isHost,
+  onSendReaction
 }) => {
   const [internalTranspose, setInternalTranspose] = useState(0);
   const [fontSize, setFontSize] = useState(11);
+  const [capo, setCapo] = useState(0);
   const [showOptions, setShowOptions] = useState(false);
   const [showShareToast, setShowShareToast] = useState(false);
   const [isControlPanelOpen, setIsControlPanelOpen] = useState(false);
@@ -48,7 +69,7 @@ const SongViewer: React.FC<SongViewerProps> = ({
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
   const minSwipeDistance = 50;
-
+  
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -73,12 +94,26 @@ const SongViewer: React.FC<SongViewerProps> = ({
   const isTransposeLocked = externalTranspose !== undefined && onTransposeChange === undefined;
   
   const currentTranspose = externalTranspose !== undefined ? externalTranspose : internalTranspose;
+  const preferSharps = capo > 0;
 
   const handleTransposeChange = (delta: number) => {
     if (isTransposeLocked) return;
     const newVal = currentTranspose + delta;
     if (onTransposeChange) onTransposeChange(newVal);
     else setInternalTranspose(newVal);
+  };
+
+  const handleCapoChange = (delta: number) => {
+    setCapo(prev => {
+      const newVal = prev + delta;
+      if (newVal < 0 || newVal > 11) return prev;
+      return newVal;
+    });
+  };
+
+  const handleSuggestCapo = () => {
+    const bestCapo = findBestCapo(song.content, currentTranspose);
+    setCapo(bestCapo);
   };
 
   const adjustFontSize = (delta: number) => {
@@ -147,6 +182,25 @@ const SongViewer: React.FC<SongViewerProps> = ({
     const maxWidth = pageWidth - (margin * 2);
     let y = margin;
 
+    const addWatermark = (pdfDoc: any) => {
+        const pageW = pdfDoc.internal.pageSize.getWidth();
+        const pageH = pdfDoc.internal.pageSize.getHeight();
+        pdfDoc.saveGState();
+        pdfDoc.setFont("helvetica", "bold");
+        pdfDoc.setFontSize(50);
+        pdfDoc.setTextColor(220, 220, 220);
+        pdfDoc.setGState(new pdfDoc.GState({opacity: 0.15})); 
+        pdfDoc.text(
+            "Amiguitos de Jesus Studios",
+            pageW / 2,
+            pageH / 2,
+            { angle: -45, align: 'center' }
+        );
+        pdfDoc.restoreGState();
+    };
+
+    addWatermark(doc);
+
     doc.setFont("helvetica", "bold");
     doc.setFontSize(18);
     doc.setTextColor(30, 41, 59);
@@ -163,10 +217,13 @@ const SongViewer: React.FC<SongViewerProps> = ({
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(100, 116, 139);
-    const transposedContentForPDF = transposeSong(song.content, currentTranspose);
+    const totalTranspose = currentTranspose - capo;
+    const transposedContentForPDF = transposeSong(song.content, totalTranspose, preferSharps);
     doc.text(`TONO ORIGINAL: ${song.key}`, margin, y);
-    doc.text(`TONO ACTUAL: (${currentTranspose >= 0 ? '+' : ''}${currentTranspose})`, margin + 60, y);
-    doc.text(`CATEGORÍA: ${song.category.toUpperCase()}`, margin + 120, y);
+    doc.text(`TONO SONORO: (${currentTranspose >= 0 ? '+' : ''}${currentTranspose})`, margin + 60, y);
+    if (capo > 0) {
+      doc.text(`CAPO: ${capo}`, margin + 120, y);
+    }
     y += 12;
 
     const lines = transposedContentForPDF.split('\n');
@@ -176,6 +233,7 @@ const SongViewer: React.FC<SongViewerProps> = ({
     lines.forEach((line) => {
         if (y > pageHeight - margin) {
             doc.addPage();
+            addWatermark(doc);
             y = margin;
         }
         if (isChordLine(line)) {
@@ -189,6 +247,7 @@ const SongViewer: React.FC<SongViewerProps> = ({
         splitLines.forEach((splitLine: string) => {
             if (y > pageHeight - margin) {
                 doc.addPage();
+                addWatermark(doc);
                 y = margin;
             }
             doc.text(splitLine, margin, y);
@@ -210,9 +269,8 @@ const SongViewer: React.FC<SongViewerProps> = ({
   };
 
   const processedContent = useMemo(() => {
-    const contentToProcess = transposedContent !== undefined 
-      ? transposedContent 
-      : transposeSong(song.content, currentTranspose);
+    const totalTranspose = currentTranspose - capo;
+    const contentToProcess = transposeSong(song.content, totalTranspose, preferSharps);
       
     const lines = contentToProcess.split('\n');
     return lines.map((line, idx) => (
@@ -224,7 +282,10 @@ const SongViewer: React.FC<SongViewerProps> = ({
         {line || '\u00A0'}
       </div>
     ));
-  }, [song.content, currentTranspose, fontSize, darkMode, transposedContent]);
+  }, [song.content, currentTranspose, capo, fontSize, darkMode, preferSharps]);
+
+  const soundingKey = useMemo(() => transposeRoot(song.key, currentTranspose), [song.key, currentTranspose]);
+  const chordShapeKey = useMemo(() => transposeRoot(song.key, currentTranspose - capo, preferSharps), [song.key, currentTranspose, capo, preferSharps]);
 
   return (
     <div 
@@ -252,9 +313,9 @@ const SongViewer: React.FC<SongViewerProps> = ({
 
             <div className="text-center truncate flex-1 min-w-0">
               <h1 className={`text-[11px] font-black uppercase truncate transition-colors duration-500 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{song.title}</h1>
-              <div className="flex items-center justify-center gap-2">
-                <span className="text-[7px] font-bold text-misionero-verde uppercase tracking-widest">{song.category}</span>
-                <span className="text-[7px] font-black text-misionero-rojo uppercase">Tono: {song.key}</span>
+              <div className="flex items-center justify-center gap-2 text-[7px] font-black uppercase">
+                <span className="text-misionero-rojo">Tono: {soundingKey}</span>
+                {capo > 0 && <span className={darkMode ? 'text-misionero-amarillo' : 'text-misionero-azul'}>Capo {capo}: {chordShapeKey}</span>}
               </div>
             </div>
 
@@ -333,6 +394,15 @@ const SongViewer: React.FC<SongViewerProps> = ({
       )}
 
       {/* --- Controles Flotantes --- */}
+      {roomId && onSendReaction && (
+        <button 
+          onClick={() => onSendReaction('❤️')}
+          className={`fixed z-[80] right-[8.75rem] bottom-24 transition-all duration-300 ease-in-out active:scale-90 w-14 h-14 rounded-full flex items-center justify-center glass-ui glass-interactive text-2xl ${isControlPanelOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-0'}`}
+        >
+          ❤️
+        </button>
+      )}
+
       <button 
         onClick={() => setIsControlPanelOpen(prev => !prev)} 
         className={`fixed z-[80] right-6 bottom-24 transition-all duration-300 ease-in-out active:scale-90 w-14 h-14 rounded-full flex items-center justify-center glass-ui glass-interactive text-white ${isControlPanelOpen ? 'bg-misionero-rojo/70 rotate-45' : 'bg-misionero-azul/70'}`}
@@ -366,6 +436,19 @@ const SongViewer: React.FC<SongViewerProps> = ({
             <button onClick={() => adjustFontSize(-1)} className={`w-9 h-9 flex items-center justify-center rounded-full text-base font-bold ${darkMode ? 'bg-slate-800 active:bg-slate-700' : 'bg-slate-100 active:bg-slate-200'}`}>-</button>
             <span className="text-lg font-black w-10 text-center">{fontSize}</span>
             <button onClick={() => adjustFontSize(1)} className={`w-9 h-9 flex items-center justify-center rounded-full text-base font-bold ${darkMode ? 'bg-slate-800 active:bg-slate-700' : 'bg-slate-100 active:bg-slate-200'}`}>+</button>
+          </div>
+          <div className={`h-px my-0.5 ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}></div>
+          <div className="flex items-center justify-between px-1.5 pt-0.5">
+            <span className="text-[8px] font-black uppercase text-slate-400">Capo</span>
+            <div className="flex items-center gap-1">
+                 <button onClick={handleSuggestCapo} className={`p-1.5 rounded-md transition-colors ${darkMode ? 'text-misionero-amarillo/70 hover:bg-misionero-amarillo/20' : 'text-misionero-amarillo hover:bg-misionero-amarillo/10'}`}><MagicWandIcon /></button>
+                 <button onClick={() => setCapo(0)} disabled={capo === 0} className={`text-[7px] font-black uppercase px-1.5 py-0.5 rounded transition-all ${capo !== 0 ? 'bg-misionero-azul/20 text-misionero-azul' : 'text-slate-400/50'}`}>0</button>
+            </div>
+          </div>
+          <div className="flex items-center justify-between p-1 rounded-lg">
+            <button onClick={() => handleCapoChange(-1)} className={`w-9 h-9 flex items-center justify-center rounded-full text-base font-bold ${darkMode ? 'bg-slate-800 active:bg-slate-700' : 'bg-slate-100 active:bg-slate-200'}`}>-</button>
+            <span className="text-lg font-black w-10 text-center">{capo}</span>
+            <button onClick={() => handleCapoChange(1)} className={`w-9 h-9 flex items-center justify-center rounded-full text-base font-bold ${darkMode ? 'bg-slate-800 active:bg-slate-700' : 'bg-slate-100 active:bg-slate-200'}`}>+</button>
           </div>
         </div>
       )}

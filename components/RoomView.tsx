@@ -6,8 +6,16 @@ import {
   query, 
   where,
   getDocs,
+  updateDoc,
+  doc,
+  arrayRemove,
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { Firestore } from 'firebase/firestore';
+import { 
+  getDatabase, ref as refRtdb, onValue as onValueRtdb, query as queryRtdb, 
+  orderByChild, equalTo, limitToFirst, push as pushRtdb, serverTimestamp as serverTimestampRtdb, 
+  set as setRtdb, remove as removeRtdb, onChildAdded 
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 import { transposeSong } from '../services/musicUtils';
 import { triggerHapticFeedback } from '../services/haptics';
 
@@ -17,12 +25,12 @@ interface RoomViewProps {
   currentUser: string;
   isAdmin: boolean;
   onExit: () => void;
-  onUpdateRoom: (room: Room) => void;
+  onUpdateRoom: (roomId: string, updates: Partial<Room>) => void;
   darkMode?: boolean;
   db: Firestore;
-  ADMIN_EMAILS: string[];
+  rtdb: any;
   onEditSong: (song: Song) => void;
-  onDeleteSong: (songId: string) => void;
+  onDeleteSong: (songId: string) => Promise<void>;
   categories: string[];
 }
 
@@ -118,8 +126,46 @@ const SwipeableMessage: React.FC<SwipeableMessageProps> = ({ msg, currentUser, o
   );
 };
 
+const useUserStatus = (rtdb: any, username: string) => {
+    const [isOnline, setIsOnline] = useState(false);
+    useEffect(() => {
+        if (!rtdb || !username) {
+          setIsOnline(false);
+          return;
+        };
+
+        const q = queryRtdb(refRtdb(rtdb, '/status'), orderByChild('username'), equalTo(username), limitToFirst(1));
+        
+        const listener = onValueRtdb(q, (snapshot) => {
+            if (snapshot.exists()) {
+                const data = snapshot.val();
+                const userId = Object.keys(data)[0];
+                setIsOnline(data[userId]?.isOnline || false);
+            } else {
+                setIsOnline(false);
+            }
+        });
+        
+        return () => listener();
+    }, [rtdb, username]);
+    
+    return isOnline;
+};
+
+const LiveReactionsOverlay = ({ reactions }: { reactions: { id: string, emoji: string }[] }) => {
+    return (
+        <div className="absolute inset-0 pointer-events-none z-[135] overflow-hidden">
+            {reactions.map(reaction => (
+                <div key={reaction.id} className="absolute bottom-24 animate-float-up" style={{ left: `${Math.random() * 80 + 10}%` }}>
+                    <span className="text-4xl">{reaction.emoji}</span>
+                </div>
+            ))}
+        </div>
+    );
+};
+
 const RoomView: React.FC<RoomViewProps> = ({ 
-    room, songs, currentUser, isAdmin, onExit, onUpdateRoom, darkMode = false, db, ADMIN_EMAILS,
+    room, songs, currentUser, isAdmin, onExit, onUpdateRoom, darkMode = false, db, rtdb,
     onEditSong, onDeleteSong, categories
 }) => {
   const [selectedSongId, setSelectedSongId] = useState<string | null>(null);
@@ -159,6 +205,10 @@ const RoomView: React.FC<RoomViewProps> = ({
   const [dropIndicator, setDropIndicator] = useState<{ index: number; position: 'before' | 'after' } | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ title: string, message: string, action: () => void, type: 'danger' | 'warning' } | null>(null);
 
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const [liveReactions, setLiveReactions] = useState<{ id: string, emoji: string }[]>([]);
+  const typingTimeoutRef = useRef<number | null>(null);
+
   const prevParticipants = useRef<string[]>(room.participants || []);
   const prevChatLength = useRef<number>(room.chat?.length || 0);
   const notificationAudio = useRef<HTMLAudioElement | null>(null);
@@ -175,6 +225,31 @@ const RoomView: React.FC<RoomViewProps> = ({
     }
     prevSongsRef.current = songs;
   }, [songs]);
+
+  useEffect(() => {
+    if (!room.id || !rtdb) return;
+    const typingRef = refRtdb(rtdb, `rooms/${room.id}/liveState/typing`);
+    const reactionsRef = queryRtdb(refRtdb(rtdb, `rooms/${room.id}/liveState/reactions`), limitToFirst(20));
+
+    const typingListener = onValueRtdb(typingRef, snapshot => {
+        const typingData = snapshot.val() || {};
+        setTypingUsers(Object.keys(typingData).filter(user => typingData[user] && user !== currentUser));
+    });
+
+    const reactionsListener = onChildAdded(reactionsRef, snapshot => {
+        const reaction = { ...snapshot.val(), id: snapshot.key };
+        setLiveReactions(prev => [...prev, reaction as any]);
+        setTimeout(() => {
+            setLiveReactions(prev => prev.filter(r => r.id !== reaction.id));
+        }, 3000);
+    });
+
+    return () => {
+        typingListener();
+        reactionsListener();
+    };
+}, [room.id, rtdb, currentUser]);
+
 
   const repertoireSongsMap = useMemo(() => {
     const map: Record<string, Song> = {};
@@ -213,37 +288,39 @@ const RoomView: React.FC<RoomViewProps> = ({
     return () => window.removeEventListener('closeRoomSong', handler);
   }, []);
 
-  useEffect(() => {
-    const handlePopState = (event: PopStateEvent) => {
-      const overlay = event.state?.overlay;
-      const internalOverlays = ['room', 'room_song', 'chat', 'participants'];
-  
-      if (overlay && internalOverlays.includes(overlay)) {
-        setIsChatOpen(overlay === 'chat');
-        setShowParticipants(overlay === 'participants');
-        if (overlay === 'room') {
-          setSelectedSongId(null);
-        }
-        return;
+  const handlePopState = useCallback((event: PopStateEvent) => {
+    const overlay = event.state?.overlay;
+    const internalOverlays = ['room', 'room_song', 'chat', 'participants'];
+
+    if (overlay && internalOverlays.includes(overlay)) {
+      setIsChatOpen(overlay === 'chat');
+      setShowParticipants(overlay === 'participants');
+      if (overlay === 'room') {
+        setSelectedSongId(null);
       }
-  
-      window.history.pushState({ overlay: 'room' }, '', '');
-      setConfirmModal({
-        title: 'Salir de la Sala',
-        message: '¿Estás seguro de que quieres abandonar la sesión?',
-        type: 'danger',
-        action: () => {
-          setConfirmModal(null);
-          onExit();
-        },
-      });
-    };
-  
+      return;
+    }
+
+    // Si la acción de "atrás" nos llevaría fuera de los overlays de la sala,
+    // prevenimos la acción y mostramos un modal de confirmación para salir.
+    window.history.pushState({ overlay: 'room' }, '', '');
+    setConfirmModal({
+      title: 'Salir de la Sala',
+      message: '¿Estás seguro de que quieres abandonar la sesión?',
+      type: 'danger',
+      action: () => {
+        setConfirmModal(null);
+        onExit();
+      },
+    });
+  }, [onExit, setConfirmModal, setIsChatOpen, setShowParticipants, setSelectedSongId]);
+
+  useEffect(() => {
     window.addEventListener('popstate', handlePopState);
     return () => {
       window.removeEventListener('popstate', handlePopState);
     };
-  }, [onExit]);
+  }, [handlePopState]);
 
   const openChat = () => { if (!isChatOpen) { window.history.pushState({ overlay: 'chat' }, '', ''); setIsChatOpen(true); setShowParticipants(false); } };
   const closeChat = () => window.history.back();
@@ -319,14 +396,14 @@ const RoomView: React.FC<RoomViewProps> = ({
             const details: Record<string, { isAdmin: boolean }> = {};
             querySnapshot.forEach(doc => {
                 const userData = doc.data();
-                const userIsAdmin = userData.role === 'admin' || (userData.email && ADMIN_EMAILS.includes(userData.email.toLowerCase()));
+                const userIsAdmin = userData.role === 'admin';
                 details[userData.username] = { isAdmin: userIsAdmin };
             });
             setParticipantDetails(details);
         } catch (error) { console.error("Error fetching details:", error); }
     };
     fetchParticipantDetails();
-  }, [db, room.participants, ADMIN_EMAILS]);
+  }, [db, room.participants]);
 
   const addNotification = (message: string, type: Notification['type'] = 'info') => {
     const id = Date.now() + Math.random();
@@ -367,7 +444,7 @@ const RoomView: React.FC<RoomViewProps> = ({
     if (isTheHost) {
       lastSyncedHostSongId.current = songId || '';
       setSelectedSongId(songId);
-      onUpdateRoom({ ...room, currentSongId: songId || '' });
+      onUpdateRoom(room.id, { currentSongId: songId || '' });
     } else {
       setSelectedSongId(songId);
       if (isFollowingHost && songId === room.currentSongId) lastSyncedHostSongId.current = songId;
@@ -384,7 +461,7 @@ const RoomView: React.FC<RoomViewProps> = ({
     if (!isTheHost) return;
     setConfirmModal({
         title: 'Transferir Host', message: `¿Seguro de ceder el liderazgo a ${newHostUsername}?`, type: 'warning',
-        action: () => { onUpdateRoom({ ...room, host: newHostUsername }); setConfirmModal(null); }
+        action: () => { onUpdateRoom(room.id, { host: newHostUsername }); setConfirmModal(null); }
     });
   };
 
@@ -393,8 +470,7 @@ const RoomView: React.FC<RoomViewProps> = ({
     setConfirmModal({
         title: 'Expulsar Miembro', message: `¿Deseas sacar a ${username} de la sala?`, type: 'danger',
         action: () => {
-            const updatedParticipants = (room.participants || []).filter(p => p !== username);
-            onUpdateRoom({ ...room, participants: updatedParticipants }); setConfirmModal(null);
+            onUpdateRoom(room.id, { participants: arrayRemove(username) as any }); setConfirmModal(null);
         }
     });
   };
@@ -404,11 +480,23 @@ const RoomView: React.FC<RoomViewProps> = ({
     setConfirmModal({
         title: 'Bloquear Usuario', message: `¿Bloquear permanentemente a ${username}?`, type: 'danger',
         action: () => {
-            const updatedParticipants = (room.participants || []).filter(p => p !== username);
             const updatedBanned = [...(room.banned || []), username];
-            onUpdateRoom({ ...room, participants: updatedParticipants, banned: updatedBanned }); setConfirmModal(null);
+            onUpdateRoom(room.id, { participants: arrayRemove(username) as any, banned: updatedBanned }); setConfirmModal(null);
         }
     });
+  };
+
+  const updateTypingStatus = (isTyping: boolean) => {
+    if (!room.id || !rtdb || !currentUser) return;
+    const userTypingRef = refRtdb(rtdb, `rooms/${room.id}/liveState/typing/${currentUser}`);
+    if (isTyping) {
+        setRtdb(userTypingRef, true);
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = window.setTimeout(() => updateTypingStatus(false), 3000);
+    } else {
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        removeRtdb(userTypingRef);
+    }
   };
 
   const handleReply = (msg: ChatMessage) => { setReplyingTo({ sender: msg.sender, text: msg.text }); openChat(); setTimeout(() => chatInputRef.current?.focus(), 100); };
@@ -417,14 +505,52 @@ const RoomView: React.FC<RoomViewProps> = ({
     let textToSend = chatMessage;
     if (replyingTo) { textToSend = `> @${replyingTo.sender}: ${replyingTo.text.substring(0, 30)}...\n${chatMessage}`; }
     const newMessage: ChatMessage = { sender: currentUser, text: textToSend, timestamp: Date.now() };
-    onUpdateRoom({ ...room, chat: [...(room.chat || []), newMessage] });
+    onUpdateRoom(room.id, { chat: [...(room.chat || []), newMessage] });
     setChatMessage(''); setReplyingTo(null);
+    updateTypingStatus(false);
+  };
+
+  const handleSendReaction = (emoji: string) => {
+    if (!room.id || !rtdb) return;
+    const reactionsRef = refRtdb(rtdb, `rooms/${room.id}/liveState/reactions`);
+    pushRtdb(reactionsRef, {
+        emoji,
+        sender: currentUser,
+        timestamp: serverTimestampRtdb()
+    });
   };
 
   const handleGlobalTranspose = (songId: string, newSemiTones: number) => {
     if (!canModify) return;
-    onUpdateRoom({ ...room, globalTranspositions: { ...(room.globalTranspositions || {}), [songId]: newSemiTones } });
+    onUpdateRoom(room.id, { globalTranspositions: { ...(room.globalTranspositions || {}), [songId]: newSemiTones } });
   };
+  
+  const handleDeleteFromRoom = useCallback((songToDelete: Song | null) => {
+    if (!songToDelete || !canModify) return;
+    setConfirmModal({
+        title: 'Eliminar Canción',
+        message: `¿Eliminar "${songToDelete.title}" PERMANENTEMENTE? Se quitará de este y todos los repertorios.`,
+        type: 'danger',
+        action: async () => {
+            setConfirmModal(null);
+            
+            // 1. Update the room document to remove the song and clear currentSongId if it was the one being viewed.
+            const updates: any = {
+                repertoire: arrayRemove(songToDelete.id)
+            };
+            if (room.currentSongId === songToDelete.id) {
+                updates.currentSongId = '';
+            }
+            await onUpdateRoom(room.id, updates);
+
+            // 2. Delete the song document globally
+            await onDeleteSong(songToDelete.id); 
+
+            // 3. Close the song viewer
+            window.history.back();
+        }
+    });
+  }, [canModify, room, onDeleteSong, onUpdateRoom]);
 
   const songForViewer = useMemo(() => {
     if (!selectedSongId) return null;
@@ -444,22 +570,29 @@ const RoomView: React.FC<RoomViewProps> = ({
                 <button onClick={() => setReplyingTo(null)} className="p-1 hover:bg-black/10 rounded-full"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
             </div>
         )}
-        <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex gap-2 items-center w-full">
-             {!isChatOpen && (
-                <button type="button" onClick={openChat} className={`w-12 h-12 flex items-center justify-center rounded-2xl border shrink-0 transition-colors ${darkMode ? 'bg-slate-900 border-white/5 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
+        <div className="flex flex-col">
+            <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex gap-2 items-center w-full">
+                {!isChatOpen && (
+                    <button type="button" onClick={openChat} className={`w-12 h-12 flex items-center justify-center rounded-2xl border shrink-0 transition-colors ${darkMode ? 'bg-slate-900 border-white/5 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
+                    </button>
+                )}
+                <input ref={chatInputRef} type="text" value={chatMessage} onChange={e => { setChatMessage(e.target.value); updateTypingStatus(true); }} placeholder="Mensaje..." className={`flex-1 min-w-0 rounded-2xl px-4 py-3.5 text-sm font-bold outline-none border transition-all ${darkMode ? 'bg-black border-white/5 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} />
+                <button type="submit" disabled={!chatMessage.trim()} className="bg-misionero-verde text-white font-black w-12 h-12 rounded-2xl text-[10px] uppercase shadow-md active:scale-95 transition-transform disabled:opacity-30 flex items-center justify-center shrink-0">
+                    <svg className="w-5 h-5 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
                 </button>
-             )}
-            <input ref={chatInputRef} type="text" value={chatMessage} onChange={e => setChatMessage(e.target.value)} placeholder="Mensaje..." className={`flex-1 min-w-0 rounded-2xl px-4 py-3.5 text-sm font-bold outline-none border transition-all ${darkMode ? 'bg-black border-white/5 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} />
-            <button type="submit" disabled={!chatMessage.trim()} className="bg-misionero-verde text-white font-black w-12 h-12 rounded-2xl text-[10px] uppercase shadow-md active:scale-95 transition-transform disabled:opacity-30 flex items-center justify-center shrink-0">
-                <svg className="w-5 h-5 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
-            </button>
-        </form>
+            </form>
+            {isChatOpen && typingUsers.length > 0 && (
+                <div className="h-5 px-2 text-xs font-bold text-slate-400 animate-in fade-in duration-300">
+                    {typingUsers.join(', ')} {typingUsers.length === 1 ? 'está' : 'están'} escribiendo...
+                </div>
+            )}
+        </div>
     </div>
   );
 
   const startEditingRepertoire = () => { setTempRepertoire(room.repertoire); setIsEditingRepertoire(true); };
-  const handleFinalizeEditing = () => { onUpdateRoom({ ...room, repertoire: tempRepertoire }); setDisplayedRepertoire(tempRepertoire); setIsEditingRepertoire(false); addNotification('Repertorio guardado', 'success'); };
+  const handleFinalizeEditing = () => { onUpdateRoom(room.id, { repertoire: tempRepertoire }); setDisplayedRepertoire(tempRepertoire); setIsEditingRepertoire(false); addNotification('Repertorio guardado', 'success'); };
   const handleCancelEditing = () => {
       const hasChanges = room.repertoire.length !== tempRepertoire.length || room.repertoire.some((id, i) => id !== tempRepertoire[i]);
       if (hasChanges) { setConfirmModal({ title: 'Descartar Cambios', message: '¿Seguro que quieres descartar los cambios?', type: 'warning', action: () => { setIsEditingRepertoire(false); setConfirmModal(null); } }); } 
@@ -534,8 +667,38 @@ const RoomView: React.FC<RoomViewProps> = ({
       toastTouchStartY.current = null;
   };
 
+  const ParticipantItem = useCallback(({ username }: { username: string}) => {
+    const isHost = username === room.host;
+    const details = participantDetails[username];
+    const isAdminUser = details?.isAdmin;
+    const isOnline = useUserStatus(rtdb, username);
+
+    return (
+      <div className={`flex items-center justify-between p-4 rounded-3xl border transition-colors ${darkMode ? 'bg-slate-900 border-white/5' : 'bg-slate-50 border-slate-100'}`}>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm text-white ${isHost ? 'bg-misionero-amarillo shadow-lg' : 'bg-misionero-azul'}`}>{username.charAt(0).toUpperCase()}</div>
+            {isOnline && <div className={`absolute bottom-0 right-0 w-3 h-3 bg-misionero-verde rounded-full border-2 ${darkMode ? 'border-slate-900' : 'border-slate-50'}`}></div>}
+          </div>
+          <div>
+            <p className="text-sm font-black uppercase flex items-center gap-1.5">{username}{isHost && <CrownIcon className="w-3.5 h-3.5 text-misionero-amarillo" />}</p>
+            <div className="flex gap-1.5">{isHost && <span className="text-[7px] font-black uppercase bg-misionero-amarillo/20 text-misionero-amarillo px-1.5 py-0.5 rounded">HOST</span>}{isAdminUser && <span className="text-[7px] font-black uppercase bg-misionero-rojo/20 text-misionero-rojo px-1.5 py-0.5 rounded">ADMIN</span>}</div>
+          </div>
+        </div>
+        {isTheHost && username !== currentUser && (
+          <div className="flex items-center gap-1.5">
+            <button onClick={() => handleMakeHost(username)} title="Hacer Host" className="w-8 h-8 rounded-xl bg-misionero-amarillo/10 text-misionero-amarillo flex items-center justify-center active:scale-90"><CrownIcon /></button>
+            <button onClick={() => handleKickParticipant(username)} title="Expulsar" className="w-8 h-8 rounded-xl bg-misionero-rojo/10 text-misionero-rojo flex items-center justify-center active:scale-90"><DoorIcon /></button>
+            <button onClick={() => handleBanParticipant(username)} title="Bloquear" className="w-8 h-8 rounded-xl bg-slate-500/10 text-slate-500 flex items-center justify-center active:scale-90"><BanIcon /></button>
+          </div>
+        )}
+      </div>
+    );
+  }, [room.host, participantDetails, rtdb, darkMode, isTheHost, currentUser, handleMakeHost, handleKickParticipant, handleBanParticipant]);
+
   return (
     <div className={`flex flex-col h-full transition-colors duration-500 ${darkMode ? 'bg-black text-white' : 'bg-white text-slate-900'} animate-in fade-in duration-300 overflow-hidden relative`}>
+      <LiveReactionsOverlay reactions={liveReactions} />
       <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[200] w-full max-w-xs flex flex-col items-center gap-2 pointer-events-none px-4">
         {notifications.map(n => (
           <div key={n.id} className={`p-3 rounded-2xl shadow-2xl border flex items-center gap-3 animate-in slide-in-from-top-4 duration-300 pointer-events-auto ${n.type === 'success' ? 'bg-misionero-verde/90' : n.type === 'alert' ? 'bg-misionero-rojo/90' : 'bg-misionero-azul/90'}`}>
@@ -691,17 +854,37 @@ const RoomView: React.FC<RoomViewProps> = ({
       {showParticipants && (<div className={`fixed inset-0 z-[160] flex flex-col animate-in slide-in-from-right duration-300 ${darkMode ? 'bg-black' : 'bg-white'}`}>
         <div className={`flex items-center justify-between px-4 pt-12 pb-4 border-b shrink-0 ${darkMode ? 'border-white/5 bg-slate-900' : 'border-slate-100 bg-white'}`}><div className="flex items-center gap-3"><button onClick={closeParticipants} className="p-2 rounded-full"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button><div><h3 className="font-black uppercase text-sm">Participantes</h3><p className="text-[10px] font-bold text-slate-400">{(room.participants || []).length} usuarios</p></div></div></div>
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {(room.participants || []).map((username) => {
-              const isHost = username === room.host;
-              const details = participantDetails[username];
-              const isAdminUser = details?.isAdmin;
-              return (<div key={username} className={`flex items-center justify-between p-4 rounded-3xl border transition-colors ${darkMode ? 'bg-slate-900 border-white/5' : 'bg-slate-50 border-slate-100'}`}><div className="flex items-center gap-3"><div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm text-white ${isHost ? 'bg-misionero-amarillo shadow-lg' : 'bg-misionero-azul'}`}>{username.charAt(0).toUpperCase()}</div><div><p className="text-sm font-black uppercase flex items-center gap-1.5">{username}{isHost && <CrownIcon className="w-3.5 h-3.5 text-misionero-amarillo" />}</p><div className="flex gap-1.5">{isHost && <span className="text-[7px] font-black uppercase bg-misionero-amarillo/20 text-misionero-amarillo px-1.5 py-0.5 rounded">HOST</span>}{isAdminUser && <span className="text-[7px] font-black uppercase bg-misionero-rojo/20 text-misionero-rojo px-1.5 py-0.5 rounded">ADMIN</span>}</div></div></div>{isTheHost && username !== currentUser && (<div className="flex items-center gap-1.5"><button onClick={() => handleMakeHost(username)} title="Hacer Host" className="w-8 h-8 rounded-xl bg-misionero-amarillo/10 text-misionero-amarillo flex items-center justify-center active:scale-90"><CrownIcon /></button><button onClick={() => handleKickParticipant(username)} title="Expulsar" className="w-8 h-8 rounded-xl bg-misionero-rojo/10 text-misionero-rojo flex items-center justify-center active:scale-90"><DoorIcon /></button><button onClick={() => handleBanParticipant(username)} title="Bloquear" className="w-8 h-8 rounded-xl bg-slate-500/10 text-slate-500 flex items-center justify-center active:scale-90"><BanIcon /></button></div>)}</div>);
-          })}
+          {(room.participants || []).map((username) => <ParticipantItem key={username} username={username} />)}
         </div>
       </div>)}
       {isChatOpen && (<div className={`fixed inset-0 z-[150] flex flex-col animate-in slide-in-from-bottom duration-300 ${darkMode ? 'bg-black' : 'bg-white'}`}><div className={`flex items-center justify-between px-4 pt-12 pb-4 border-b shrink-0 ${darkMode ? 'border-white/5 bg-slate-900' : 'border-slate-100 bg-white'}`}><div className="flex items-center gap-3"><button onClick={closeChat} className="p-2 rounded-full"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button><div><h3 className="font-black uppercase text-sm">Chat de Sala</h3><p className="text-[10px] font-bold text-slate-400">{(room.participants || []).length} conectados</p></div></div></div><div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">{(room.chat || []).map((msg, i) => <SwipeableMessage key={i} msg={msg} currentUser={currentUser} onReply={handleReply} darkMode={darkMode} formatTime={formatMessageTime} />)}</div>{chatInputArea}</div>)}
       {confirmModal && (<div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmModal(null)}></div><div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{confirmModal.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{confirmModal.message}</p><div className="flex gap-3"><button onClick={() => setConfirmModal(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button><button onClick={confirmModal.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform ${confirmModal.type === 'danger' ? 'bg-misionero-rojo' : 'bg-misionero-azul'}`}>Confirmar</button></div></div></div>)}
-      {songForViewer && (<div className={`fixed inset-0 z-[130] ${darkMode ? 'bg-black' : 'bg-white'} flex flex-col animate-in slide-in-from-bottom-2`}>{(() => { const transposeValue = room.globalTranspositions?.[songForViewer.id] || 0; const cacheKey = `${songForViewer.id}-${transposeValue}`; const cachedContent = transposedContentCache.current[cacheKey]; return (<SongViewer song={songForViewer} onBack={() => window.history.back()} externalTranspose={transposeValue} transposedContent={cachedContent} onTransposeChange={canModify ? (val) => handleGlobalTranspose(songForViewer.id, val) : undefined} darkMode={darkMode} onEdit={canModify ? () => onEditSong(songForViewer) : undefined} onDelete={canModify ? () => { if (room.currentSongId === songForViewer.id) onUpdateRoom({ ...room, currentSongId: '' }); onDeleteSong(songForViewer.id); setSelectedSongId(null); } : undefined} onPrev={hasPrevSong ? () => navigateToSong(displayedRepertoire[currentSongIndex - 1]) : undefined} onNext={hasNextSong ? () => navigateToSong(displayedRepertoire[currentSongIndex + 1]) : undefined} hasPrev={hasPrevSong} hasNext={hasNextSong} isChatVisible={true} chatInputComponent={chatInputArea} />); })()}</div>)}
+      {songForViewer && (<div className={`fixed inset-0 z-[130] ${darkMode ? 'bg-black' : 'bg-white'} flex flex-col animate-in slide-in-from-bottom-2`}>{(() => {
+          const transposeValue = room.globalTranspositions?.[songForViewer.id] || 0;
+          const cacheKey = `${songForViewer.id}-${transposeValue}`;
+          const cachedContent = transposedContentCache.current[cacheKey];
+          return (
+            <SongViewer 
+              song={songForViewer} 
+              onBack={() => window.history.back()} 
+              externalTranspose={transposeValue} 
+              transposedContent={cachedContent} 
+              onTransposeChange={canModify ? (val) => handleGlobalTranspose(songForViewer.id, val) : undefined} 
+              darkMode={darkMode} 
+              onEdit={canModify ? () => onEditSong(songForViewer) : undefined} 
+              onDelete={canModify ? () => handleDeleteFromRoom(songForViewer) : undefined}
+              onPrev={hasPrevSong ? () => navigateToSong(displayedRepertoire[currentSongIndex - 1]) : undefined} 
+              onNext={hasNextSong ? () => navigateToSong(displayedRepertoire[currentSongIndex + 1]) : undefined} 
+              hasPrev={hasPrevSong} 
+              hasNext={hasNextSong} 
+              isChatVisible={true} 
+              chatInputComponent={chatInputArea} 
+              rtdb={rtdb} 
+              roomId={room.id} 
+              isHost={isTheHost} 
+              onSendReaction={handleSendReaction}
+            />); 
+        })()}</div>)}
       
       {isEditingRepertoire && isAddSongDrawerOpen && (
         <div className="fixed inset-0 z-[170] animate-in fade-in duration-300" onClick={() => setIsAddSongDrawerOpen(false)}>
@@ -745,5 +928,5 @@ const RoomView: React.FC<RoomViewProps> = ({
   );
 };
 
-// Fix: Changed export from 'App' to 'RoomView'
+// FIX: Corrected export statement
 export default RoomView;

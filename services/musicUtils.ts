@@ -1,4 +1,3 @@
-
 import { NOTES_SHARP, NOTES_FLAT, NOTES_ES_SHARP, NOTES_ES_FLAT } from '../constants';
 
 // Regex para encontrar posibles acordes.
@@ -128,7 +127,7 @@ export const isChordLine = (line: string, nextLine?: string): boolean => {
   return false;
 };
 
-const transposeRoot = (root: string, semiTones: number): string => {
+export const transposeRoot = (root: string, semiTones: number, preferSharps: boolean = false): string => {
   const isSpanish = /^(Do|Re|Mi|Fa|Sol|La|Si)/i.test(root);
   const lookup = root.toUpperCase();
   const currentPitch = PITCH_MAP[lookup];
@@ -138,14 +137,16 @@ const transposeRoot = (root: string, semiTones: number): string => {
   let newPitch = (currentPitch + semiTones) % 12;
   if (newPitch < 0) newPitch += 12;
 
-  const targetList = semiTones >= 0
-    ? (isSpanish ? NOTES_ES_SHARP : NOTES_SHARP)
-    : (isSpanish ? NOTES_ES_FLAT : NOTES_FLAT);
+  const useFlats = semiTones < 0 && !preferSharps;
+
+  const targetList = useFlats
+    ? (isSpanish ? NOTES_ES_FLAT : NOTES_FLAT)
+    : (isSpanish ? NOTES_ES_SHARP : NOTES_SHARP);
 
   return targetList[newPitch];
 };
 
-export const transposeChord = (fullMatch: string, semiTones: number): string => {
+export const transposeChord = (fullMatch: string, semiTones: number, preferSharps: boolean = false): string => {
   if (semiTones === 0) return fullMatch;
 
   // Doble verificación: no transponer si parece una palabra falso positivo
@@ -159,20 +160,88 @@ export const transposeChord = (fullMatch: string, semiTones: number): string => 
   const suffix = match[2];
   const bass = match[3];
 
-  const newRoot = transposeRoot(root, semiTones);
-  const newBass = bass ? `/${transposeRoot(bass, semiTones)}` : '';
+  const newRoot = transposeRoot(root, semiTones, preferSharps);
+  const newBass = bass ? `/${transposeRoot(bass, semiTones, preferSharps)}` : '';
 
   return newRoot + suffix + newBass;
 };
 
-export const transposeSong = (content: string, semiTones: number): string => {
+export const transposeSong = (content: string, semiTones: number, preferSharps: boolean = false): string => {
   if (semiTones === 0) return content;
   const lines = content.split('\n');
   return lines.map((line, index) => {
     const nextLine = lines[index + 1];
     if (isChordLine(line, nextLine)) {
-      return line.replace(CHORD_REGEX, (match) => transposeChord(match, semiTones));
+      return line.replace(CHORD_REGEX, (match) => transposeChord(match, semiTones, preferSharps));
     }
     return line;
   }).join('\n');
+};
+
+const getChordDifficulty = (chordRoot: string): number => {
+    const upperRoot = chordRoot.toUpperCase();
+    if (upperRoot.includes('#') || upperRoot.includes('B')) {
+      // Barre chords / difficult shapes
+      return 2;
+    }
+    switch(upperRoot) {
+      // Easy open chords
+      case 'C': case 'G': case 'D': case 'A': case 'E': 
+      case 'DO': case 'SOL': case 'RE': case 'LA': case 'MI':
+        return 0;
+      // Common barre chord, slightly less difficult than accidentals
+      case 'F': case 'B':
+      case 'FA': case 'SI':
+        return 1;
+      // All others default to medium difficulty
+      default:
+        return 1;
+    }
+};
+
+export const findBestCapo = (content: string, currentTranspose: number): number => {
+    const soundingContent = transposeSong(content, currentTranspose);
+    
+    const uniqueChords = new Set<string>();
+    const lines = soundingContent.split('\n');
+    lines.forEach(line => {
+      if (isChordLine(line)) {
+        const matches = line.match(CHORD_REGEX);
+        if (matches) {
+          matches.forEach(chord => {
+            if(isValidChordWord(chord)) uniqueChords.add(chord);
+          });
+        }
+      }
+    });
+
+    if (uniqueChords.size === 0) return 0;
+    
+    const chordRoots = Array.from(uniqueChords).map(fullChord => {
+      CHORD_REGEX.lastIndex = 0;
+      const match = CHORD_REGEX.exec(fullChord);
+      return match ? match[1] : null;
+    }).filter((root): root is string => root !== null);
+  
+    let bestCapo = 0;
+    let minScore = Infinity;
+  
+    // Check capo positions from 0 to 7 (a reasonable range)
+    for (let capo = 0; capo <= 7; capo++) {
+      let currentScore = 0;
+      chordRoots.forEach(root => {
+        const capoAdjustedRoot = transposeRoot(root, -capo, true);
+        currentScore += getChordDifficulty(capoAdjustedRoot);
+      });
+      
+      // Add a small penalty for using a capo, encouraging lower fret positions
+      currentScore += capo * 0.1;
+  
+      if (currentScore < minScore) {
+        minScore = currentScore;
+        bestCapo = capo;
+      }
+    }
+  
+    return bestCapo;
 };
