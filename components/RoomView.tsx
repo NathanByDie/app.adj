@@ -136,7 +136,7 @@ const useUserStatus = (rtdb: any, username: string) => {
 
         const q = queryRtdb(refRtdb(rtdb, '/status'), orderByChild('username'), equalTo(username), limitToFirst(1));
         
-        const listener = onValueRtdb(q, (snapshot) => {
+        const unsubscribe = onValueRtdb(q, (snapshot) => {
             if (snapshot.exists()) {
                 const data = snapshot.val();
                 const userId = Object.keys(data)[0];
@@ -146,7 +146,9 @@ const useUserStatus = (rtdb: any, username: string) => {
             }
         });
         
-        return () => listener();
+        // FIX: Directly return the unsubscribe function from onValueRtdb for useEffect cleanup.
+        // FIX: The `useEffect` cleanup function was calling unsubscribe wrapped in another function. Returning it directly resolves the error.
+        return unsubscribe;
     }, [rtdb, username]);
     
     return isOnline;
@@ -666,8 +668,8 @@ const RoomView: React.FC<RoomViewProps> = ({
       }
       toastTouchStartY.current = null;
   };
-
-  const ParticipantItem = useCallback(({ username }: { username: string}) => {
+// FIX: The ParticipantItem component was wrapped in a useCallback, but it used the useUserStatus hook internally. This is a violation of the Rules of Hooks. The useCallback has been removed, resolving the issue.
+  const ParticipantItem = ({ username }: { username: string}) => {
     const isHost = username === room.host;
     const details = participantDetails[username];
     const isAdminUser = details?.isAdmin;
@@ -694,7 +696,7 @@ const RoomView: React.FC<RoomViewProps> = ({
         )}
       </div>
     );
-  }, [room.host, participantDetails, rtdb, darkMode, isTheHost, currentUser, handleMakeHost, handleKickParticipant, handleBanParticipant]);
+  };
 
   return (
     <div className={`flex flex-col h-full transition-colors duration-500 ${darkMode ? 'bg-black text-white' : 'bg-white text-slate-900'} animate-in fade-in duration-300 overflow-hidden relative`}>

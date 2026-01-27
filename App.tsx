@@ -148,7 +148,7 @@ const GoogleIcon = () => (
 );
 
 const LoginView = ({ handleAuthSubmit, authData, setAuthData, authMode, setAuthMode, authMsg, isAuthenticating, showPassword, setShowPassword, setAuthMsg, handleGoogleSignIn }: any) => (
-  <div className="fixed inset-0 login-background flex flex-col items-center justify-center p-4 text-white font-sans overflow-hidden">
+  <div className="fixed inset-0 login-background flex flex-col items-center justify-start pt-20 p-4 text-white font-sans overflow-y-auto">
     <div className="w-full max-w-sm space-y-8 text-center relative z-10">
       <h1 className="text-4xl font-black tracking-tighter uppercase italic leading-tight login-text-shadow">Amiguitos de Jesus<br/><span className="text-3xl font-semibold tracking-widest">Studios</span></h1>
       <form onSubmit={handleAuthSubmit} className="space-y-3">
@@ -229,12 +229,12 @@ const LoginView = ({ handleAuthSubmit, authData, setAuthData, authMode, setAuthM
 
 // --- VISTAS INDIVIDUALES ---
 const FeedView = ({ songs, favorites, openSongViewer, toggleFavorite, darkMode }: any) => (
-    <div className="w-full h-full overflow-y-auto custom-scroll px-4 pt-4 pb-48 space-y-3">
+    <div className="w-full h-full overflow-y-auto custom-scroll px-4 pt-4 pb-48 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-start auto-rows-max">
        {songs.map((song: Song, index: number) => (
           <div 
             key={song.id} 
-            className="relative glass-ui rounded-[1.8rem] overflow-hidden active:scale-[0.98] transition-all animate-stagger-in"
-            style={{ animationDelay: `${index * 50}ms` }}
+            className="relative glass-ui rounded-[1.8rem] overflow-hidden active:scale-[0.98] transition-all animate-stagger-in h-fit"
+            style={{ animationDelay: `${index * 30}ms` }}
             onClick={() => openSongViewer(song)}
           >
             <button onClick={(e) => toggleFavorite(e, song.id)} className={`absolute top-3 right-3 z-20 p-2 transition-colors ${favorites.includes(song.id) ? 'text-misionero-rojo' : `${darkMode ? 'text-white/30 hover:text-white/60' : 'text-black/20 hover:text-black/50'}`}`}>
@@ -251,14 +251,14 @@ const FeedView = ({ songs, favorites, openSongViewer, toggleFavorite, darkMode }
 );
 
 const FavoritesView = ({ songs, favorites, openSongViewer, toggleFavorite, darkMode }: any) => (
-    <div className="w-full h-full overflow-y-auto custom-scroll px-4 pt-4 pb-48 space-y-3">
+    <div className="w-full h-full overflow-y-auto custom-scroll px-4 pt-4 pb-48 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-start auto-rows-max">
        {songs.length === 0 ? (
-         <div className="flex flex-col items-center justify-center h-full opacity-20"><p className="text-[10px] font-black uppercase">Sin favoritos</p></div>
+         <div className="flex flex-col items-center justify-center h-full opacity-20 md:col-span-2 lg:col-span-3 xl:col-span-4"><p className="text-[10px] font-black uppercase">Sin favoritos</p></div>
        ) : songs.map((song: Song, index: number) => (
           <div 
             key={song.id} 
-            className="relative glass-ui rounded-[1.8rem] overflow-hidden active:scale-[0.98] transition-all animate-stagger-in"
-            style={{ animationDelay: `${index * 50}ms` }}
+            className="relative glass-ui rounded-[1.8rem] overflow-hidden active:scale-[0.98] transition-all animate-stagger-in h-fit"
+            style={{ animationDelay: `${index * 30}ms` }}
             onClick={() => openSongViewer(song)}
           >
             <button onClick={(e) => toggleFavorite(e, song.id)} className={`absolute top-3 right-3 z-20 p-2 transition-colors ${favorites.includes(song.id) ? 'text-misionero-rojo' : `${darkMode ? 'text-white/30 hover:text-white/60' : 'text-black/20 hover:text-black/50'}`}`}>
@@ -275,7 +275,7 @@ const FavoritesView = ({ songs, favorites, openSongViewer, toggleFavorite, darkM
 );
 
 const RoomLobbyView = ({ roomCodeInput, setRoomCodeInput, handleJoinRoom, handleCreateRoom, isAdmin, isJoiningRoom }: any) => (
-    <div className="w-full h-full flex flex-col items-center justify-center px-8 py-4 text-center space-y-6 relative">
+    <div className="w-full h-full flex flex-col items-center justify-center px-8 py-4 text-center space-y-6 relative max-w-sm mx-auto">
         {isJoiningRoom && (
            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/30 dark:bg-black/30 backdrop-blur-md animate-in fade-in duration-300 rounded-[2.5rem]">
               <div className="w-12 h-12 border-4 border-misionero-azul border-t-transparent rounded-full animate-spin mb-4"></div>
@@ -308,7 +308,8 @@ const SettingsView = ({
     );
 
     return (
-    <div className="w-full h-full overflow-y-auto custom-scroll px-6 py-4 pb-48 space-y-8">
+    <div className="w-full h-full overflow-y-auto custom-scroll px-6 py-4 pb-48 grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="space-y-8">
         <section className="space-y-4">
            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Apariencia</h3>
            <div className="glass-ui p-4 rounded-[2.5rem] flex flex-col gap-3">
@@ -331,7 +332,74 @@ const SettingsView = ({
             </div>
         </section>
 
-        {isSuperAdmin && (
+        <section className="space-y-4">
+           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Perfil</h3>
+           <div className="glass-ui p-6 rounded-[2.5rem] space-y-4">
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-[8px] font-black uppercase text-slate-400">Nombre de Usuario</span>
+                </div>
+                <input type="text" className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} value={newUsername} onChange={e => setNewUsername(e.target.value)} />
+                
+                <div className="relative mt-3">
+                    <input 
+                        type={showUsernamePass ? 'text' : 'password'} 
+                        placeholder="Confirma con tu contraseña" 
+                        className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none placeholder:text-slate-400/50 ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} 
+                        value={usernameChangePassword} 
+                        onChange={e => setUsernameChangePassword(e.target.value)} 
+                    />
+                     <button type="button" onClick={() => setShowUsernamePass(!showUsernamePass)} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showUsernamePass ? <EyeOffIcon/> : <EyeIcon/>}</button>
+                </div>
+
+                <button onClick={handleUpdateUsername} disabled={isUpdatingUsername || !usernameChangePassword} className="w-full mt-3 glass-ui glass-interactive bg-misionero-azul/70 text-white font-black py-4 rounded-2xl text-[9px] uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">{isUpdatingUsername ? 'Verificando...' : 'Guardar Cambios'}</button>
+              </div>
+           </div>
+        </section>
+        
+        <section className="space-y-4">
+           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Seguridad</h3>
+           
+           {canLinkGoogle && (
+             <div className="glass-ui p-4 rounded-[2.5rem]">
+                <button 
+                    onClick={onLinkGoogle} 
+                    disabled={isLinkingGoogle}
+                    className={`w-full glass-ui glass-interactive flex items-center justify-center gap-3 font-black py-3 rounded-2xl uppercase text-[10px] tracking-widest active:scale-95 transition-all disabled:opacity-50 ${darkMode ? 'bg-slate-800/50 text-slate-300' : 'bg-white/50 text-slate-700'}`}
+                >
+                    {isLinkingGoogle ? (
+                        <div className="w-5 h-5 border-2 border-white/50 border-t-white rounded-full animate-spin"></div>
+                    ) : (
+                        <GoogleIcon />
+                    )}
+                    <span>{isLinkingGoogle ? 'Vinculando...' : 'Vincular con Google'}</span>
+                </button>
+                <p className={`text-center text-[9px] font-bold mt-3 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>Vincula tu cuenta para un inicio de sesión más rápido.</p>
+             </div>
+           )}
+
+           <form onSubmit={handleChangePassword} className="glass-ui p-6 rounded-[2.5rem]">
+              <div className="space-y-3">
+                <div className="relative">
+                  <input type={showChangePassword.current ? 'text' : 'password'} placeholder="Contraseña Actual" value={passwordChangeData.current} onChange={e => setPasswordChangeData(p => ({...p, current: e.target.value}))} required className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} />
+                  <button type="button" onClick={() => toggleShowChangePassword('current')} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showChangePassword.current ? <EyeOffIcon/> : <EyeIcon/>}</button>
+                </div>
+                <div className="relative">
+                  <input type={showChangePassword.newPass ? 'text' : 'password'} placeholder="Nueva Contraseña" value={passwordChangeData.newPass} onChange={e => setPasswordChangeData(p => ({...p, newPass: e.target.value}))} required className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} />
+                  <button type="button" onClick={() => toggleShowChangePassword('newPass')} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showChangePassword.newPass ? <EyeOffIcon/> : <EyeIcon/>}</button>
+                </div>
+                <div className="relative">
+                  <input type={showChangePassword.confirm ? 'text' : 'password'} placeholder="Confirmar" value={passwordChangeData.confirm} onChange={e => setPasswordChangeData(p => ({...p, confirm: e.target.value}))} required className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} />
+                   <button type="button" onClick={() => toggleShowChangePassword('confirm')} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showChangePassword.confirm ? <EyeOffIcon/> : <EyeIcon/>}</button>
+                </div>
+              </div>
+              {passwordChangeMsg && <div className={`mt-4 text-[9px] font-black text-center uppercase ${passwordChangeMsg.type === 'error' ? 'text-red-400' : 'text-green-400'}`}>{passwordChangeMsg.text}</div>}
+              <button type="submit" disabled={isUpdatingPassword} className="w-full mt-4 glass-ui glass-interactive bg-misionero-verde/70 text-white font-black py-4 rounded-2xl text-[9px] uppercase tracking-widest active:scale-95 transition-all">{isUpdatingPassword ? '...' : 'Actualizar Pass'}</button>
+           </form>
+        </section>
+      </div>
+      <div className="space-y-8">
+         {isSuperAdmin && (
           <section className="space-y-4">
               <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Panel Super Admin</h3>
               <div className="glass-ui p-6 rounded-[2.5rem] space-y-4">
@@ -363,7 +431,6 @@ const SettingsView = ({
               </div>
           </section>
         )}
-
          {isAdmin && (
           <section className="space-y-4">
               <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Administrar Categorías</h3>
@@ -405,72 +472,7 @@ const SettingsView = ({
               </div>
           </section>
         )}
-
-        <section className="space-y-4">
-           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Perfil</h3>
-           <div className="glass-ui p-6 rounded-[2.5rem] space-y-4">
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-[8px] font-black uppercase text-slate-400">Nombre de Usuario</span>
-                </div>
-                <input type="text" className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} value={newUsername} onChange={e => setNewUsername(e.target.value)} />
-                
-                <div className="relative mt-3">
-                    <input 
-                        type={showUsernamePass ? 'text' : 'password'} 
-                        placeholder="Confirma con tu contraseña" 
-                        className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none placeholder:text-slate-400/50 ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} 
-                        value={usernameChangePassword} 
-                        onChange={e => setUsernameChangePassword(e.target.value)} 
-                    />
-                     <button type="button" onClick={() => setShowUsernamePass(!showUsernamePass)} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showUsernamePass ? <EyeOffIcon/> : <EyeIcon/>}</button>
-                </div>
-
-                <button onClick={handleUpdateUsername} disabled={isUpdatingUsername || !usernameChangePassword} className="w-full mt-3 glass-ui glass-interactive bg-misionero-azul/70 text-white font-black py-4 rounded-2xl text-[9px] uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">{isUpdatingUsername ? 'Verificando...' : 'Guardar Cambios'}</button>
-              </div>
-           </div>
-        </section>
-
-        <section className="space-y-4">
-           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Seguridad</h3>
-           
-           {canLinkGoogle && (
-             <div className="glass-ui p-4 rounded-[2.5rem]">
-                <button 
-                    onClick={onLinkGoogle} 
-                    disabled={isLinkingGoogle}
-                    className={`w-full glass-ui glass-interactive flex items-center justify-center gap-3 font-black py-3 rounded-2xl uppercase text-[10px] tracking-widest active:scale-95 transition-all disabled:opacity-50 ${darkMode ? 'bg-slate-800/50 text-slate-300' : 'bg-white/50 text-slate-700'}`}
-                >
-                    {isLinkingGoogle ? (
-                        <div className="w-5 h-5 border-2 border-white/50 border-t-white rounded-full animate-spin"></div>
-                    ) : (
-                        <GoogleIcon />
-                    )}
-                    <span>{isLinkingGoogle ? 'Vinculando...' : 'Vincular con Google'}</span>
-                </button>
-                <p className={`text-center text-[9px] font-bold mt-3 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>Vincula tu cuenta para un inicio de sesión más rápido.</p>
-             </div>
-           )}
-
-           <form onSubmit={handleChangePassword} className="glass-ui p-6 rounded-[2.5rem]">
-              <div className="space-y-3">
-                <div className="relative">
-                  <input type={showChangePassword.current ? 'text' : 'password'} placeholder="Contraseña Actual" value={passwordChangeData.current} onChange={e => setPasswordChangeData(p => ({...p, current: e.target.value}))} required className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} />
-                  <button type="button" onClick={() => toggleShowChangePassword('current')} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showChangePassword.current ? <EyeOffIcon/> : <EyeIcon/>}</button>
-                </div>
-                <div className="relative">
-                  <input type={showChangePassword.newPass ? 'text' : 'password'} placeholder="Nueva Contraseña" value={passwordChangeData.newPass} onChange={e => setPasswordChangeData(p => ({...p, newPass: e.target.value}))} required className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} />
-                  <button type="button" onClick={() => toggleShowChangePassword('newPass')} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showChangePassword.newPass ? <EyeOffIcon/> : <EyeIcon/>}</button>
-                </div>
-                <div className="relative">
-                  <input type={showChangePassword.confirm ? 'text' : 'password'} placeholder="Confirmar" value={passwordChangeData.confirm} onChange={e => setPasswordChangeData(p => ({...p, confirm: e.target.value}))} required className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} />
-                   <button type="button" onClick={() => toggleShowChangePassword('confirm')} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showChangePassword.confirm ? <EyeOffIcon/> : <EyeIcon/>}</button>
-                </div>
-              </div>
-              {passwordChangeMsg && <div className={`mt-4 text-[9px] font-black text-center uppercase ${passwordChangeMsg.type === 'error' ? 'text-red-400' : 'text-green-400'}`}>{passwordChangeMsg.text}</div>}
-              <button type="submit" disabled={isUpdatingPassword} className="w-full mt-4 glass-ui glass-interactive bg-misionero-verde/70 text-white font-black py-4 rounded-2xl text-[9px] uppercase tracking-widest active:scale-95 transition-all">{isUpdatingPassword ? '...' : 'Actualizar Pass'}</button>
-           </form>
-        </section>
+      </div>
     </div>
     );
 };
@@ -488,7 +490,7 @@ const MainView = ({
   handleCreateCategory, handleDeleteCategory, handleEditCategory, setCategoryConfirmModal,
   newUsername, setNewUsername, showUsernamePass, setShowUsernamePass, usernameChangePassword, setUsernameChangePassword, isUpdatingUsername, handleUpdateUsername,
   passwordChangeData, setPasswordChangeData, showChangePassword, toggleShowChangePassword, passwordChangeMsg, isUpdatingPassword, handleChangePassword,
-  isLinkingGoogle, handleLinkGoogleAccount, adminUsers, handleAddAdmin, handleRevokeAdmin, handleSignOut
+  isLinkingGoogle, handleLinkGoogleAccount, adminUsers, handleAddAdmin, handleRevokeAdmin, handleSignOut, openSongEditor
 }: any) => {
   
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -573,41 +575,50 @@ const MainView = ({
     'animate-view-fade-in';
 
   return (
-    <div className={`fixed inset-0 max-w-md mx-auto transition-colors duration-500 ${darkMode ? 'text-white bg-black' : 'text-slate-900 bg-slate-50'} overflow-hidden flex flex-col`}>
-      <header onTouchStart={(e) => e.stopPropagation()} className={`shrink-0 px-4 pt-12 pb-3 z-30`}>
-        <div className="flex justify-between items-center mb-3">
-          <div>
-            <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.3em] mb-0.5">ADJStudios</p>
-            <h2 className="text-lg font-black tracking-tight">
-              {view === 'feed' ? `Hola, ${user.username}` : view === 'favorites' ? 'Mis Favoritos' : view === 'room' ? 'Sala en Vivo' : 'Ajustes'}
-            </h2>
-          </div>
-          <div className="flex items-center gap-3">
-            {view === 'settings' && (
-              <button onClick={handleSignOut} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-misionero-rojo/10 text-misionero-rojo active:scale-95 transition-all">
-                <LogoutIcon />
-                <span className="text-[9px] font-black uppercase">Cerrar Sesión</span>
-              </button>
-            )}
-            {isAdmin && <span className="text-[7px] font-black bg-misionero-rojo text-white px-2 py-1 rounded-full uppercase animate-pulse">Admin</span>}
-          </div>
-        </div>
-        {(view === 'feed' || view === 'favorites') && (
-          <div className="space-y-3">
-            <input type="text" placeholder="Buscar música..." className={`w-full glass-ui rounded-2xl px-4 py-2 text-xs font-bold outline-none ${darkMode ? 'text-white placeholder:text-slate-600' : 'text-slate-900 placeholder:text-slate-400'}`} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
-            <div className="flex gap-2 overflow-x-auto pb-2 pt-1 no-swipe custom-scroll">
-              {['Todos', ...categoryNames].map((f: string) => (
-                <button key={f} onClick={() => setActiveFilter(f as any)} className={`px-5 py-2 rounded-full text-[9px] font-black uppercase shrink-0 transition-all ${activeFilter === f ? 'bg-misionero-azul text-white' : 'glass-ui text-slate-400'}`}>{f}</button>
-              ))}
+    <div className={`fixed inset-0 transition-colors duration-500 ${darkMode ? 'text-white bg-black' : 'text-slate-900 bg-slate-50'} flex`}>
+      <div className="md:pl-20 w-full flex flex-col">
+        <header onTouchStart={(e) => e.stopPropagation()} className={`shrink-0 z-30 transition-colors duration-500 ${darkMode ? 'bg-black/80 backdrop-blur-sm' : 'bg-slate-50/80 backdrop-blur-sm'} border-b ${darkMode ? 'border-white/10' : 'border-slate-200'}`}>
+          <div className="w-full max-w-7xl mx-auto px-4 pt-6 pb-3">
+            <div className="flex justify-between items-center mb-3">
+              <div>
+                <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.3em] mb-0.5">ADJStudios</p>
+                <h2 className="text-lg font-black tracking-tight">
+                  {view === 'feed' ? `Hola, ${user.username}` : view === 'favorites' ? 'Mis Favoritos' : view === 'room' ? 'Sala en Vivo' : 'Ajustes'}
+                </h2>
+              </div>
+              <div className="flex items-center gap-3">
+                {view === 'feed' && isAdmin && (
+                   <button onClick={() => openSongEditor(null)} className="hidden md:flex items-center gap-2 bg-misionero-rojo text-white px-4 py-2 rounded-xl font-black text-[9px] uppercase active:scale-95 transition-transform">
+                      <PlusIcon /> <span>Añadir Música</span>
+                   </button>
+                )}
+                {view === 'settings' && (
+                  <button onClick={handleSignOut} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-misionero-rojo/10 text-misionero-rojo active:scale-95 transition-all">
+                    <LogoutIcon />
+                    <span className="text-[9px] font-black uppercase">Cerrar Sesión</span>
+                  </button>
+                )}
+                {isAdmin && <span className="text-[7px] font-black bg-misionero-rojo text-white px-2 py-1 rounded-full uppercase animate-pulse">Admin</span>}
+              </div>
             </div>
+            {(view === 'feed' || view === 'favorites') && (
+              <div className="space-y-3">
+                <input type="text" placeholder="Buscar música..." className={`w-full glass-ui rounded-2xl px-4 py-2 text-xs font-bold outline-none ${darkMode ? 'text-white placeholder:text-slate-600' : 'text-slate-900 placeholder:text-slate-400'}`} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+                <div className="flex gap-2 overflow-x-auto pb-2 pt-1 no-swipe custom-scroll">
+                  {['Todos', ...categoryNames].map((f: string) => (
+                    <button key={f} onClick={() => setActiveFilter(f as any)} className={`px-5 py-2 rounded-full text-[9px] font-black uppercase shrink-0 transition-all ${activeFilter === f ? 'bg-misionero-azul text-white' : 'glass-ui text-slate-400'}`}>{f}</button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-        )}
-      </header>
-      <main className="flex-1 relative overflow-hidden" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
-        <div key={view} className={`w-full h-full ${animationClass}`}>
-            {renderActiveView()}
-        </div>
-      </main>
+        </header>
+        <main className="flex-1 relative overflow-hidden" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+          <div key={view} className={`w-full h-full ${animationClass} max-w-7xl mx-auto`}>
+              {renderActiveView()}
+          </div>
+        </main>
+      </div>
     </div>
   );
 };
@@ -1406,9 +1417,13 @@ useEffect(() => {
                 isLinkingGoogle={isLinkingGoogle} handleLinkGoogleAccount={handleLinkGoogleAccount}
                 adminUsers={adminUsers} handleAddAdmin={handleAddAdmin} handleRevokeAdmin={handleRevokeAdmin}
                 handleSignOut={handleSignOut}
+                openSongEditor={openSongEditor}
             />
             
-            <nav onTouchStart={(e) => e.stopPropagation()} className="fixed bottom-0 left-0 right-0 max-w-md mx-auto shrink-0 w-full px-4 pt-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] flex justify-center gap-14 items-center z-50 bg-white dark:bg-black border-t border-slate-200 dark:border-white/10 transition-colors duration-500">
+            <nav onTouchStart={(e) => e.stopPropagation()} className={`fixed bottom-0 left-0 right-0 z-50 flex justify-center gap-14 items-center transition-all duration-500 
+              md:flex-col md:w-20 md:left-0 md:top-0 md:h-full md:justify-start md:gap-8 md:pt-20 md:px-0 md:bottom-auto md:right-auto
+              px-4 pt-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))]
+              ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-200'} border-t md:border-t-0 md:border-r`}>
               {VIEW_ORDER.map((v) => {
                 const isActive = view === v;
                 let activeColorClass = 'text-slate-400 dark:text-slate-500';
@@ -1420,21 +1435,22 @@ useEffect(() => {
                 return (
                   <button key={v} onClick={() => navigateTo(v)} className={`flex flex-col items-center gap-1.5 transition-all duration-300 ${activeColorClass}`}>
                     <div className="relative flex items-center justify-center">
-                      <div className={`absolute inset-x-[-12px] inset-y-[-4px] rounded-full transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${bubbleColorClass} ${isActive ? 'scale-100 opacity-100' : 'scale-0 opacity-0'}`}></div>
+                      <div className={`absolute rounded-full transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${bubbleColorClass} ${isActive ? 'scale-100 opacity-100' : 'scale-0 opacity-0'} 
+                        inset-x-[-12px] inset-y-[-4px] md:inset-y-[-12px] md:inset-x-[-4px]`}></div>
                       <div className={`relative transition-transform duration-300 z-10 ${isActive ? 'scale-110' : 'scale-100'}`}>
-                        {v === 'feed' && <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>}
-                        {v === 'favorites' && <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>}
+                        {v === 'feed' && <svg className="w-6 h-6 md:w-7 md:h-7" fill="currentColor" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>}
+                        {v === 'favorites' && <svg className="w-5 h-5 md:w-6 md:h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>}
                         {v === 'room' && <UsersIcon />}
-                        {v === 'settings' && <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 15.5A3.5 3.5 0 1 1 15.5 12 3.5 3.5 0 0 1 12 15.5z"/></svg>}
+                        {v === 'settings' && <svg className="w-6 h-6 md:w-7 md:h-7" fill="currentColor" viewBox="0 0 24 24"><path d="M12 15.5A3.5 3.5 0 1 1 15.5 12 3.5 3.5 0 0 1 12 15.5z"/></svg>}
                       </div>
                     </div>
-                    <span className={`text-[8px] font-black uppercase tracking-tighter relative z-10 transition-colors duration-300`}>{v === 'feed' ? 'Inicio' : v === 'favorites' ? 'Favs' : v === 'room' ? 'Sala' : 'Ajustes'}</span>
+                    <span className={`text-[8px] font-black uppercase tracking-tighter relative z-10 transition-colors duration-300 md:hidden`}>{v === 'feed' ? 'Inicio' : v === 'favorites' ? 'Favs' : v === 'room' ? 'Sala' : 'Ajustes'}</span>
                   </button>
                 );
               })}
             </nav>
             {view === 'feed' && isAdmin && !activeSong && !editingSong && !activeRoom && (
-              <button onClick={() => openSongEditor(null)} className="fixed bottom-[5rem] right-6 w-16 h-16 glass-ui glass-interactive bg-misionero-rojo/70 text-white rounded-[1.8rem] flex items-center justify-center z-[60] animate-bounce-subtle active:scale-90 transition-transform"><PlusIcon /></button>
+              <button onClick={() => openSongEditor(null)} className="fixed bottom-[5rem] right-6 w-16 h-16 glass-ui glass-interactive bg-misionero-rojo/70 text-white rounded-[1.8rem] flex items-center justify-center z-[60] animate-bounce-subtle active:scale-90 transition-transform md:hidden"><PlusIcon /></button>
             )}
             {globalAlert && (<div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setGlobalAlert(null)}></div><div className="glass-ui relative w-full max-w-sm p-6 rounded-[2rem] animate-in zoom-in-95 duration-200"><div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 mx-auto ${globalAlert.type === 'error' ? 'glass-ui bg-misionero-rojo/30 text-misionero-rojo' : 'glass-ui bg-misionero-azul/30 text-misionero-azul'}`}>{globalAlert.type === 'error' ? ( <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>) : ( <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>)}</div><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{globalAlert.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{globalAlert.message}</p><button onClick={() => setGlobalAlert(null)} className={`w-full py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest active:scale-95 transition-transform glass-ui glass-interactive ${globalAlert.type === 'error' ? 'bg-misionero-rojo/70 text-white' : 'bg-misionero-azul/70 text-white'}`}>Entendido</button></div></div>)}
             {categoryConfirmModal && (<div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setCategoryConfirmModal(null)}></div><div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{categoryConfirmModal.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{categoryConfirmModal.message}</p><div className="flex gap-3"><button onClick={() => setCategoryConfirmModal(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button><button onClick={categoryConfirmModal.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform ${categoryConfirmModal.type === 'danger' ? 'bg-misionero-rojo' : 'bg-misionero-azul'}`}>Confirmar</button></div></div></div>)}

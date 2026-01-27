@@ -180,22 +180,28 @@ export const transposeSong = (content: string, semiTones: number, preferSharps: 
 
 const getChordDifficulty = (chordRoot: string): number => {
     const upperRoot = chordRoot.toUpperCase();
-    if (upperRoot.includes('#') || upperRoot.includes('B')) {
-      // Barre chords / difficult shapes
-      return 2;
+    
+    // Sharps and flats are the hardest to play. Give them a high penalty
+    // to strongly encourage finding a capo position that avoids them.
+    // The condition `upperRoot.endsWith('B') && upperRoot.length > 1` correctly identifies flats (e.g., 'Db', 'Eb') without misidentifying the note 'B'.
+    if (upperRoot.includes('#') || (upperRoot.endsWith('B') && upperRoot.length > 1)) {
+      return 10;
     }
+
     switch(upperRoot) {
-      // Easy open chords
-      case 'C': case 'G': case 'D': case 'A': case 'E': 
-      case 'DO': case 'SOL': case 'RE': case 'LA': case 'MI':
-        return 0;
-      // Common barre chord, slightly less difficult than accidentals
+      // Easiest open chords get the lowest score.
+      case 'G': case 'C': case 'D': case 'A': case 'E':
+      case 'SOL': case 'DO': case 'RE': case 'LA': case 'MI':
+        return 1;
+      
+      // Common barre chords (F and B) are harder than open chords.
       case 'F': case 'B':
       case 'FA': case 'SI':
-        return 1;
-      // All others default to medium difficulty
+        return 4;
+
+      // This case is rare but serves as a fallback.
       default:
-        return 1;
+        return 2;
     }
 };
 
@@ -234,8 +240,9 @@ export const findBestCapo = (content: string, currentTranspose: number): number 
         currentScore += getChordDifficulty(capoAdjustedRoot);
       });
       
-      // Add a small penalty for using a capo, encouraging lower fret positions
-      currentScore += capo * 0.1;
+      // Add a penalty for using a capo, encouraging lower fret positions.
+      // The penalty is increased to be significant against the new, higher difficulty scores.
+      currentScore += capo * 0.4;
   
       if (currentScore < minScore) {
         minScore = currentScore;
