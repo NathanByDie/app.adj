@@ -678,7 +678,7 @@ const RoomView: React.FC<RoomViewProps> = ({
       toastTouchStartY.current = null;
   };
 
-  const ParticipantItem = ({ username }: { username: string}) => {
+  const ParticipantItem: React.FC<{ username: string }> = ({ username }) => {
     const isHost = username === room.host;
     const details = participantDetails[username];
     const isAdminUser = details?.isAdmin;

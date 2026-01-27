@@ -1041,7 +1041,7 @@ useEffect(() => {
       } else if (authMode === 'register') {
         if (authData.pass !== authData.confirmPass) { setAuthMsg({ type: 'error', text: 'Las contraseñas no coinciden.' }); setIsAuthenticating(false); return; }
         if (!isValidUsername(authData.user)) {
-          setAuthMsg({ type: 'error', text: 'El nombre de usuario debe tener 3-24 caracteres y solo puede contener letras, tildes y espacios.' });
+          setAuthMsg({ type: 'error', text: 'El usuario debe tener entre 3 y 24 caracteres (letras, espacios y tildes).' });
           setIsAuthenticating(false);
           return;
         }
@@ -1152,7 +1152,7 @@ useEffect(() => {
     const trimmedUsername = newUsername.trim();
     
     if (!isValidUsername(trimmedUsername)) {
-       setGlobalAlert({ title: "Nombre no válido", message: "El usuario debe tener 3-24 caracteres y solo puede contener letras, tildes y espacios.", type: 'error' });
+       setGlobalAlert({ title: "Nombre no válido", message: "El usuario debe tener entre 3 y 24 caracteres (letras, espacios y tildes).", type: 'error' });
        return;
     }
     if (trimmedUsername.toLowerCase() === user.username.toLowerCase()) return;
@@ -1240,7 +1240,7 @@ useEffect(() => {
         setProfileUpdateError(null);
 
         if (!isValidUsername(profileUpdateData.username)) {
-            setProfileUpdateError('El nombre de usuario debe tener 3-24 caracteres, solo letras, tildes y espacios.');
+            setProfileUpdateError('El usuario debe tener entre 3 y 24 caracteres (letras, espacios y tildes).');
             return;
         }
         if (!profileUpdateData.password) {
@@ -1522,7 +1522,7 @@ useEffect(() => {
                   <p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                     {profileUpdateReason === 'missing_data' 
                       ? 'Para continuar, necesitamos que completes tu perfil. Confirma tu identidad con tu contraseña.'
-                      : 'Tu nombre de usuario no es válido. Elige uno nuevo (3-24 caracteres, solo letras, tildes y espacios) y confirma tu identidad con tu contraseña.'
+                      : 'Tu nombre de usuario no es válido. Elige uno nuevo (3-24 caracteres, letras, espacios y tildes) y confirma tu identidad con tu contraseña.'
                     }
                   </p>
                   <form onSubmit={handleProfileUpdate} className="space-y-3">
