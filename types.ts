@@ -1,4 +1,5 @@
 
+
 export enum LiturgicalTime {
   ADVIENTO = 'Adviento',
   NAVIDAD = 'Navidad',
@@ -51,4 +52,6 @@ export interface User {
   role: UserRole;
   isAuthenticated: boolean;
   createdAt?: string;
+  hasPasswordProvider?: boolean;
+  hasGoogleProvider?: boolean;
 }

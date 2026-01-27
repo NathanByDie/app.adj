@@ -12,7 +12,10 @@ import {
   browserLocalPersistence,
   EmailAuthProvider,
   reauthenticateWithCredential,
-  updatePassword
+  updatePassword,
+  GoogleAuthProvider,
+  signInWithPopup,
+  linkWithPopup
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { 
   getFirestore, 
@@ -121,6 +124,8 @@ const translateAuthError = (errorCode: string): string => {
     case 'auth/too-many-requests': return 'Muchos intentos fallidos. Espera unos minutos.';
     case 'auth/network-request-failed': return 'Error de conexión. Verifica tu internet.';
     case 'auth/internal-error': return 'Error interno del servidor. Intenta de nuevo.';
+    case 'auth/popup-closed-by-user': return 'La ventana de inicio de sesión fue cerrada.';
+    case 'auth/account-exists-with-different-credential': return 'Ya existe una cuenta con este email. Inicia sesión con el método original.';
     default: return 'Ocurrió un error inesperado. Inténtalo más tarde.';
   }
 };
@@ -134,7 +139,16 @@ const translatePasswordChangeError = (errorCode: string): string => {
   }
 };
 
-const LoginView = ({ handleAuthSubmit, authData, setAuthData, authMode, setAuthMode, authMsg, isAuthenticating, showPassword, setShowPassword, setAuthMsg }: any) => (
+const GoogleIcon = () => (
+  <svg className="w-5 h-5" viewBox="0 0 48 48">
+    <path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12s5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24s8.955,20,20,20s20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"></path>
+    <path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"></path>
+    <path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.222,0-9.657-3.356-11.303-7.918l-6.522,5.025C9.505,39.556,16.227,44,24,44z"></path>
+    <path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.574l6.19,5.238C39.986,36.639,44,31.023,44,24C44,22.659,43.862,21.35,43.611,20.083z"></path>
+  </svg>
+);
+
+const LoginView = ({ handleAuthSubmit, authData, setAuthData, authMode, setAuthMode, authMsg, isAuthenticating, showPassword, setShowPassword, setAuthMsg, handleGoogleSignIn }: any) => (
   <div className="fixed inset-0 login-background flex flex-col items-center justify-center p-4 text-white font-sans overflow-hidden">
     <div className="w-full max-w-sm space-y-8 text-center relative z-10">
       <h1 className="text-4xl font-black tracking-tighter uppercase italic leading-tight login-text-shadow">Amiguitos de Jesus<br/><span className="text-3xl font-semibold tracking-widest">Studios</span></h1>
@@ -178,7 +192,24 @@ const LoginView = ({ handleAuthSubmit, authData, setAuthData, authMode, setAuthM
           {authMode === 'login' ? 'Entrar' : authMode === 'register' ? 'Registrar' : 'Recuperar'}
         </button>
       </form>
-      <div className="flex flex-col gap-4">
+
+      <div className="relative flex py-2 items-center">
+        <div className="flex-grow border-t border-white/20"></div>
+        <span className="flex-shrink mx-4 text-white/50 text-[9px] font-bold uppercase">O</span>
+        <div className="flex-grow border-t border-white/20"></div>
+      </div>
+
+      <button 
+        type="button" 
+        onClick={handleGoogleSignIn} 
+        disabled={isAuthenticating}
+        className="w-full glass-ui glass-interactive bg-white/20 flex items-center justify-center gap-3 text-white font-black py-3 rounded-2xl uppercase text-[10px] tracking-widest active:scale-95 transition-all"
+      >
+        <GoogleIcon />
+        Continuar con Google
+      </button>
+
+      <div className="flex flex-col gap-4 mt-2">
         <button onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthMsg(null); }} className="text-[10px] font-bold text-white uppercase text-center login-text-shadow">{authMode === 'login' ? '¿No tienes cuenta? Regístrate' : '¿Ya tienes cuenta? Entra'}</button>
         {authMode === 'login' && <button onClick={() => { setAuthMode('forgot'); setAuthMsg(null); }} className="text-[9px] font-bold text-white/60 uppercase text-center underline login-text-shadow">Olvidé mi contraseña</button>}
       </div>
@@ -260,7 +291,7 @@ const RoomLobbyView = ({ roomCodeInput, setRoomCodeInput, handleJoinRoom, handle
     </div>
 );
 
-const SettingsView = ({ darkMode, theme, setTheme, isAdmin, categories, newCategoryName, setNewCategoryName, onAddCategory, editingCategory, setEditingCategory, onSaveEditCategory, handleDeleteCategory, newUsername, setNewUsername, showUsernamePass, setShowUsernamePass, usernameChangePassword, setUsernameChangePassword, isUpdatingUsername, handleUpdateUsername, passwordChangeData, setPasswordChangeData, showChangePassword, toggleShowChangePassword, passwordChangeMsg, isUpdatingPassword, handleChangePassword, setCategoryConfirmModal }: any) => {
+const SettingsView = ({ darkMode, theme, setTheme, isAdmin, categories, newCategoryName, setNewCategoryName, onAddCategory, editingCategory, setEditingCategory, onSaveEditCategory, handleDeleteCategory, newUsername, setNewUsername, showUsernamePass, setShowUsernamePass, usernameChangePassword, setUsernameChangePassword, isUpdatingUsername, handleUpdateUsername, passwordChangeData, setPasswordChangeData, showChangePassword, toggleShowChangePassword, passwordChangeMsg, isUpdatingPassword, handleChangePassword, setCategoryConfirmModal, canLinkGoogle, onLinkGoogle, isLinkingGoogle }: any) => {
     
     const EditIcon = ({ className }: { className?: string }) => (
       <svg className={className || "w-3 h-3"} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
@@ -361,6 +392,25 @@ const SettingsView = ({ darkMode, theme, setTheme, isAdmin, categories, newCateg
 
         <section className="space-y-4">
            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Seguridad</h3>
+           
+           {canLinkGoogle && (
+             <div className="glass-ui p-4 rounded-[2.5rem]">
+                <button 
+                    onClick={onLinkGoogle} 
+                    disabled={isLinkingGoogle}
+                    className={`w-full glass-ui glass-interactive flex items-center justify-center gap-3 font-black py-3 rounded-2xl uppercase text-[10px] tracking-widest active:scale-95 transition-all disabled:opacity-50 ${darkMode ? 'bg-slate-800/50 text-slate-300' : 'bg-white/50 text-slate-700'}`}
+                >
+                    {isLinkingGoogle ? (
+                        <div className="w-5 h-5 border-2 border-white/50 border-t-white rounded-full animate-spin"></div>
+                    ) : (
+                        <GoogleIcon />
+                    )}
+                    <span>{isLinkingGoogle ? 'Vinculando...' : 'Vincular con Google'}</span>
+                </button>
+                <p className={`text-center text-[9px] font-bold mt-3 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>Vincula tu cuenta para un inicio de sesión más rápido.</p>
+             </div>
+           )}
+
            <form onSubmit={handleChangePassword} className="glass-ui p-6 rounded-[2.5rem]">
               <div className="space-y-3">
                 <div className="relative">
@@ -396,7 +446,8 @@ const MainView = ({
   // Props para Ajustes
   handleCreateCategory, handleDeleteCategory, handleEditCategory, setCategoryConfirmModal,
   newUsername, setNewUsername, showUsernamePass, setShowUsernamePass, usernameChangePassword, setUsernameChangePassword, isUpdatingUsername, handleUpdateUsername,
-  passwordChangeData, setPasswordChangeData, showChangePassword, toggleShowChangePassword, passwordChangeMsg, isUpdatingPassword, handleChangePassword
+  passwordChangeData, setPasswordChangeData, showChangePassword, toggleShowChangePassword, passwordChangeMsg, isUpdatingPassword, handleChangePassword,
+  isLinkingGoogle, handleLinkGoogleAccount
 }: any) => {
   
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -465,6 +516,9 @@ const MainView = ({
                         passwordChangeData={passwordChangeData} setPasswordChangeData={setPasswordChangeData} showChangePassword={showChangePassword}
                         toggleShowChangePassword={toggleShowChangePassword} passwordChangeMsg={passwordChangeMsg} isUpdatingPassword={isUpdatingPassword} handleChangePassword={handleChangePassword}
                         setCategoryConfirmModal={setCategoryConfirmModal}
+                        canLinkGoogle={user?.hasPasswordProvider && !user?.hasGoogleProvider}
+                        onLinkGoogle={handleLinkGoogleAccount}
+                        isLinkingGoogle={isLinkingGoogle}
                      />;
           default:
               return null;
@@ -551,6 +605,7 @@ const App: React.FC = () => {
   const [isUpdatingUsername, setIsUpdatingUsername] = useState(false);
   const [isJoiningRoom, setIsJoiningRoom] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [isLinkingGoogle, setIsLinkingGoogle] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState({ current: false, newPass: false, confirm: false });
 
   const [showOpenInAppButton, setShowOpenInAppButton] = useState(false);
@@ -872,6 +927,55 @@ useEffect(() => {
     } catch (error: any) { setAuthMsg({ type: 'error', text: translateAuthError(error.code) }); } finally { setIsAuthenticating(false); }
   };
 
+  const handleGoogleSignIn = async () => {
+    setIsAuthenticating(true);
+    setAuthMsg(null);
+    const provider = new GoogleAuthProvider();
+    try {
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+
+      const userDocRef = doc(db, "users", user.uid);
+      const userDoc = await getDoc(userDocRef);
+
+      if (!userDoc.exists()) {
+        const username = user.displayName?.replace(/ /g, '').substring(0, 15) || user.email?.split('@')[0] || `user_${user.uid.substring(0, 6)}`;
+        await setDoc(userDocRef, {
+          username: username,
+          username_lowercase: username.toLowerCase(),
+          email: user.email,
+          role: 'member',
+          favorites: [],
+          profileValidated: true
+        });
+      }
+    } catch (error: any) {
+      setAuthMsg({ type: 'error', text: translateAuthError(error.code) });
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  const handleLinkGoogleAccount = async () => {
+    if (!auth.currentUser) return;
+    setIsLinkingGoogle(true);
+    const provider = new GoogleAuthProvider();
+    try {
+        await linkWithPopup(auth.currentUser, provider);
+        setGlobalAlert({ title: "Cuenta Vinculada", message: "Tu cuenta de Google ha sido vinculada con éxito.", type: 'success' });
+        setUser(prev => prev ? ({ ...prev, hasGoogleProvider: true }) : null);
+    } catch (error: any) {
+        console.error("Error linking Google account:", error);
+        if (error.code === 'auth/credential-already-in-use') {
+            setGlobalAlert({ title: "Cuenta ya en uso", message: "Esta cuenta de Google ya está vinculada a otro usuario.", type: 'error' });
+        } else if (error.code !== 'auth/popup-closed-by-user') {
+            setGlobalAlert({ title: "Error", message: "No se pudo vincular la cuenta. Inténtalo de nuevo.", type: 'error' });
+        }
+    } finally {
+        setIsLinkingGoogle(false);
+    }
+  };
+
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setPasswordChangeMsg(null);
@@ -1010,14 +1114,20 @@ useEffect(() => {
         const username = data?.username || firebaseUser.displayName || '';
         const email = data?.email || firebaseUser.email || '';
         
-        const currentUserData = { 
+        const providerIds = firebaseUser.providerData.map(p => p.providerId);
+        const hasPasswordProvider = providerIds.includes('password');
+        const hasGoogleProvider = providerIds.includes('google.com');
+
+        const currentUserData: AppUser = { 
           id: firebaseUser.uid, 
           username, 
           username_lowercase: data?.username_lowercase || username.toLowerCase(), 
           email: email, 
           role: data?.role || 'member', 
           isAuthenticated: true, 
-          createdAt: firebaseUser.metadata.creationTime 
+          createdAt: firebaseUser.metadata.creationTime,
+          hasPasswordProvider,
+          hasGoogleProvider
         };
         
         setUser(currentUserData);
@@ -1093,6 +1203,7 @@ useEffect(() => {
           isAuthenticating={isAuthenticating}
           showPassword={showPassword}
           setShowPassword={setShowPassword}
+          handleGoogleSignIn={handleGoogleSignIn}
         />
       </div>
 
@@ -1109,6 +1220,7 @@ useEffect(() => {
                 usernameChangePassword={usernameChangePassword} setUsernameChangePassword={setUsernameChangePassword} isUpdatingUsername={isUpdatingUsername} handleUpdateUsername={handleUpdateUsername}
                 passwordChangeData={passwordChangeData} setPasswordChangeData={setPasswordChangeData} showChangePassword={showChangePassword}
                 toggleShowChangePassword={toggleShowChangePassword} passwordChangeMsg={passwordChangeMsg} isUpdatingPassword={isUpdatingPassword} handleChangePassword={handleChangePassword}
+                isLinkingGoogle={isLinkingGoogle} handleLinkGoogleAccount={handleLinkGoogleAccount}
             />
             
             <nav onTouchStart={(e) => e.stopPropagation()} className="fixed bottom-0 left-0 right-0 max-w-md mx-auto shrink-0 w-full px-4 pt-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] flex justify-center gap-14 items-center z-50 bg-white dark:bg-black border-t border-slate-200 dark:border-white/10 transition-colors duration-500">
