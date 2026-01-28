@@ -60,6 +60,7 @@ const SongViewer: React.FC<SongViewerProps> = ({
   const [showShareToast, setShowShareToast] = useState(false);
   const [isControlPanelOpen, setIsControlPanelOpen] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [pdfConfirmModal, setPdfConfirmModal] = useState(false);
   
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const optionsMenuRef = useRef<HTMLDivElement>(null);
@@ -165,21 +166,26 @@ const SongViewer: React.FC<SongViewerProps> = ({
     setShowOptions(false);
   };
 
-  const downloadAsPDF = async () => {
+  const downloadAsPDF = () => {
+    setShowOptions(false);
+    setPdfConfirmModal(true);
+  };
+  
+  const handleConfirmDownload = async () => {
+    setPdfConfirmModal(false);
+    
     if (typeof (window as any).jspdf === 'undefined') {
         alert("La librería para generar PDF no se pudo cargar. Revisa tu conexión a internet e inténtalo de nuevo.");
-        setShowOptions(false);
         return;
     }
 
-    setShowOptions(false);
     setIsGeneratingPDF(true);
 
     // Pequeño delay para permitir que el UI se actualice y muestre el spinner
     await new Promise(resolve => setTimeout(resolve, 100));
 
     try {
-        const { jsPDF } = (window as any).jspdf;
+        const { jsPDF, GState } = (window as any).jspdf;
         
         const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
         const margin = 20;
@@ -188,24 +194,33 @@ const SongViewer: React.FC<SongViewerProps> = ({
         const maxWidth = pageWidth - (margin * 2);
         let y = margin;
 
-        const addWatermark = (pdfDoc: any) => {
-            const pageW = pdfDoc.internal.pageSize.getWidth();
-            const pageH = pdfDoc.internal.pageSize.getHeight();
-            pdfDoc.saveGState();
-            pdfDoc.setFont("helvetica", "bold");
-            pdfDoc.setFontSize(50);
-            pdfDoc.setTextColor(220, 220, 220);
-            pdfDoc.setGState(new pdfDoc.GState({opacity: 0.15})); 
-            pdfDoc.text(
-                "Amiguitos de Jesus Studios",
-                pageW / 2,
-                pageH / 2,
-                { angle: -45, align: 'center' }
-            );
-            pdfDoc.restoreGState();
+        const addWatermark = () => {
+            const pageW = doc.internal.pageSize.getWidth();
+            const pageH = doc.internal.pageSize.getHeight();
+            doc.saveGraphicsState();
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(32);
+            doc.setTextColor(200, 200, 200);
+            doc.setGState(new GState({opacity: 0.15})); 
+            
+            const watermarkText = "ADJStudios";
+            const stepX = 80;
+            const stepY = 80;
+
+            for (let y = 0; y < pageH + stepY; y += stepY) {
+                for (let x = 0; x < pageW + stepX; x += stepX) {
+                    doc.text(
+                        watermarkText,
+                        x,
+                        y,
+                        { angle: -45, align: 'center' }
+                    );
+                }
+            }
+            doc.restoreGraphicsState();
         };
 
-        addWatermark(doc);
+        addWatermark();
 
         doc.setFont("helvetica", "bold");
         doc.setFontSize(18);
@@ -239,7 +254,7 @@ const SongViewer: React.FC<SongViewerProps> = ({
         lines.forEach((line) => {
             if (y > pageHeight - margin) {
                 doc.addPage();
-                addWatermark(doc);
+                addWatermark();
                 y = margin;
             }
             if (isChordLine(line)) {
@@ -253,7 +268,7 @@ const SongViewer: React.FC<SongViewerProps> = ({
             splitLines.forEach((splitLine: string) => {
                 if (y > pageHeight - margin) {
                     doc.addPage();
-                    addWatermark(doc);
+                    addWatermark();
                     y = margin;
                 }
                 doc.text(splitLine, margin, y);
@@ -424,6 +439,20 @@ const SongViewer: React.FC<SongViewerProps> = ({
       {isChatVisible && chatInputComponent && (
         <div className="fixed bottom-0 left-0 right-0 z-[140] max-w-md mx-auto">
           {chatInputComponent}
+        </div>
+      )}
+
+      {pdfConfirmModal && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setPdfConfirmModal(false)}></div>
+            <div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}>
+                <h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Confirmar Descarga</h3>
+                <p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>¿Quieres descargar "{song.title}.pdf"?</p>
+                <div className="flex gap-3">
+                    <button onClick={() => setPdfConfirmModal(false)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button>
+                    <button onClick={handleConfirmDownload} className="flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform bg-misionero-rojo">Descargar</button>
+                </div>
+            </div>
         </div>
       )}
 

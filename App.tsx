@@ -753,10 +753,7 @@ const goBack = useCallback(() => window.history.back(), []);
 const handlePopState = useCallback((event: PopStateEvent) => {
     if (isExitingApp.current) return;
 
-    if (activeRoom) {
-        return;
-    }
-    
+    // Prioritize closing overlays first, even if inside a room.
     if (editingSong) {
         setEditingSong(null);
         return;
@@ -769,10 +766,16 @@ const handlePopState = useCallback((event: PopStateEvent) => {
         return;
     }
 
+    // If in a room, let the RoomView component handle its own navigation (exit prompts, etc.)
+    if (activeRoom) {
+        return;
+    }
+
+    // If no overlays are open, handle main view navigation or app exit confirmation.
     if (event.state && event.state.view) {
         setView(event.state.view as AppView);
     } else {
-        window.history.pushState({ view: 'feed' }, '', ''); // Previene la salida
+        window.history.pushState({ view: 'feed' }, '', ''); // Prevent exiting
         setShowExitConfirm({
             title: 'Salir de la App',
             message: '¿Estás seguro de que quieres salir?',
