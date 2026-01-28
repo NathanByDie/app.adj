@@ -181,6 +181,15 @@ const RoomView: React.FC<RoomViewProps> = ({
 
   const transposedContentCache = useRef<Record<string, string>>({});
   const prevSongsRef = useRef<Song[]>();
+  const prevSelectedSongIdRef = useRef<string | null>(null);
+
+  const repertoireScrollContainerRef = useRef<HTMLDivElement>(null);
+  const scrollIntervalRef = useRef<number | null>(null);
+  const scrollDirectionRef = useRef<'up' | 'down' | null>(null);
+
+  useEffect(() => {
+    prevSelectedSongIdRef.current = selectedSongId;
+  }, [selectedSongId]);
 
   useEffect(() => {
     if (prevSongsRef.current && prevSongsRef.current !== songs) {
@@ -285,6 +294,18 @@ const RoomView: React.FC<RoomViewProps> = ({
     window.addEventListener('closeRoomSong', handler);
     return () => window.removeEventListener('closeRoomSong', handler);
   }, []);
+  
+  const handleExitRoom = useCallback(() => {
+    setConfirmModal({
+      title: 'Salir de la Sala',
+      message: '¿Estás seguro de que quieres abandonar la sesión?',
+      type: 'danger',
+      action: () => {
+        setConfirmModal(null);
+        onExit();
+      }
+    });
+  }, [onExit]);
 
   const handlePopState = useCallback((event: PopStateEvent) => {
     const overlay = event.state?.overlay;
@@ -295,21 +316,18 @@ const RoomView: React.FC<RoomViewProps> = ({
       setShowParticipants(overlay === 'participants');
       if (overlay === 'room') {
         setSelectedSongId(null);
+        // Automatically re-enable following when returning to the main list
+        setIsFollowingHost(true);
       }
       return;
     }
 
+    // If popstate is not an internal navigation, it's a back gesture from the main room view.
+    // Intercept it to show the exit confirmation instead of leaving the app.
     window.history.pushState({ overlay: 'room' }, '', '');
-    setConfirmModal({
-      title: 'Salir de la Sala',
-      message: '¿Estás seguro de que quieres abandonar la sesión?',
-      type: 'danger',
-      action: () => {
-        setConfirmModal(null);
-        onExit();
-      },
-    });
-  }, [onExit]);
+    handleExitRoom();
+
+  }, [handleExitRoom]);
 
   useEffect(() => {
     window.addEventListener('popstate', handlePopState);
@@ -370,13 +388,23 @@ const RoomView: React.FC<RoomViewProps> = ({
 
   useEffect(() => {
     if (!isTheHost && isFollowingHost) {
-        const targetSongId = room.currentSongId || '';
+        const targetSongId = room.currentSongId || null;
+        
+        // If there's a new, valid song ID, follow it.
         if (targetSongId && targetSongId !== lastSyncedHostSongId.current) {
             lastSyncedHostSongId.current = targetSongId;
             setSelectedSongId(targetSongId);
-            const isCurrentlyOnSongPage = window.history.state?.overlay === 'room_song';
-            if (isCurrentlyOnSongPage) window.history.replaceState({ overlay: 'room_song' }, '', '');
-            else window.history.pushState({ overlay: 'room_song' }, '', '');
+            
+            const currentOverlay = window.history.state?.overlay;
+            if (currentOverlay === 'room_song') {
+                window.history.replaceState({ overlay: 'room_song' }, '', '');
+            } else {
+                window.history.pushState({ overlay: 'room_song' }, '', '');
+            }
+        } 
+        // If the host returns to the list, reset our sync state but DON'T close the view.
+        else if (!targetSongId && lastSyncedHostSongId.current) {
+            lastSyncedHostSongId.current = undefined;
         }
     }
   }, [room.currentSongId, isFollowingHost, isTheHost]);
@@ -422,30 +450,18 @@ const RoomView: React.FC<RoomViewProps> = ({
     }
     prevParticipants.current = onlineParticipants;
   }, [onlineParticipants, currentUser]);
-
-  const handleExitRoom = () => {
-    setConfirmModal({
-      title: 'Salir de la Sala',
-      message: '¿Estás seguro de que quieres abandonar la sesión?',
-      type: 'danger',
-      action: () => {
-        setConfirmModal(null);
-        onExit();
-      }
-    });
-  };
   
   const handleCopyCode = () => { navigator.clipboard.writeText(room.code); setCopied(true); setTimeout(() => setCopied(false), 2000); };
   
   const navigateToSong = (songId: string | null) => {
     const currentOverlay = window.history.state?.overlay;
     if (isTheHost) {
-      lastSyncedHostSongId.current = songId || '';
+      lastSyncedHostSongId.current = songId || undefined;
       setSelectedSongId(songId);
       onUpdateRoom(room.id, { currentSongId: songId || '' });
     } else {
       setSelectedSongId(songId);
-      if (isFollowingHost && songId === room.currentSongId) lastSyncedHostSongId.current = songId;
+      setIsFollowingHost(false);
     }
     if (songId) {
        if (currentOverlay === 'room_song') window.history.replaceState({ overlay: 'room_song' }, '', '');
@@ -588,14 +604,81 @@ const RoomView: React.FC<RoomViewProps> = ({
       if (hasChanges) { setConfirmModal({ title: 'Descartar Cambios', message: '¿Seguro que quieres descartar los cambios?', type: 'warning', action: () => { setIsEditingRepertoire(false); setConfirmModal(null); } }); } 
       else { setIsEditingRepertoire(false); }
   };
+
+  const stopAutoScroll = useCallback(() => {
+    if (scrollIntervalRef.current !== null) {
+      cancelAnimationFrame(scrollIntervalRef.current);
+      scrollIntervalRef.current = null;
+    }
+    scrollDirectionRef.current = null;
+  }, []);
+
+  const autoScroll = useCallback((direction: 'up' | 'down') => {
+    const container = repertoireScrollContainerRef.current;
+    if (!container) return;
+    const scrollAmount = 8;
+    if (direction === 'up') {
+      container.scrollTop -= scrollAmount;
+    } else {
+      container.scrollTop += scrollAmount;
+    }
+    scrollIntervalRef.current = requestAnimationFrame(() => autoScroll(direction));
+  }, []);
   
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>, index: number) => { e.dataTransfer.effectAllowed = 'move'; setDraggingIndex(index); };
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>, index: number) => {
-    e.preventDefault(); if (draggingIndex === null || draggingIndex === index) { setDropIndicator(null); return; }
-    const rect = e.currentTarget.getBoundingClientRect(); const halfway = rect.top + rect.height / 2;
-    const position = e.clientY < halfway ? 'before' : 'after'; setDropIndicator({ index, position });
+  
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>, index: number) => {
+    e.preventDefault();
+    
+    // Auto-scroll logic
+    const container = repertoireScrollContainerRef.current;
+    if (container) {
+        const containerRect = container.getBoundingClientRect();
+        const hotZoneSize = containerRect.height * 0.30;
+        const y = e.clientY;
+
+        if (y < containerRect.top + hotZoneSize) {
+            if (scrollDirectionRef.current !== 'up') {
+                stopAutoScroll();
+                scrollDirectionRef.current = 'up';
+                autoScroll('up');
+            }
+        } else if (y > containerRect.bottom - hotZoneSize) {
+            if (scrollDirectionRef.current !== 'down') {
+                stopAutoScroll();
+                scrollDirectionRef.current = 'down';
+                autoScroll('down');
+            }
+        } else {
+            stopAutoScroll();
+        }
+    }
+    
+    // Indicator logic
+    if (draggingIndex === null) return;
+
+    if (draggingIndex === index) {
+        // If hovering over the original item, clear the indicator if it's set
+        if (dropIndicator !== null) {
+            setDropIndicator(null);
+        }
+        return;
+    }
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    const halfway = rect.top + rect.height / 2;
+    const newPosition = e.clientY < halfway ? 'before' : 'after';
+
+    // Only update state if the indicator has changed its position or index.
+    if (!dropIndicator || dropIndicator.index !== index || dropIndicator.position !== newPosition) {
+        setDropIndicator({ index, position: newPosition });
+    }
+  }, [draggingIndex, dropIndicator, autoScroll, stopAutoScroll]);
+
+  const handleDragLeave = () => {
+    setDropIndicator(null);
+    stopAutoScroll();
   };
-  const handleDragLeave = () => setDropIndicator(null);
   const handleDrop = () => {
     if (draggingIndex === null || dropIndicator === null) return;
     const newRepertoire = [...tempRepertoire]; const [draggedItem] = newRepertoire.splice(draggingIndex, 1);
@@ -603,7 +686,11 @@ const RoomView: React.FC<RoomViewProps> = ({
     if (draggingIndex < insertAt) insertAt -=1; newRepertoire.splice(insertAt, 0, draggedItem);
     setTempRepertoire(newRepertoire);
   };
-  const handleDragEnd = () => { setDraggingIndex(null); setDropIndicator(null); };
+  const handleDragEnd = () => {
+    setDraggingIndex(null);
+    setDropIndicator(null);
+    stopAutoScroll();
+  };
   
   const handleRemoveFromRepertoire = (songIdToRemove: string) => {
       const song = repertoireSongsMap[songIdToRemove];
@@ -688,7 +775,7 @@ const RoomView: React.FC<RoomViewProps> = ({
 
   return (
     <div className={`flex flex-col h-full transition-colors duration-500 ${darkMode ? 'bg-black text-white' : 'bg-white text-slate-900'} animate-in fade-in duration-300 overflow-hidden relative`}>
-      <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[200] w-full max-w-xs flex flex-col items-center gap-2 pointer-events-none px-4">
+      <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[220] w-full max-w-xs flex flex-col items-center gap-2 pointer-events-none px-4">
         {notifications.map(n => (
           <div key={n.id} className={`p-3 rounded-2xl shadow-2xl border flex items-center gap-3 animate-in slide-in-from-top-4 duration-300 pointer-events-auto ${n.type === 'success' ? 'bg-misionero-verde/90' : n.type === 'alert' ? 'bg-misionero-rojo/90' : 'bg-misionero-azul/90'}`}>
             <p className="text-[10px] font-black uppercase text-white leading-tight">{n.message}</p>
@@ -696,7 +783,7 @@ const RoomView: React.FC<RoomViewProps> = ({
         ))}
       </div>
       
-      <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[200] w-full max-w-xs flex flex-col items-center gap-2 pointer-events-none px-4">
+      <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[220] w-full max-w-xs flex flex-col items-center gap-2 pointer-events-none px-4">
         {chatToast && (
           <div 
             key={chatToast.id}
@@ -746,7 +833,7 @@ const RoomView: React.FC<RoomViewProps> = ({
         </header>
       )}
 
-      <div className={`flex-1 overflow-y-auto custom-scroll ${isEditingRepertoire ? 'px-0 pt-4' : 'px-5 py-8 space-y-8'} relative z-20 pb-40 transition-colors duration-500 ${!songForViewer && !isEditingRepertoire ? `rounded-t-[2.5rem] ${darkMode ? 'bg-black' : 'bg-slate-50'}` : ''}`}>
+      <div ref={repertoireScrollContainerRef} className={`flex-1 overflow-y-auto custom-scroll ${isEditingRepertoire ? 'px-0 pt-4' : 'px-5 py-8 space-y-8'} relative z-20 pb-40 transition-colors duration-500 ${!songForViewer && !isEditingRepertoire ? `rounded-t-[2.5rem] ${darkMode ? 'bg-black' : 'bg-slate-50'}` : ''}`}>
         {(!isEditingRepertoire || !canModify) && !songForViewer && (
           <section className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex items-center justify-between mb-5 px-1">
