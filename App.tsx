@@ -14,8 +14,10 @@ import {
   reauthenticateWithCredential,
   updatePassword,
   GoogleAuthProvider,
-  signInWithPopup,
-  linkWithPopup
+  signInWithRedirect,
+  linkWithRedirect,
+  getRedirectResult,
+  signInWithCredential
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { 
   getFirestore, 
@@ -640,7 +642,7 @@ const App: React.FC = () => {
   const [activeSong, setActiveSong] = useState<Song | null>(null);
   const [activeRoom, setActiveRoom] = useState<Room | null>(null);
   const [editingSong, setEditingSong] = useState<Song | boolean | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('theme') as Theme | null) || 'system');
   const [systemPrefersDark, setSystemPrefersDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -1103,28 +1105,22 @@ useEffect(() => {
           return;
         }
 
-        // Cambio importante: Creamos el usuario Auth PRIMERO para tener permisos de lectura en Firestore
-        // y verificar el nombre de usuario. Si está ocupado, borramos el usuario Auth.
         let cred;
         try {
             cred = await createUserWithEmailAndPassword(auth, authData.email, authData.pass);
         } catch (authErr: any) {
-            // Si falla la creación de Auth (ej: email en uso), lanzamos el error para que lo capture el catch externo
             throw authErr;
         }
 
         try {
-            // Ahora que estamos autenticados, verificamos si el nombre de usuario existe
             const q = query(collection(db, "users"), where("username_lowercase", "==", authData.user.toLowerCase()), limit(1));
             const snapshot = await getDocs(q);
 
             if (!snapshot.empty) {
-                // El usuario existe, borramos la cuenta creada y lanzamos error
                 await cred.user.delete();
                 throw { code: 'custom/username-taken' };
             }
 
-            // Si llegamos aquí, el usuario es único. Procedemos.
             await updateProfile(cred.user, { displayName: authData.user });
             await setDoc(doc(db, "users", cred.user.uid), { 
                 username: authData.user, 
@@ -1132,15 +1128,13 @@ useEffect(() => {
                 email: authData.email, 
                 role: 'member', 
                 favorites: [],
-                profileValidated: true // Se marca como validado para nuevos usuarios
+                profileValidated: true
             });
 
         } catch (innerError: any) {
-            // Si el error es nuestro custom, lo propagamos.
             if (innerError.code === 'custom/username-taken') {
                 throw innerError;
             }
-            // Si falla la escritura en Firestore o la consulta, intentamos limpiar
             if (cred && cred.user) {
                 try { await cred.user.delete(); } catch(e) {}
             }
@@ -1165,54 +1159,7 @@ useEffect(() => {
     setIsAuthenticating(true);
     setAuthMsg(null);
     const provider = new GoogleAuthProvider();
-    try {
-        const result = await signInWithPopup(auth, provider);
-        const user = result.user;
-        const userDocRef = doc(db, "users", user.uid);
-        const userDoc = await getDoc(userDocRef);
-
-        if (!userDoc.exists()) {
-            const generateBaseUsername = (displayName: string | null, email: string | null): string => {
-                if (displayName) {
-                    const sanitized = displayName.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ ]/g, '');
-                    if (sanitized.trim().length >= 3) return sanitized.trim().substring(0, 24);
-                }
-                if (email) {
-                    return email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').substring(0, 24);
-                }
-                return `user${Math.floor(1000 + Math.random() * 9000)}`;
-            };
-
-            const baseUsername = generateBaseUsername(user.displayName, user.email);
-            let finalUsername = baseUsername;
-            let isUnique = false;
-            let attempts = 0;
-
-            while (!isUnique && attempts < 10) {
-                const q = query(collection(db, "users"), where("username_lowercase", "==", finalUsername.toLowerCase()), limit(1));
-                const existingUser = await getDocs(q);
-                if (existingUser.empty) {
-                    isUnique = true;
-                } else {
-                    finalUsername = `${baseUsername.substring(0, 21)}${Math.floor(100 + Math.random() * 900)}`;
-                    attempts++;
-                }
-            }
-
-            await setDoc(userDocRef, {
-                username: finalUsername,
-                username_lowercase: finalUsername.toLowerCase(),
-                email: user.email,
-                role: 'member',
-                favorites: [],
-                profileValidated: true
-            });
-        }
-    } catch (error: any) {
-        setAuthMsg({ type: 'error', text: translateAuthError(error.code) });
-    } finally {
-        setIsAuthenticating(false);
-    }
+    await signInWithRedirect(auth, provider);
   };
 
   const handleLinkGoogleAccount = async () => {
@@ -1220,18 +1167,10 @@ useEffect(() => {
     setIsLinkingGoogle(true);
     const provider = new GoogleAuthProvider();
     try {
-        await linkWithPopup(auth.currentUser, provider);
-        setGlobalAlert({ title: "Cuenta Vinculada", message: "Tu cuenta de Google ha sido vinculada con éxito.", type: 'success' });
-        setUser(prev => prev ? ({ ...prev, hasGoogleProvider: true }) : null);
-    } catch (error: any) {
-        console.error("Error linking Google account:", error);
-        if (error.code === 'auth/credential-already-in-use') {
-            setGlobalAlert({ title: "Cuenta ya en uso", message: "Esta cuenta de Google ya está vinculada a otro usuario.", type: 'error' });
-        } else if (error.code !== 'auth/popup-closed-by-user') {
-            setGlobalAlert({ title: "Error", message: "No se pudo vincular la cuenta. Inténtalo de nuevo.", type: 'error' });
-        }
-    } finally {
-        setIsLinkingGoogle(false);
+      await linkWithRedirect(auth.currentUser, provider);
+    } catch (error) {
+      console.error("Error starting link redirect:", error);
+      setIsLinkingGoogle(false);
     }
   };
 
@@ -1409,71 +1348,109 @@ useEffect(() => {
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        const userDocRef = doc(db, "users", firebaseUser.uid);
-        const userDoc = await getDoc(userDocRef);
-        const data = userDoc.data();
-        
-        const username = data?.username || firebaseUser.displayName || '';
-        const email = data?.email || firebaseUser.email || '';
-        
-        const userStatusDatabaseRef = ref(rtdb, '/status/' + firebaseUser.uid);
-        const isOfflineForDatabase = {
-            isOnline: false,
-            last_changed: serverTimestamp(),
-            username: username
-        };
-        const isOnlineForDatabase = {
-            isOnline: true,
-            last_changed: serverTimestamp(),
-            username: username
-        };
-        const connectedRef = ref(rtdb, '.info/connected');
-        onValue(connectedRef, (snapshot) => {
-            if (snapshot.val() === false) { return; }
-            onDisconnect(userStatusDatabaseRef).set(isOfflineForDatabase).then(() => {
-                set(userStatusDatabaseRef, isOnlineForDatabase);
-            });
+      getRedirectResult(auth)
+        .catch(async (error) => {
+          setIsAuthenticating(false);
+          setIsLinkingGoogle(false);
+          if (error.code === 'auth/credential-already-in-use') {
+            setGlobalAlert({ title: "Cuenta ya existe", message: "Esta cuenta de Google ya está registrada. Iniciaremos sesión y uniremos tus favoritos.", type: 'info' });
+            const credential = GoogleAuthProvider.credentialFromError(error);
+            if (credential) {
+              const oldUserId = auth.currentUser?.uid;
+              const result = await signInWithCredential(auth, credential);
+              const newUserId = result.user.uid;
+              if (oldUserId && newUserId && oldUserId !== newUserId) {
+                const oldUserRef = doc(db, "users", oldUserId);
+                const newUserRef = doc(db, "users", newUserId);
+                const oldUserDoc = await getDoc(oldUserRef);
+                const newUserDoc = await getDoc(newUserRef);
+                if (oldUserDoc.exists() && newUserDoc.exists()) {
+                  const oldFavorites = oldUserDoc.data().favorites || [];
+                  const newFavorites = newUserDoc.data().favorites || [];
+                  const mergedFavorites = [...new Set([...oldFavorites, ...newFavorites])];
+                  await updateDoc(newUserRef, { favorites: mergedFavorites });
+                }
+              }
+            }
+          } else {
+            setAuthMsg({ type: 'error', text: translateAuthError(error.code) });
+          }
         });
 
-        const providerIds = firebaseUser.providerData.map(p => p.providerId);
-        const hasPasswordProvider = providerIds.includes('password');
-        const hasGoogleProvider = providerIds.includes('google.com');
+      const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+        if (firebaseUser) {
+          const userDocRef = doc(db, "users", firebaseUser.uid);
+          let userDoc = await getDoc(userDocRef);
 
-        const currentUserData: AppUser = { 
-          id: firebaseUser.uid, 
-          username, 
-          username_lowercase: data?.username_lowercase || username.toLowerCase(), 
-          email: email, 
-          role: data?.role || 'member', 
-          isAuthenticated: true, 
-          createdAt: firebaseUser.metadata.creationTime,
-          hasPasswordProvider,
-          hasGoogleProvider
-        };
-        
-        setUser(currentUserData);
+          if (!userDoc.exists()) {
+              const generateBaseUsername = (displayName: string | null, email: string | null): string => {
+                  if (displayName) { const sanitized = displayName.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ ]/g, ''); if (sanitized.trim().length >= 3) return sanitized.trim().substring(0, 24); }
+                  if (email) { return email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').substring(0, 24); }
+                  return `user${Math.floor(1000 + Math.random() * 9000)}`;
+              };
+              const baseUsername = generateBaseUsername(firebaseUser.displayName, firebaseUser.email);
+              let finalUsername = baseUsername; let isUnique = false; let attempts = 0;
+              while (!isUnique && attempts < 10) {
+                  const q = query(collection(db, "users"), where("username_lowercase", "==", finalUsername.toLowerCase()), limit(1));
+                  const existingUser = await getDocs(q);
+                  if (existingUser.empty) { isUnique = true; } 
+                  else { finalUsername = `${baseUsername.substring(0, 21)}${Math.floor(100 + Math.random() * 900)}`; attempts++; }
+              }
+              await setDoc(userDocRef, { username: finalUsername, username_lowercase: finalUsername.toLowerCase(), email: firebaseUser.email, role: 'member', favorites: [], profileValidated: true });
+              userDoc = await getDoc(userDocRef);
+          }
+          
+          const data = userDoc.data();
+          const username = data?.username || firebaseUser.displayName || '';
+          const email = data?.email || firebaseUser.email || '';
+          
+          const userStatusDatabaseRef = ref(rtdb, '/status/' + firebaseUser.uid);
+          const isOfflineForDatabase = { isOnline: false, last_changed: serverTimestamp(), username: username };
+          const isOnlineForDatabase = { isOnline: true, last_changed: serverTimestamp(), username: username };
+          const connectedRef = ref(rtdb, '.info/connected');
+          onValue(connectedRef, (snapshot) => {
+              if (snapshot.val() === false) { return; }
+              onDisconnect(userStatusDatabaseRef).set(isOfflineForDatabase).then(() => {
+                  set(userStatusDatabaseRef, isOnlineForDatabase);
+              });
+          });
 
-        const profileValidated = data?.profileValidated || false;
-        const isDataMissing = !data?.username || !data?.email;
-        const isUsernameInvalid = username && !isValidUsername(username);
+          const providerIds = firebaseUser.providerData.map(p => p.providerId);
+          const hasPasswordProvider = providerIds.includes('password');
+          const hasGoogleProvider = providerIds.includes('google.com');
 
-        if (!profileValidated && (isDataMissing || isUsernameInvalid)) {
-          setProfileUpdateReason(isDataMissing ? 'missing_data' : 'invalid_name');
-          setProfileUpdateData({ username: username, email: email, password: '' });
-          setShowProfileUpdateModal(true);
+          const currentUserData: AppUser = { 
+            id: firebaseUser.uid, 
+            username, 
+            username_lowercase: data?.username_lowercase || username.toLowerCase(), 
+            email: email, 
+            role: data?.role || 'member', 
+            isAuthenticated: true, 
+            createdAt: firebaseUser.metadata.creationTime,
+            hasPasswordProvider,
+            hasGoogleProvider
+          };
+          
+          setUser(currentUserData);
+
+          const profileValidated = data?.profileValidated || false;
+          const isDataMissing = !data?.username || !data?.email;
+          const isUsernameInvalid = username && !isValidUsername(username);
+
+          if (!profileValidated && (isDataMissing || isUsernameInvalid)) {
+            setProfileUpdateReason(isDataMissing ? 'missing_data' : 'invalid_name');
+            setProfileUpdateData({ username: username, email: email, password: '' });
+            setShowProfileUpdateModal(true);
+          } else {
+            setNewUsername(username);
+            setShowProfileUpdateModal(false);
+          }
         } else {
-          setNewUsername(username);
-          setShowProfileUpdateModal(false);
+          setUser(null);
         }
-
-      } else {
-        setUser(null);
-      }
-      setLoading(false);
-    });
-    return () => unsubscribe();
+        setIsAuthLoading(false);
+      });
+      return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -1503,7 +1480,7 @@ useEffect(() => {
     }
   }, [songs, activeSong]);
 
-  if (loading) return (
+  if (isAuthLoading) return (
     <div className="fixed inset-0 login-background flex flex-col items-center justify-center text-white font-black z-[9999]">
       <div className="flex flex-col items-center animate-in fade-in zoom-in duration-500">
         <h1 className="text-5xl font-black tracking-tighter uppercase italic leading-tight login-text-shadow mb-8 text-center">ADJ<br/><span className="text-4xl font-semibold tracking-widest">Studios</span></h1>
