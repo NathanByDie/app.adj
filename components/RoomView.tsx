@@ -13,7 +13,7 @@ import {
 import { Firestore } from 'firebase/firestore';
 import { 
   ref as refRtdb, onValue as onValueRtdb, query as queryRtdb, 
-  limitToFirst, push as pushRtdb, serverTimestamp as serverTimestampRtdb, 
+  limitToLast, push as pushRtdb, serverTimestamp as serverTimestampRtdb, 
   set as setRtdb, remove as removeRtdb, onChildAdded, onDisconnect 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 import { transposeSong } from '../services/musicUtils';
@@ -126,18 +126,6 @@ const SwipeableMessage: React.FC<SwipeableMessageProps> = ({ msg, currentUser, o
   );
 };
 
-const LiveReactionsOverlay = ({ reactions }: { reactions: { id: string, emoji: string }[] }) => {
-    return (
-        <div className="absolute inset-0 pointer-events-none z-[135] overflow-hidden">
-            {reactions.map(reaction => (
-                <div key={reaction.id} className="absolute bottom-24 animate-float-up" style={{ left: `${Math.random() * 80 + 10}%` }}>
-                    <span className="text-4xl">{reaction.emoji}</span>
-                </div>
-            ))}
-        </div>
-    );
-};
-
 const RoomView: React.FC<RoomViewProps> = ({ 
     room, songs, currentUser, isAdmin, onExit, onUpdateRoom, darkMode = false, db, rtdb,
     onEditSong, onDeleteSong, categories
@@ -152,7 +140,6 @@ const RoomView: React.FC<RoomViewProps> = ({
   const [tempRepertoire, setTempRepertoire] = useState<string[]>([]);
   const [displayedRepertoire, setDisplayedRepertoire] = useState<string[]>(room.repertoire);
   
-  // Realtime Presence State
   const [onlineParticipants, setOnlineParticipants] = useState<string[]>([]);
   
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -183,7 +170,6 @@ const RoomView: React.FC<RoomViewProps> = ({
   const [confirmModal, setConfirmModal] = useState<{ title: string, message: string, action: () => void, type: 'danger' | 'warning' } | null>(null);
 
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
-  const [liveReactions, setLiveReactions] = useState<{ id: string, emoji: string }[]>([]);
   const typingTimeoutRef = useRef<number | null>(null);
 
   const prevParticipants = useRef<string[]>([]);
@@ -203,7 +189,6 @@ const RoomView: React.FC<RoomViewProps> = ({
     prevSongsRef.current = songs;
   }, [songs]);
 
-  // --- REALTIME PRESENCE SYSTEM (ROBUST) ---
   useEffect(() => {
     if (!room.id || !rtdb || !currentUser) return;
 
@@ -215,10 +200,8 @@ const RoomView: React.FC<RoomViewProps> = ({
         onDisconnect(myPresenceRef).remove();
     };
 
-    // 1. Initial register
     registerPresence();
 
-    // 2. Re-register on visibility change (back from background)
     const handleVisibilityChange = () => {
         if (document.visibilityState === 'visible') {
             registerPresence();
@@ -226,14 +209,12 @@ const RoomView: React.FC<RoomViewProps> = ({
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
-    // 3. Re-register on connection re-establishment
     const connectedListener = onValueRtdb(connectedRef, (snap) => {
         if (snap.val() === true) {
             registerPresence();
         }
     });
 
-    // 4. Listen to online users
     const onlineUsersRef = refRtdb(rtdb, `rooms/${room.id}/online`);
     const unsubscribe = onValueRtdb(onlineUsersRef, (snapshot) => {
         if (snapshot.exists()) {
@@ -252,28 +233,18 @@ const RoomView: React.FC<RoomViewProps> = ({
     };
   }, [room.id, rtdb, currentUser, isAdmin]);
 
-  // --- TYPING & REACTIONS ---
   useEffect(() => {
     if (!room.id || !rtdb) return;
+    
     const typingRef = refRtdb(rtdb, `rooms/${room.id}/liveState/typing`);
-    const reactionsRef = queryRtdb(refRtdb(rtdb, `rooms/${room.id}/liveState/reactions`), limitToFirst(20));
 
     const typingListener = onValueRtdb(typingRef, snapshot => {
         const typingData = snapshot.val() || {};
         setTypingUsers(Object.keys(typingData).filter(user => typingData[user] && user !== currentUser));
     });
 
-    const reactionsListener = onChildAdded(reactionsRef, snapshot => {
-        const reaction = { ...snapshot.val(), id: snapshot.key };
-        setLiveReactions(prev => [...prev, reaction as any]);
-        setTimeout(() => {
-            setLiveReactions(prev => prev.filter(r => r.id !== reaction.id));
-        }, 3000);
-    });
-
     return () => {
         (typingListener as any)();
-        (reactionsListener as any)();
     };
   }, [room.id, rtdb, currentUser]);
 
@@ -328,8 +299,6 @@ const RoomView: React.FC<RoomViewProps> = ({
       return;
     }
 
-    // Si la acción de "atrás" nos llevaría fuera de los overlays de la sala,
-    // prevenimos la acción y mostramos un modal de confirmación para salir.
     window.history.pushState({ overlay: 'room' }, '', '');
     setConfirmModal({
       title: 'Salir de la Sala',
@@ -340,7 +309,7 @@ const RoomView: React.FC<RoomViewProps> = ({
         onExit();
       },
     });
-  }, [onExit, setConfirmModal, setIsChatOpen, setShowParticipants, setSelectedSongId]);
+  }, [onExit]);
 
   useEffect(() => {
     window.addEventListener('popstate', handlePopState);
@@ -397,7 +366,6 @@ const RoomView: React.FC<RoomViewProps> = ({
     prevChatLength.current = currentChat.length;
   }, [room.chat, currentUser, isChatOpen]);
 
-  // Si el usuario no está en la lista de Firestore, lo sacamos (Control de acceso persistente)
   useEffect(() => { if (room.participants && !room.participants.includes(currentUser)) onExit(); }, [room.participants, currentUser, onExit]);
 
   useEffect(() => {
@@ -417,7 +385,6 @@ const RoomView: React.FC<RoomViewProps> = ({
     if (!db || onlineParticipants.length === 0) return;
     const fetchParticipantDetails = async () => {
         const usersRef = collection(db, "users");
-        // Hacemos chunks si son muchos usuarios, pero por ahora limitamos a 30
         const participantsToFetch = onlineParticipants.slice(0, 30);
         if (participantsToFetch.length === 0) return;
         
@@ -445,7 +412,6 @@ const RoomView: React.FC<RoomViewProps> = ({
   useEffect(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }, [room.chat, isChatOpen]);
   useEffect(() => { if (isChatOpen && chatInputRef.current) setTimeout(() => chatInputRef.current?.focus(), 100); }, [isChatOpen]);
   
-  // Usamos onlineParticipants para las notificaciones de entrada/salida reales
   useEffect(() => {
     if (prevParticipants.current.length > 0) {
       const newUsers = onlineParticipants.filter(p => !prevParticipants.current.includes(p));
@@ -476,7 +442,6 @@ const RoomView: React.FC<RoomViewProps> = ({
     if (isTheHost) {
       lastSyncedHostSongId.current = songId || '';
       setSelectedSongId(songId);
-      // Actualizamos Firestore con la canción actual
       onUpdateRoom(room.id, { currentSongId: songId || '' });
     } else {
       setSelectedSongId(songId);
@@ -543,16 +508,6 @@ const RoomView: React.FC<RoomViewProps> = ({
     updateTypingStatus(false);
   };
 
-  const handleSendReaction = (emoji: string) => {
-    if (!room.id || !rtdb) return;
-    const reactionsRef = refRtdb(rtdb, `rooms/${room.id}/liveState/reactions`);
-    pushRtdb(reactionsRef, {
-        emoji,
-        sender: currentUser,
-        timestamp: serverTimestampRtdb()
-    });
-  };
-
   const handleGlobalTranspose = (songId: string, newSemiTones: number) => {
     if (!canModify) return;
     onUpdateRoom(room.id, { globalTranspositions: { ...(room.globalTranspositions || {}), [songId]: newSemiTones } });
@@ -567,7 +522,6 @@ const RoomView: React.FC<RoomViewProps> = ({
         action: async () => {
             setConfirmModal(null);
             
-            // 1. Update the room document to remove the song and clear currentSongId if it was the one being viewed.
             const updates: any = {
                 repertoire: arrayRemove(songToDelete.id)
             };
@@ -575,11 +529,7 @@ const RoomView: React.FC<RoomViewProps> = ({
                 updates.currentSongId = '';
             }
             await onUpdateRoom(room.id, updates);
-
-            // 2. Delete the song document globally
             await onDeleteSong(songToDelete.id); 
-
-            // 3. Close the song viewer
             window.history.back();
         }
     });
@@ -625,7 +575,14 @@ const RoomView: React.FC<RoomViewProps> = ({
   );
 
   const startEditingRepertoire = () => { setTempRepertoire(room.repertoire); setIsEditingRepertoire(true); };
-  const handleFinalizeEditing = () => { onUpdateRoom(room.id, { repertoire: tempRepertoire }); setDisplayedRepertoire(tempRepertoire); setIsEditingRepertoire(false); addNotification('Repertorio guardado', 'success'); };
+  
+  const handleFinalizeEditing = async () => {
+    await onUpdateRoom(room.id, { repertoire: tempRepertoire });
+    setDisplayedRepertoire(tempRepertoire);
+    setIsEditingRepertoire(false);
+    addNotification('Repertorio guardado', 'success');
+  };
+
   const handleCancelEditing = () => {
       const hasChanges = room.repertoire.length !== tempRepertoire.length || room.repertoire.some((id, i) => id !== tempRepertoire[i]);
       if (hasChanges) { setConfirmModal({ title: 'Descartar Cambios', message: '¿Seguro que quieres descartar los cambios?', type: 'warning', action: () => { setIsEditingRepertoire(false); setConfirmModal(null); } }); } 
@@ -731,7 +688,6 @@ const RoomView: React.FC<RoomViewProps> = ({
 
   return (
     <div className={`flex flex-col h-full transition-colors duration-500 ${darkMode ? 'bg-black text-white' : 'bg-white text-slate-900'} animate-in fade-in duration-300 overflow-hidden relative`}>
-      <LiveReactionsOverlay reactions={liveReactions} />
       <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[200] w-full max-w-xs flex flex-col items-center gap-2 pointer-events-none px-4">
         {notifications.map(n => (
           <div key={n.id} className={`p-3 rounded-2xl shadow-2xl border flex items-center gap-3 animate-in slide-in-from-top-4 duration-300 pointer-events-auto ${n.type === 'success' ? 'bg-misionero-verde/90' : n.type === 'alert' ? 'bg-misionero-rojo/90' : 'bg-misionero-azul/90'}`}>
@@ -892,7 +848,7 @@ const RoomView: React.FC<RoomViewProps> = ({
       </div>)}
       {isChatOpen && (<div className={`fixed inset-0 z-[150] flex flex-col animate-in slide-in-from-bottom duration-300 ${darkMode ? 'bg-black' : 'bg-white'}`}><div className={`flex items-center justify-between px-4 pt-12 pb-4 border-b shrink-0 ${darkMode ? 'border-white/5 bg-slate-900' : 'border-slate-100 bg-white'}`}><div className="flex items-center gap-3"><button onClick={closeChat} className="p-2 rounded-full"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button><div><h3 className="font-black uppercase text-sm">Chat de Sala</h3><p className="text-[10px] font-bold text-slate-400">{onlineParticipants.length} conectados</p></div></div></div><div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">{(room.chat || []).map((msg, i) => <SwipeableMessage key={i} msg={msg} currentUser={currentUser} onReply={handleReply} darkMode={darkMode} formatTime={formatMessageTime} />)}</div>{chatInputArea}</div>)}
       {confirmModal && (<div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmModal(null)}></div><div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{confirmModal.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{confirmModal.message}</p><div className="flex gap-3"><button onClick={() => setConfirmModal(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button><button onClick={confirmModal.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform ${confirmModal.type === 'danger' ? 'bg-misionero-rojo' : 'bg-misionero-azul'}`}>Confirmar</button></div></div></div>)}
-      {songForViewer && (<div className={`fixed inset-0 z-[130] ${darkMode ? 'bg-black' : 'bg-white'} flex flex-col animate-in slide-in-from-bottom-2`}>{(() => {
+      {songForViewer && (<div className={`fixed inset-0 z-[210] ${darkMode ? 'bg-black' : 'bg-white'} flex flex-col animate-in slide-in-from-bottom-2`}>{(() => {
           const transposeValue = room.globalTranspositions?.[songForViewer.id] || 0;
           const cacheKey = `${songForViewer.id}-${transposeValue}`;
           const cachedContent = transposedContentCache.current[cacheKey];
@@ -920,7 +876,6 @@ const RoomView: React.FC<RoomViewProps> = ({
               rtdb={rtdb} 
               roomId={room.id} 
               isHost={isTheHost} 
-              onSendReaction={handleSendReaction}
             />); 
         })()}</div>)}
       

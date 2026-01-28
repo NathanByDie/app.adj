@@ -125,7 +125,9 @@ const translateAuthError = (errorCode: string): string => {
     case 'auth/internal-error': return 'Error interno del servidor. Intenta de nuevo.';
     case 'auth/popup-closed-by-user': return 'La ventana de inicio de sesión fue cerrada.';
     case 'auth/account-exists-with-different-credential': return 'Ya existe una cuenta con este email. Inicia sesión con el método original.';
-    default: return 'Ocurrió un error inesperado. Inténtalo más tarde.';
+    case 'auth/operation-not-allowed': return 'El registro con correo y contraseña no está habilitado en Firebase.';
+    case 'permission-denied': return 'Permiso denegado: Verifica las reglas de Firestore.';
+    default: return `Ocurrió un error inesperado (${errorCode}). Inténtalo más tarde.`;
   }
 };
 
@@ -746,11 +748,12 @@ const App: React.FC = () => {
     setView(newView);
 }, [view]);
 
+const goBack = useCallback(() => window.history.back(), []);
+
 const handlePopState = useCallback((event: PopStateEvent) => {
     if (isExitingApp.current) return;
 
     if (activeRoom) {
-        // La navegación dentro de una sala es gestionada por el componente RoomView
         return;
     }
     
@@ -799,9 +802,20 @@ useEffect(() => {
 
   useEffect(() => {
     if (!activeRoom?.id) return;
-    const unsubscribe = onSnapshot(doc(db, "rooms", activeRoom.id), (docSnap) => {
+    const unsubscribe = onSnapshot(doc(db, "rooms", activeRoom.id), async (docSnap) => {
       if (docSnap.exists()) {
         const roomData = docSnap.data();
+        
+        // Auto-Delete logic inside active session
+        if (roomData.expiresAt && Date.now() > roomData.expiresAt) {
+            if (user?.username === roomData.host) {
+                try { await deleteDoc(doc(db, "rooms", activeRoom.id)); } catch(e) {}
+            }
+            setActiveRoom(null);
+            setGlobalAlert({ title: "Tiempo Agotado", message: "La sala ha expirado y ha sido cerrada.", type: 'info' });
+            return;
+        }
+
         setActiveRoom(prev => ({ ...prev, ...roomData, id: docSnap.id } as Room));
       } else {
         setActiveRoom(null);
@@ -809,7 +823,7 @@ useEffect(() => {
       }
     }, (error) => { console.error("Error en listener de sala:", error); });
     return () => unsubscribe();
-  }, [activeRoom?.id, connectionKey]);
+  }, [activeRoom?.id, connectionKey, user?.username]); // added user?.username dependency
 
   useEffect(() => {
       if (!user) return;
@@ -873,7 +887,6 @@ useEffect(() => {
       }
   };
 
-  const goBack = () => window.history.back();
   const openSongViewer = (song: Song) => { setActiveSong(song); window.history.pushState({ overlay: 'song' }, '', ''); };
   const openSongEditor = (song: Song | null) => { setEditingSong(song || true); window.history.pushState({ overlay: 'editor' }, '', ''); };
 
@@ -914,7 +927,7 @@ useEffect(() => {
     }
     setActiveRoom(null);
     goBack();
-  }, [activeRoom, user]);
+  }, [activeRoom, user, goBack]);
   
   const handleCreateRoom = async () => {
     if (!user) return;
@@ -937,19 +950,51 @@ useEffect(() => {
         if (!snap.empty) {
           const roomDoc = snap.docs[0];
           const roomData = { id: roomDoc.id, ...roomDoc.data() } as Room;
-          if (roomData.expiresAt && Date.now() > roomData.expiresAt) { setGlobalAlert({ title: "CÓDIGO VENCIDO", message: "El código de esta sala ha expirado.", type: 'error' }); return; }
-          if (roomData.banned?.includes(user.username)) { setGlobalAlert({ title: "ACCESO DENEGADO", message: "Has sido bloqueado de esta sala.", type: 'error' }); return; }
+          
+          if (roomData.expiresAt && Date.now() > roomData.expiresAt) { 
+              // Try to delete expired room on access attempt
+              try {
+                  await deleteDoc(doc(db, "rooms", roomDoc.id));
+                  setGlobalAlert({ title: "SALA EXPIRADA", message: "El código ha vencido y la sala ha sido eliminada.", type: 'info' }); 
+              } catch(err) {
+                  // Fallback if permission denied
+                  setGlobalAlert({ title: "CÓDIGO VENCIDO", message: "El código de esta sala ha expirado.", type: 'error' }); 
+              }
+              setIsJoiningRoom(false);
+              return; 
+          }
+
+          if (roomData.banned?.includes(user.username)) { setGlobalAlert({ title: "ACCESO DENEGADO", message: "Has sido bloqueado de esta sala.", type: 'error' }); setIsJoiningRoom(false); return; }
           await updateDoc(doc(db, "rooms", roomDoc.id), { participants: arrayUnion(user.username) });
           enterRoom({ ...roomData, participants: [...new Set([...(roomData.participants || []), user.username])] });
         } else { setGlobalAlert({ title: "SALA NO ENCONTRADA", message: "Verifica el código.", type: 'info' }); }
     } catch (error) { setGlobalAlert({ title: "Error", message: "Ocurrió un error al intentar unirse.", type: 'error' }); } finally { setIsJoiningRoom(false); }
   };
-
-  const handleUpdateRoom = async (roomId: string, updates: Partial<Room>) => {
+  
+  const handleUpdateRoom = useCallback(async (roomId: string, updates: Partial<Room>) => {
     if (roomId) {
-      await updateDoc(doc(db, "rooms", roomId), updates);
+      try {
+        await updateDoc(doc(db, "rooms", roomId), updates);
+      } catch (error) {
+        console.error("Error updating room:", error);
+        setGlobalAlert({ title: "Error de Sala", message: "No se pudo actualizar la sala.", type: 'error' });
+      }
     }
-  };
+  }, []);
+
+  const handleSaveSong = useCallback(async (data: Omit<Song, 'id' | 'createdAt' | 'author'>) => {
+    try {
+        if (typeof editingSong !== 'boolean' && editingSong) {
+            await updateDoc(doc(db, "songs", editingSong.id), data);
+        } else if (user) {
+            await addDoc(collection(db, "songs"), { ...data, createdAt: Date.now(), author: user.username });
+        }
+        goBack();
+    } catch (error) {
+        console.error("Error saving song:", error);
+        setGlobalAlert({ title: "Error", message: "No se pudo guardar la canción.", type: 'error' });
+    }
+  }, [editingSong, user, goBack]);
 
   const isSuperAdmin = useMemo(() => user?.email === SUPER_ADMIN_EMAIL, [user]);
   const isAdmin = useMemo(() => {
@@ -1039,22 +1084,73 @@ useEffect(() => {
       if (authMode === 'login') {
         await signInWithEmailAndPassword(auth, authData.email, authData.pass);
       } else if (authMode === 'register') {
-        if (authData.pass !== authData.confirmPass) { setAuthMsg({ type: 'error', text: 'Las contraseñas no coinciden.' }); setIsAuthenticating(false); return; }
+        if (authData.pass !== authData.confirmPass) { 
+            setAuthMsg({ type: 'error', text: 'Las contraseñas no coinciden.' }); 
+            setIsAuthenticating(false); 
+            return; 
+        }
         if (!isValidUsername(authData.user)) {
           setAuthMsg({ type: 'error', text: 'El usuario debe tener entre 3 y 24 caracteres (letras, espacios y tildes).' });
           setIsAuthenticating(false);
           return;
         }
-        const q = query(collection(db, "users"), where("username_lowercase", "==", authData.user.toLowerCase()), limit(1));
-        if (!(await getDocs(q)).empty) { setAuthMsg({ type: 'error', text: 'El nombre de usuario ya está ocupado. Por favor elige otro.' }); setIsAuthenticating(false); return; }
-        const cred = await createUserWithEmailAndPassword(auth, authData.email, authData.pass);
-        await updateProfile(cred.user, { displayName: authData.user });
-        await setDoc(doc(db, "users", cred.user.uid), { username: authData.user, username_lowercase: authData.user.toLowerCase(), email: authData.email, role: 'member', favorites: [] });
+
+        // Cambio importante: Creamos el usuario Auth PRIMERO para tener permisos de lectura en Firestore
+        // y verificar el nombre de usuario. Si está ocupado, borramos el usuario Auth.
+        let cred;
+        try {
+            cred = await createUserWithEmailAndPassword(auth, authData.email, authData.pass);
+        } catch (authErr: any) {
+            // Si falla la creación de Auth (ej: email en uso), lanzamos el error para que lo capture el catch externo
+            throw authErr;
+        }
+
+        try {
+            // Ahora que estamos autenticados, verificamos si el nombre de usuario existe
+            const q = query(collection(db, "users"), where("username_lowercase", "==", authData.user.toLowerCase()), limit(1));
+            const snapshot = await getDocs(q);
+
+            if (!snapshot.empty) {
+                // El usuario existe, borramos la cuenta creada y lanzamos error
+                await cred.user.delete();
+                throw { code: 'custom/username-taken' };
+            }
+
+            // Si llegamos aquí, el usuario es único. Procedemos.
+            await updateProfile(cred.user, { displayName: authData.user });
+            await setDoc(doc(db, "users", cred.user.uid), { 
+                username: authData.user, 
+                username_lowercase: authData.user.toLowerCase(), 
+                email: authData.email, 
+                role: 'member', 
+                favorites: [],
+                profileValidated: true // Se marca como validado para nuevos usuarios
+            });
+
+        } catch (innerError: any) {
+            // Si el error es nuestro custom, lo propagamos.
+            if (innerError.code === 'custom/username-taken') {
+                throw innerError;
+            }
+            // Si falla la escritura en Firestore o la consulta, intentamos limpiar
+            if (cred && cred.user) {
+                try { await cred.user.delete(); } catch(e) {}
+            }
+            throw innerError;
+        }
+
       } else if (authMode === 'forgot') {
         await sendPasswordResetEmail(auth, authData.email);
         setAuthMsg({ type: 'success', text: 'Correo de recuperación enviado.' });
       }
-    } catch (error: any) { setAuthMsg({ type: 'error', text: translateAuthError(error.code) }); } finally { setIsAuthenticating(false); }
+    } catch (error: any) { 
+        console.error("Auth error:", error.code, error.message);
+        if (error.code === 'custom/username-taken') {
+             setAuthMsg({ type: 'error', text: 'El nombre de usuario ya está ocupado. Por favor elige otro.' });
+        } else {
+             setAuthMsg({ type: 'error', text: translateAuthError(error.code) }); 
+        }
+    } finally { setIsAuthenticating(false); }
   };
 
   const handleGoogleSignIn = async () => {
@@ -1182,41 +1278,28 @@ useEffect(() => {
             return; 
         }
 
-        // --- INICIO LÓGICA DE ACTUALIZACIÓN EN CASCADA ---
         const batch = writeBatch(db);
-
-        // 1. Actualizar documento del usuario
         const userRef = doc(db, "users", user.id);
         batch.update(userRef, {
             username: trimmedUsername,
             username_lowercase: trimmedUsername.toLowerCase()
         });
 
-        // 2. Actualizar todas las canciones creadas por este usuario
-        // Buscamos canciones donde 'author' coincida con el nombre de usuario anterior
         const songsRef = collection(db, "songs");
         const qSongs = query(songsRef, where("author", "==", user.username));
         const songsSnapshot = await getDocs(qSongs);
         let songsUpdatedCount = 0;
-
         songsSnapshot.forEach((songDoc) => {
             batch.update(songDoc.ref, { author: trimmedUsername });
             songsUpdatedCount++;
         });
 
-        // 3. Ejecutar el batch
         await batch.commit();
-        // --- FIN LÓGICA DE ACTUALIZACIÓN EN CASCADA ---
-
-        // Actualizar perfil de Auth
         await updateProfile(auth.currentUser, { displayName: trimmedUsername });
 
-        // Actualizar RTDB Status (Opcional, pero recomendado para mantener consistencia inmediata)
         const userStatusDatabaseRef = ref(rtdb, '/status/' + user.id);
-        // Usamos update de RTDB para no sobrescribir el estado 'isOnline' si no es necesario, aunque set funciona bien aquí.
         updateRtdb(userStatusDatabaseRef, { username: trimmedUsername });
         
-        // Actualizar estado local
         setUser(prev => prev ? ({ ...prev, username: trimmedUsername, username_lowercase: trimmedUsername.toLowerCase() }) : null);
 
         setGlobalAlert({ title: "Perfil Actualizado", message: `Nombre cambiado a ${trimmedUsername}. Se actualizaron ${songsUpdatedCount} canciones.`, type: 'success' });
@@ -1265,7 +1348,6 @@ useEffect(() => {
                 return;
             }
             
-            // --- INICIO LÓGICA DE ACTUALIZACIÓN EN CASCADA (MODAL INICIAL) ---
             const batch = writeBatch(db);
 
             const userRef = doc(db, "users", user.id);
@@ -1277,9 +1359,6 @@ useEffect(() => {
             };
             batch.update(userRef, updatePayload);
 
-            // Si el usuario tenía un nombre anterior (aunque sea inválido), intentamos actualizar sus canciones
-            // Nota: En el flujo de 'completar perfil', a veces el username es el display name de Google o vacío.
-            // Si tenía un nombre previo y creó canciones con él, las actualizamos.
             if (user.username) {
                 const songsRef = collection(db, "songs");
                 const qSongs = query(songsRef, where("author", "==", user.username));
@@ -1290,7 +1369,6 @@ useEffect(() => {
             }
 
             await batch.commit();
-            // --- FIN ---
 
             await updateProfile(auth.currentUser, { displayName: profileUpdateData.username });
             
@@ -1332,7 +1410,6 @@ useEffect(() => {
         const username = data?.username || firebaseUser.displayName || '';
         const email = data?.email || firebaseUser.email || '';
         
-        // --- PRESENCE SYSTEM ---
         const userStatusDatabaseRef = ref(rtdb, '/status/' + firebaseUser.uid);
         const isOfflineForDatabase = {
             isOnline: false,
@@ -1346,15 +1423,8 @@ useEffect(() => {
         };
         const connectedRef = ref(rtdb, '.info/connected');
         onValue(connectedRef, (snapshot) => {
-            if (snapshot.val() === false) {
-                // If not connected, we can't set onDisconnect. 
-                // We'll let the onDisconnect from the last session handle it.
-                return;
-            }
-            // When the client's connection is established, set the onDisconnect handler.
-            // This must be done before setting the user's status to online.
+            if (snapshot.val() === false) { return; }
             onDisconnect(userStatusDatabaseRef).set(isOfflineForDatabase).then(() => {
-                // Once the onDisconnect is set, we can mark the user as online.
                 set(userStatusDatabaseRef, isOnlineForDatabase);
             });
         });
@@ -1507,7 +1577,7 @@ useEffect(() => {
             {categoryConfirmModal && (<div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setCategoryConfirmModal(null)}></div><div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{categoryConfirmModal.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{categoryConfirmModal.message}</p><div className="flex gap-3"><button onClick={() => setCategoryConfirmModal(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button><button onClick={categoryConfirmModal.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform ${categoryConfirmModal.type === 'danger' ? 'bg-misionero-rojo' : 'bg-misionero-azul'}`}>Confirmar</button></div></div></div>)}
             {showExitConfirm && (<div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowExitConfirm(null)}></div><div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{showExitConfirm.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{showExitConfirm.message}</p><div className="flex gap-3"><button onClick={() => setShowExitConfirm(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button><button onClick={showExitConfirm.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform bg-misionero-rojo`}>Salir</button></div></div></div>)}
             {showOpenInAppButton && (<div className="fixed bottom-[5rem] left-1/2 -translate-x-1/2 z-40 animate-in fade-in slide-in-from-bottom-5 duration-300"><button onClick={handleOpenInApp} className="glass-ui glass-interactive bg-misionero-azul/70 text-white flex items-center gap-3 px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-2xl active:scale-95 transition-transform"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg><span>Abrir en la App</span></button></div>)}
-            {editingSong && hasElevatedPermissions && (<div data-is-overlay="true" className="fixed inset-0 z-[300]"><SongForm categories={categoryNames} initialData={typeof editingSong === 'boolean' ? undefined : editingSong} onSave={async (data) => { if (typeof editingSong !== 'boolean' && editingSong) { await updateDoc(doc(db, "songs", editingSong.id), data); } else { await addDoc(collection(db, "songs"), { ...data, createdAt: Date.now(), author: user.username }); } goBack(); }} onCancel={goBack} darkMode={darkMode} /></div>)}
+            {editingSong && hasElevatedPermissions && (<div data-is-overlay="true" className="fixed inset-0 z-[300]"><SongForm categories={categoryNames} initialData={typeof editingSong === 'boolean' ? undefined : editingSong} onSave={handleSaveSong} onCancel={goBack} darkMode={darkMode} /></div>)}
             {activeSong && (<div data-is-overlay="true" className="fixed inset-0 z-[100]"><SongViewer song={activeSong} onBack={goBack} darkMode={darkMode} onEdit={hasElevatedPermissions ? () => openSongEditor(activeSong) : undefined} onDelete={hasElevatedPermissions ? () => handleDeleteSong(activeSong) : undefined} /></div>)}
             {activeRoom && (<div data-is-overlay="true" className="fixed inset-0 z-[200]"><RoomView rtdb={rtdb} categories={categoryNames} room={activeRoom} songs={songs} currentUser={user.username} isAdmin={isAdmin} onExit={exitRoom} onUpdateRoom={handleUpdateRoom} darkMode={darkMode} db={db} onEditSong={openSongEditor} onDeleteSong={performDeleteSong} /></div>)}
         </>

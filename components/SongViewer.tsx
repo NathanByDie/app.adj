@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Song } from '../types';
 import { isChordLine, transposeSong, transposeRoot, findBestCapo } from '../services/musicUtils';
 import { set as setRtdb, ref as refRtdb } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
@@ -21,7 +21,6 @@ interface SongViewerProps {
   rtdb?: any;
   roomId?: string;
   isHost?: boolean;
-  onSendReaction?: (emoji: string) => void;
 }
 
 const MagicWandIcon = () => (
@@ -53,7 +52,6 @@ const SongViewer: React.FC<SongViewerProps> = ({
   rtdb,
   roomId,
   isHost,
-  onSendReaction
 }) => {
   const [internalTranspose, setInternalTranspose] = useState(0);
   const [fontSize, setFontSize] = useState(11);
@@ -61,6 +59,7 @@ const SongViewer: React.FC<SongViewerProps> = ({
   const [showOptions, setShowOptions] = useState(false);
   const [showShareToast, setShowShareToast] = useState(false);
   const [isControlPanelOpen, setIsControlPanelOpen] = useState(false);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const optionsMenuRef = useRef<HTMLDivElement>(null);
@@ -166,106 +165,131 @@ const SongViewer: React.FC<SongViewerProps> = ({
     setShowOptions(false);
   };
 
-  const downloadAsPDF = () => {
+  const downloadAsPDF = async () => {
     if (typeof (window as any).jspdf === 'undefined') {
         alert("La librería para generar PDF no se pudo cargar. Revisa tu conexión a internet e inténtalo de nuevo.");
         setShowOptions(false);
         return;
     }
 
-    const { jsPDF } = (window as any).jspdf;
-    
-    const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
-    const margin = 20;
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const maxWidth = pageWidth - (margin * 2);
-    let y = margin;
+    setShowOptions(false);
+    setIsGeneratingPDF(true);
 
-    const addWatermark = (pdfDoc: any) => {
-        const pageW = pdfDoc.internal.pageSize.getWidth();
-        const pageH = pdfDoc.internal.pageSize.getHeight();
-        pdfDoc.saveGState();
-        pdfDoc.setFont("helvetica", "bold");
-        pdfDoc.setFontSize(50);
-        pdfDoc.setTextColor(220, 220, 220);
-        pdfDoc.setGState(new pdfDoc.GState({opacity: 0.15})); 
-        pdfDoc.text(
-            "Amiguitos de Jesus Studios",
-            pageW / 2,
-            pageH / 2,
-            { angle: -45, align: 'center' }
-        );
-        pdfDoc.restoreGState();
-    };
+    // Pequeño delay para permitir que el UI se actualice y muestre el spinner
+    await new Promise(resolve => setTimeout(resolve, 100));
 
-    addWatermark(doc);
+    try {
+        const { jsPDF } = (window as any).jspdf;
+        
+        const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+        const margin = 20;
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const maxWidth = pageWidth - (margin * 2);
+        let y = margin;
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
-    doc.setTextColor(30, 41, 59);
-    
-    const titleLines = doc.splitTextToSize(song.title.toUpperCase(), maxWidth);
-    doc.text(titleLines, margin, y);
-    y += (titleLines.length * 8);
+        const addWatermark = (pdfDoc: any) => {
+            const pageW = pdfDoc.internal.pageSize.getWidth();
+            const pageH = pdfDoc.internal.pageSize.getHeight();
+            pdfDoc.saveGState();
+            pdfDoc.setFont("helvetica", "bold");
+            pdfDoc.setFontSize(50);
+            pdfDoc.setTextColor(220, 220, 220);
+            pdfDoc.setGState(new pdfDoc.GState({opacity: 0.15})); 
+            pdfDoc.text(
+                "Amiguitos de Jesus Studios",
+                pageW / 2,
+                pageH / 2,
+                { angle: -45, align: 'center' }
+            );
+            pdfDoc.restoreGState();
+        };
 
-    doc.setDrawColor(59, 130, 246);
-    doc.setLineWidth(0.5);
-    doc.line(margin, y, pageWidth - margin, y);
-    y += 10;
+        addWatermark(doc);
 
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(100, 116, 139);
-    const totalTranspose = currentTranspose - capo;
-    const transposedContentForPDF = transposeSong(song.content, totalTranspose, preferSharps);
-    doc.text(`TONO ORIGINAL: ${song.key}`, margin, y);
-    doc.text(`TONO SONORO: (${currentTranspose >= 0 ? '+' : ''}${currentTranspose})`, margin + 60, y);
-    if (capo > 0) {
-      doc.text(`CAPO: ${capo}`, margin + 120, y);
-    }
-    y += 12;
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(18);
+        doc.setTextColor(30, 41, 59);
+        
+        const titleLines = doc.splitTextToSize(song.title.toUpperCase(), maxWidth);
+        doc.text(titleLines, margin, y);
+        y += (titleLines.length * 8);
 
-    const lines = transposedContentForPDF.split('\n');
-    doc.setFontSize(10);
-    const lineHeight = 5;
+        doc.setDrawColor(59, 130, 246);
+        doc.setLineWidth(0.5);
+        doc.line(margin, y, pageWidth - margin, y);
+        y += 10;
 
-    lines.forEach((line) => {
-        if (y > pageHeight - margin) {
-            doc.addPage();
-            addWatermark(doc);
-            y = margin;
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(100, 116, 139);
+        const totalTranspose = currentTranspose - capo;
+        const transposedContentForPDF = transposeSong(song.content, totalTranspose, preferSharps);
+        doc.text(`TONO ORIGINAL: ${song.key}`, margin, y);
+        doc.text(`TONO SONORO: (${currentTranspose >= 0 ? '+' : ''}${currentTranspose})`, margin + 60, y);
+        if (capo > 0) {
+          doc.text(`CAPO: ${capo}`, margin + 120, y);
         }
-        if (isChordLine(line)) {
-            doc.setFont("courier", "bold");
-            doc.setTextColor(59, 130, 246);
-        } else {
-            doc.setFont("courier", "normal");
-            doc.setTextColor(51, 65, 85);
-        }
-        const splitLines = doc.splitTextToSize(line || ' ', maxWidth);
-        splitLines.forEach((splitLine: string) => {
+        y += 12;
+
+        const lines = transposedContentForPDF.split('\n');
+        doc.setFontSize(10);
+        const lineHeight = 5;
+
+        lines.forEach((line) => {
             if (y > pageHeight - margin) {
                 doc.addPage();
                 addWatermark(doc);
                 y = margin;
             }
-            doc.text(splitLine, margin, y);
-            y += lineHeight;
+            if (isChordLine(line)) {
+                doc.setFont("courier", "bold");
+                doc.setTextColor(59, 130, 246);
+            } else {
+                doc.setFont("courier", "normal");
+                doc.setTextColor(51, 65, 85);
+            }
+            const splitLines = doc.splitTextToSize(line || ' ', maxWidth);
+            splitLines.forEach((splitLine: string) => {
+                if (y > pageHeight - margin) {
+                    doc.addPage();
+                    addWatermark(doc);
+                    y = margin;
+                }
+                doc.text(splitLine, margin, y);
+                y += lineHeight;
+            });
         });
-    });
 
-    const sanitizedTitle = song.title.replace(/[\/\\?%*:|"<>]/g, '_').trim();
-    const fileName = `${sanitizedTitle}.pdf`;
+        const sanitizedTitle = song.title.replace(/[\/\\?%*:|"<>]/g, '_').trim();
+        const fileName = `${sanitizedTitle}.pdf`;
 
-    try {
-        doc.save(fileName);
+        // Intentar usar Web Share API con archivos primero (mejor para móviles)
+        try {
+            const blob = doc.output('blob');
+            const file = new File([blob], fileName, { type: 'application/pdf' });
+            
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                await navigator.share({
+                    files: [file],
+                    title: song.title,
+                    text: `PDF de ${song.title}`
+                });
+            } else {
+                // Fallback clásico
+                doc.save(fileName);
+            }
+        } catch (shareError) {
+            console.warn("Share API failed, falling back to save:", shareError);
+            doc.save(fileName);
+        }
+
     } catch (error) {
-        console.error("PDF download failed:", error);
-        alert("No se pudo descargar el PDF. Por favor, intenta de nuevo.");
+        console.error("PDF generation failed:", error);
+        alert("Ocurrió un error al generar el PDF.");
+    } finally {
+        setIsGeneratingPDF(false);
     }
-
-    setShowOptions(false);
   };
 
   const processedContent = useMemo(() => {
@@ -340,6 +364,16 @@ const SongViewer: React.FC<SongViewerProps> = ({
         </div>
       </header>
 
+      {/* Overlay de Generación de PDF */}
+      {isGeneratingPDF && (
+        <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-300">
+            <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl shadow-2xl flex flex-col items-center">
+                <div className="w-10 h-10 border-4 border-misionero-rojo/30 border-t-misionero-rojo rounded-full animate-spin mb-3"></div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-900 dark:text-white">Generando PDF...</p>
+            </div>
+        </div>
+      )}
+
       {showOptions && (
         <div ref={optionsMenuRef} className="glass-ui absolute right-4 top-16 shadow-2xl rounded-2xl w-56 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200 origin-top-right">
           <ul className="p-2 space-y-1">
@@ -394,14 +428,6 @@ const SongViewer: React.FC<SongViewerProps> = ({
       )}
 
       {/* --- Controles Flotantes --- */}
-      {roomId && onSendReaction && (
-        <button 
-          onClick={() => onSendReaction('❤️')}
-          className={`fixed z-[80] right-[8.75rem] bottom-24 transition-all duration-300 ease-in-out active:scale-90 w-14 h-14 rounded-full flex items-center justify-center glass-ui glass-interactive text-2xl ${isControlPanelOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-0'}`}
-        >
-          ❤️
-        </button>
-      )}
 
       <button 
         onClick={() => setIsControlPanelOpen(prev => !prev)} 

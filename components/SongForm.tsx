@@ -4,7 +4,7 @@ import { isChordLine } from '../services/musicUtils';
 
 interface SongFormProps {
   initialData?: Song;
-  onSave: (song: Omit<Song, 'id' | 'createdAt'>) => void;
+  onSave: (song: Omit<Song, 'id' | 'createdAt' | 'author'>) => void;
   onCancel: () => void;
   darkMode?: boolean;
   categories: string[];
@@ -64,7 +64,7 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !content) return;
-    onSave({ title, key, category, content, author: initialData?.author || '' });
+    onSave({ title, key, category, content });
   };
 
   const insertAtCursor = (text: string) => {
