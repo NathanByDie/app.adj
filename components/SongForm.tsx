@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { LiturgicalTime, Song } from '../types';
 import { isChordLine } from '../services/musicUtils';
+import { importFromLaCuerda } from '../services/importer';
 
 interface SongFormProps {
   initialData?: Song;
-  onSave: (song: Omit<Song, 'id' | 'createdAt' | 'author'>) => void;
+  onSave: (song: Omit<Song, 'id' | 'createdAt'>) => void;
   onCancel: () => void;
   darkMode?: boolean;
   categories: string[];
@@ -12,6 +13,7 @@ interface SongFormProps {
 
 const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, darkMode = false, categories }) => {
   const [title, setTitle] = useState('');
+  const [author, setAuthor] = useState('');
   const [key, setKey] = useState('DO');
   const [category, setCategory] = useState<string>(LiturgicalTime.ORDINARIO);
   const [content, setContent] = useState('');
@@ -19,6 +21,11 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  const [showImporter, setShowImporter] = useState(false);
+  const [importUrl, setImportUrl] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
   
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -26,6 +33,7 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
   useEffect(() => {
     if (initialData) {
       setTitle(initialData.title);
+      setAuthor(initialData.author);
       setKey(initialData.key);
       setCategory(initialData.category);
       setContent(initialData.content);
@@ -64,8 +72,28 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !content) return;
-    onSave({ title, key, category, content });
+    onSave({ title, key, category, content, author });
   };
+  
+  const handleImport = async () => {
+    if (!importUrl) return;
+    setIsImporting(true);
+    setImportError(null);
+    try {
+      const data = await importFromLaCuerda(importUrl);
+      setTitle(data.title);
+      setAuthor(data.author);
+      setKey(data.key);
+      setContent(data.content);
+      setShowImporter(false);
+      setImportUrl('');
+    } catch (error: any) {
+      setImportError(error.message || 'Ocurrió un error desconocido.');
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
 
   const insertAtCursor = (text: string) => {
     if (!textareaRef.current) return;
@@ -86,7 +114,10 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
       <header className={`px-4 pt-12 pb-3 border-b ${darkMode ? 'border-slate-800 bg-black' : 'border-slate-100 bg-white'} flex items-center justify-between shrink-0 z-20 transition-colors duration-500`}>
         <button onClick={onCancel} className={`text-[10px] font-black uppercase ${darkMode ? 'text-slate-500 bg-slate-900 active:bg-slate-800' : 'text-slate-400 bg-slate-50 active:bg-slate-100'} px-3 py-2 rounded-xl transition-colors`}>Cerrar</button>
         <h2 className="text-[10px] font-black uppercase tracking-widest">{initialData ? 'Editor de Obra' : 'Nueva Música'}</h2>
-        <button onClick={handleSubmit} className="bg-misionero-verde text-white px-6 py-2.5 rounded-2xl font-black text-[10px] uppercase disabled:opacity-30 shadow-lg active:scale-95 transition-all" disabled={!title || !content}>{initialData ? 'Guardar' : 'Publicar'}</button>
+        <div className="flex items-center gap-2">
+           <button type="button" onClick={() => setShowImporter(true)} className="bg-misionero-amarillo text-black px-4 py-2.5 rounded-2xl font-black text-[10px] uppercase shadow-lg active:scale-95 transition-all">Importar</button>
+           <button onClick={handleSubmit} className="bg-misionero-verde text-white px-6 py-2.5 rounded-2xl font-black text-[10px] uppercase disabled:opacity-30 shadow-lg active:scale-95 transition-all" disabled={!title || !content}>{initialData ? 'Guardar' : 'Publicar'}</button>
+        </div>
       </header>
 
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto flex flex-col custom-scroll no-pull">
@@ -94,6 +125,10 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
           <div className="space-y-1">
             <label className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Título de la Música</label>
             <input type="text" placeholder="Ej: Alma Misionera" className={`w-full text-2xl font-black border-none focus:ring-0 p-0 transition-colors duration-500 ${darkMode ? 'bg-transparent text-white placeholder:text-slate-800' : 'bg-transparent text-slate-900 placeholder:text-slate-200'}`} value={title} onChange={e => setTitle(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Autor</label>
+            <input type="text" placeholder="Ej: P. Enrique" className={`w-full text-base font-bold border-none focus:ring-0 p-0 transition-colors duration-500 ${darkMode ? 'bg-transparent text-slate-300 placeholder:text-slate-800' : 'bg-transparent text-slate-600 placeholder:text-slate-300'}`} value={author} onChange={e => setAuthor(e.target.value)} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className={`${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-100'} rounded-2xl p-4 border transition-colors duration-500`}>
@@ -144,6 +179,32 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
         <div className="h-40 shrink-0"></div>
       </div>
       {showScrollTop && !isFocused && (<button onClick={scrollToTop} className="fixed bottom-10 right-6 w-14 h-14 bg-misionero-azul text-white rounded-full shadow-2xl flex items-center justify-center z-[90] animate-in fade-in zoom-in duration-300 active:scale-90 border-4 border-white"><svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 15l7-7 7 7" /></svg></button>)}
+
+      {showImporter && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 animate-in fade-in duration-200">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !isImporting && setShowImporter(false)}></div>
+          <div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}>
+            <h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Importar de LaCuerda.net</h3>
+            <p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Pega el enlace de la canción para rellenar los campos automáticamente.</p>
+            <div className="space-y-3">
+              <input 
+                type="url" 
+                placeholder="https://acordes.lacuerda.net/..." 
+                value={importUrl}
+                onChange={e => setImportUrl(e.target.value)}
+                className={`w-full text-xs font-bold rounded-xl px-4 py-3 outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-100 border-slate-200 text-slate-900'}`}
+              />
+              {importError && <p className="text-center text-xs font-bold text-red-400">{importError}</p>}
+            </div>
+            <div className="flex gap-3 mt-4">
+              <button onClick={() => setShowImporter(false)} disabled={isImporting} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button>
+              <button onClick={handleImport} disabled={isImporting || !importUrl} className="flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform bg-misionero-azul disabled:opacity-50">
+                {isImporting ? 'Importando...' : 'Importar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

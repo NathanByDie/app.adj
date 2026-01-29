@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { 
@@ -14,9 +15,8 @@ import {
   reauthenticateWithCredential,
   updatePassword,
   GoogleAuthProvider,
-  signInWithRedirect,
-  linkWithRedirect,
-  getRedirectResult,
+  signInWithPopup,
+  linkWithPopup,
   signInWithCredential
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { 
@@ -129,6 +129,15 @@ const translateAuthError = (errorCode: string): string => {
     case 'auth/account-exists-with-different-credential': return 'Ya existe una cuenta con este email. Inicia sesión con el método original.';
     case 'auth/operation-not-allowed': return 'El registro con correo y contraseña no está habilitado en Firebase.';
     case 'permission-denied': return 'Permiso denegado: Verifica las reglas de Firestore.';
+    case 'auth/credential-already-in-use': return 'Esta cuenta ya está vinculada a otro usuario.';
+    case 'auth/unauthorized-domain': {
+        const hostname = window.location.hostname;
+        const origin = window.location.origin;
+        if (!hostname || hostname === '') {
+            return `Dominio desconocido (vacío). Probablemente estás ejecutando el archivo localmente (file://) o en un entorno restringido. Google Auth requiere un dominio web válido (http/https). Intenta servir la app en localhost.`;
+        }
+        return `Dominio NO AUTORIZADO: "${hostname}". Debes agregar este dominio exacto en Firebase Console -> Authentication -> Settings -> Authorized Domains.`;
+    }
     default: return `Ocurrió un error inesperado (${errorCode}). Inténtalo más tarde.`;
   }
 };
@@ -987,12 +996,13 @@ useEffect(() => {
     }
   }, []);
 
-  const handleSaveSong = useCallback(async (data: Omit<Song, 'id' | 'createdAt' | 'author'>) => {
+  const handleSaveSong = useCallback(async (data: Omit<Song, 'id' | 'createdAt'>) => {
     try {
         if (typeof editingSong !== 'boolean' && editingSong) {
             await updateDoc(doc(db, "songs", editingSong.id), data);
         } else if (user) {
-            await addDoc(collection(db, "songs"), { ...data, createdAt: Date.now(), author: user.username });
+            const authorToSave = data.author && data.author.trim() !== '' ? data.author : user.username;
+            await addDoc(collection(db, "songs"), { ...data, author: authorToSave, createdAt: Date.now() });
         }
         goBack();
     } catch (error) {
@@ -1159,7 +1169,19 @@ useEffect(() => {
     setIsAuthenticating(true);
     setAuthMsg(null);
     const provider = new GoogleAuthProvider();
-    await signInWithRedirect(auth, provider);
+    try {
+        await signInWithPopup(auth, provider);
+        // El estado se manejará automáticamente en onAuthStateChanged
+    } catch (error: any) {
+        console.error("Error en Google Popup:", error);
+        // Add specific logging to help the user identify the current domain
+        if (error.code === 'auth/unauthorized-domain') {
+            console.error("Dominio actual no autorizado:", window.location.hostname || "VACIO (posible file:// o entorno restringido)");
+            console.error("Full origin:", window.location.origin);
+        }
+        setAuthMsg({ type: 'error', text: translateAuthError(error.code) });
+        setIsAuthenticating(false);
+    }
   };
 
   const handleLinkGoogleAccount = async () => {
@@ -1167,9 +1189,12 @@ useEffect(() => {
     setIsLinkingGoogle(true);
     const provider = new GoogleAuthProvider();
     try {
-      await linkWithRedirect(auth.currentUser, provider);
+      await linkWithPopup(auth.currentUser, provider);
+      setGlobalAlert({ title: "Vinculado", message: "Cuenta de Google vinculada correctamente.", type: 'success' });
     } catch (error) {
-      console.error("Error starting link redirect:", error);
+      console.error("Error linking Google:", error);
+      setGlobalAlert({ title: "Error", message: "No se pudo vincular la cuenta.", type: 'error' });
+    } finally {
       setIsLinkingGoogle(false);
     }
   };
@@ -1348,107 +1373,86 @@ useEffect(() => {
   };
 
   useEffect(() => {
-      getRedirectResult(auth)
-        .catch(async (error) => {
-          setIsAuthenticating(false);
-          setIsLinkingGoogle(false);
-          if (error.code === 'auth/credential-already-in-use') {
-            setGlobalAlert({ title: "Cuenta ya existe", message: "Esta cuenta de Google ya está registrada. Iniciaremos sesión y uniremos tus favoritos.", type: 'info' });
-            const credential = GoogleAuthProvider.credentialFromError(error);
-            if (credential) {
-              const oldUserId = auth.currentUser?.uid;
-              const result = await signInWithCredential(auth, credential);
-              const newUserId = result.user.uid;
-              if (oldUserId && newUserId && oldUserId !== newUserId) {
-                const oldUserRef = doc(db, "users", oldUserId);
-                const newUserRef = doc(db, "users", newUserId);
-                const oldUserDoc = await getDoc(oldUserRef);
-                const newUserDoc = await getDoc(newUserRef);
-                if (oldUserDoc.exists() && newUserDoc.exists()) {
-                  const oldFavorites = oldUserDoc.data().favorites || [];
-                  const newFavorites = newUserDoc.data().favorites || [];
-                  const mergedFavorites = [...new Set([...oldFavorites, ...newFavorites])];
-                  await updateDoc(newUserRef, { favorites: mergedFavorites });
-                }
-              }
-            }
-          } else {
-            setAuthMsg({ type: 'error', text: translateAuthError(error.code) });
-          }
-        });
-
+      // Listener para cambios de estado de autenticación
       const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-        if (firebaseUser) {
-          const userDocRef = doc(db, "users", firebaseUser.uid);
-          let userDoc = await getDoc(userDocRef);
+        try {
+            if (firebaseUser) {
+              const userDocRef = doc(db, "users", firebaseUser.uid);
+              let userDoc = await getDoc(userDocRef);
 
-          if (!userDoc.exists()) {
-              const generateBaseUsername = (displayName: string | null, email: string | null): string => {
-                  if (displayName) { const sanitized = displayName.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ ]/g, ''); if (sanitized.trim().length >= 3) return sanitized.trim().substring(0, 24); }
-                  if (email) { return email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').substring(0, 24); }
-                  return `user${Math.floor(1000 + Math.random() * 9000)}`;
-              };
-              const baseUsername = generateBaseUsername(firebaseUser.displayName, firebaseUser.email);
-              let finalUsername = baseUsername; let isUnique = false; let attempts = 0;
-              while (!isUnique && attempts < 10) {
-                  const q = query(collection(db, "users"), where("username_lowercase", "==", finalUsername.toLowerCase()), limit(1));
-                  const existingUser = await getDocs(q);
-                  if (existingUser.empty) { isUnique = true; } 
-                  else { finalUsername = `${baseUsername.substring(0, 21)}${Math.floor(100 + Math.random() * 900)}`; attempts++; }
+              if (!userDoc.exists()) {
+                  const generateBaseUsername = (displayName: string | null, email: string | null): string => {
+                      if (displayName) { const sanitized = displayName.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ ]/g, ''); if (sanitized.trim().length >= 3) return sanitized.trim().substring(0, 24); }
+                      if (email) { return email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').substring(0, 24); }
+                      return `user${Math.floor(1000 + Math.random() * 9000)}`;
+                  };
+                  const baseUsername = generateBaseUsername(firebaseUser.displayName, firebaseUser.email);
+                  let finalUsername = baseUsername; let isUnique = false; let attempts = 0;
+                  while (!isUnique && attempts < 10) {
+                      const q = query(collection(db, "users"), where("username_lowercase", "==", finalUsername.toLowerCase()), limit(1));
+                      const existingUser = await getDocs(q);
+                      if (existingUser.empty) { isUnique = true; } 
+                      else { finalUsername = `${baseUsername.substring(0, 21)}${Math.floor(100 + Math.random() * 900)}`; attempts++; }
+                  }
+                  await setDoc(userDocRef, { username: finalUsername, username_lowercase: finalUsername.toLowerCase(), email: firebaseUser.email, role: 'member', favorites: [], profileValidated: true });
+                  userDoc = await getDoc(userDocRef);
               }
-              await setDoc(userDocRef, { username: finalUsername, username_lowercase: finalUsername.toLowerCase(), email: firebaseUser.email, role: 'member', favorites: [], profileValidated: true });
-              userDoc = await getDoc(userDocRef);
-          }
-          
-          const data = userDoc.data();
-          const username = data?.username || firebaseUser.displayName || '';
-          const email = data?.email || firebaseUser.email || '';
-          
-          const userStatusDatabaseRef = ref(rtdb, '/status/' + firebaseUser.uid);
-          const isOfflineForDatabase = { isOnline: false, last_changed: serverTimestamp(), username: username };
-          const isOnlineForDatabase = { isOnline: true, last_changed: serverTimestamp(), username: username };
-          const connectedRef = ref(rtdb, '.info/connected');
-          onValue(connectedRef, (snapshot) => {
-              if (snapshot.val() === false) { return; }
-              onDisconnect(userStatusDatabaseRef).set(isOfflineForDatabase).then(() => {
-                  set(userStatusDatabaseRef, isOnlineForDatabase);
+              
+              const data = userDoc.data();
+              const username = data?.username || firebaseUser.displayName || '';
+              const email = data?.email || firebaseUser.email || '';
+              
+              const userStatusDatabaseRef = ref(rtdb, '/status/' + firebaseUser.uid);
+              const isOfflineForDatabase = { isOnline: false, last_changed: serverTimestamp(), username: username };
+              const isOnlineForDatabase = { isOnline: true, last_changed: serverTimestamp(), username: username };
+              const connectedRef = ref(rtdb, '.info/connected');
+              onValue(connectedRef, (snapshot) => {
+                  if (snapshot.val() === false) { return; }
+                  onDisconnect(userStatusDatabaseRef).set(isOfflineForDatabase).then(() => {
+                      set(userStatusDatabaseRef, isOnlineForDatabase);
+                  });
               });
-          });
 
-          const providerIds = firebaseUser.providerData.map(p => p.providerId);
-          const hasPasswordProvider = providerIds.includes('password');
-          const hasGoogleProvider = providerIds.includes('google.com');
+              const providerIds = firebaseUser.providerData.map(p => p.providerId);
+              const hasPasswordProvider = providerIds.includes('password');
+              const hasGoogleProvider = providerIds.includes('google.com');
 
-          const currentUserData: AppUser = { 
-            id: firebaseUser.uid, 
-            username, 
-            username_lowercase: data?.username_lowercase || username.toLowerCase(), 
-            email: email, 
-            role: data?.role || 'member', 
-            isAuthenticated: true, 
-            createdAt: firebaseUser.metadata.creationTime,
-            hasPasswordProvider,
-            hasGoogleProvider
-          };
-          
-          setUser(currentUserData);
+              const currentUserData: AppUser = { 
+                id: firebaseUser.uid, 
+                username, 
+                username_lowercase: data?.username_lowercase || username.toLowerCase(), 
+                email: email, 
+                role: data?.role || 'member', 
+                isAuthenticated: true, 
+                createdAt: firebaseUser.metadata.creationTime,
+                hasPasswordProvider,
+                hasGoogleProvider
+              };
+              
+              setUser(currentUserData);
 
-          const profileValidated = data?.profileValidated || false;
-          const isDataMissing = !data?.username || !data?.email;
-          const isUsernameInvalid = username && !isValidUsername(username);
+              const profileValidated = data?.profileValidated || false;
+              const isDataMissing = !data?.username || !data?.email;
+              const isUsernameInvalid = username && !isValidUsername(username);
 
-          if (!profileValidated && (isDataMissing || isUsernameInvalid)) {
-            setProfileUpdateReason(isDataMissing ? 'missing_data' : 'invalid_name');
-            setProfileUpdateData({ username: username, email: email, password: '' });
-            setShowProfileUpdateModal(true);
-          } else {
-            setNewUsername(username);
-            setShowProfileUpdateModal(false);
-          }
-        } else {
-          setUser(null);
+              if (!profileValidated && (isDataMissing || isUsernameInvalid)) {
+                setProfileUpdateReason(isDataMissing ? 'missing_data' : 'invalid_name');
+                setProfileUpdateData({ username: username, email: email, password: '' });
+                setShowProfileUpdateModal(true);
+              } else {
+                setNewUsername(username);
+                setShowProfileUpdateModal(false);
+              }
+            } else {
+              setUser(null);
+            }
+        } catch (error) {
+            console.error("Error crítico en onAuthStateChanged:", error);
+            // Si hay error crítico, aseguramos que la app no se quede en loading
+            setUser(null);
+        } finally {
+            setIsAuthLoading(false);
         }
-        setIsAuthLoading(false);
       });
       return () => unsubscribe();
   }, []);
