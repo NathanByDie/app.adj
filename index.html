@@ -264,6 +264,19 @@
             animation: float-up 3s ease-out forwards;
         }
 
+        /* TYPING INDICATOR */
+        @keyframes wave-typing {
+            0%, 60%, 100% { transform: translateY(0); }
+            30% { transform: translateY(-6px); }
+        }
+        .typing-dot {
+            width: 6px;
+            height: 6px;
+            background-color: currentColor;
+            border-radius: 50%;
+            animation: wave-typing 1.2s ease-in-out infinite;
+        }
+
     </style>
     <script>
       let lastTouchY = 0;
@@ -284,7 +297,8 @@
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
     "react/": "https://esm.sh/react@^19.2.3/",
     "react": "https://esm.sh/react@^19.2.3",
-    "firebase/": "https://esm.sh/firebase@^12.8.0/"
+    "firebase/": "https://esm.sh/firebase@^12.8.0/",
+    "idb": "https://esm.sh/idb@8"
   }
 }
 </script>

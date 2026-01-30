@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+import { initializeApp } from "firebase/app";
 import { 
   getAuth, 
   signInWithEmailAndPassword, 
@@ -18,7 +18,7 @@ import {
   signInWithPopup,
   linkWithPopup,
   signInWithCredential
-} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+} from "firebase/auth";
 import { 
   getFirestore, 
   collection, 
@@ -37,14 +37,17 @@ import {
   arrayUnion,
   arrayRemove,
   writeBatch
-} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-import { getDatabase, ref, onValue, set, onDisconnect, serverTimestamp, update as updateRtdb } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+} from "firebase/firestore";
+import { getDatabase, ref, onValue, set, onDisconnect, serverTimestamp, update as updateRtdb } from "firebase/database";
 
-import { User as AppUser, Song, LiturgicalTime, Room, UserRole } from './types';
+import { User as AppUser, Song, LiturgicalTime, Room, UserRole, ChatInfo } from './types';
 import { PlusIcon, UsersIcon } from './constants';
 import SongForm from './components/SongForm';
 import SongViewer from './components/SongViewer';
 import RoomView from './components/RoomView';
+import ChatListView from './components/ChatListView';
+import DirectMessageView from './components/DirectMessageView';
+import UserProfileView from './components/UserProfileView';
 import { triggerHapticFeedback } from './services/haptics';
 
 // --- CONFIGURACIÓN DE FIREBASE ---
@@ -66,8 +69,8 @@ const rtdb = getDatabase(app);
 
 setPersistence(auth, browserLocalPersistence).catch(err => console.error("Error de persistencia:", err));
 
-type AppView = 'feed' | 'favorites' | 'room' | 'settings';
-const VIEW_ORDER: AppView[] = ['feed', 'favorites', 'room', 'settings'];
+type AppView = 'feed' | 'favorites' | 'chat' | 'room' | 'settings';
+const VIEW_ORDER: AppView[] = ['feed', 'favorites', 'chat', 'room', 'settings'];
 type AnimationDirection = 'left' | 'right' | 'fade';
 type Theme = 'light' | 'dark' | 'system';
 
@@ -89,7 +92,7 @@ const LogoutIcon = () => (
 const EyeIcon = ({ className }: { className?: string }) => (
     <svg className={className || "w-5 h-5"} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
         <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542 7z" />
     </svg>
 );
 
@@ -160,10 +163,15 @@ const GoogleIcon = () => (
   </svg>
 );
 
-const NavBar = ({ view, navigateTo, darkMode }: any) => {
+const NavBar = ({ view, navigateTo, darkMode, totalUnreadCount }: any) => {
   const navItems = [
     { id: 'feed', label: 'Repertorio', activeClass: 'text-misionero-azul', activeBg: 'bg-misionero-azul/10', icon: (active: boolean) => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={active ? 2.5 : 2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" d="M9 22V12h6v10" /></svg> },
     { id: 'favorites', label: 'Favoritos', activeClass: 'text-misionero-rojo', activeBg: 'bg-misionero-rojo/10', icon: (active: boolean) => <svg className="w-6 h-6" fill={active ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={active ? 2.5 : 2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg> },
+    { id: 'chat', label: 'Chat', activeClass: 'text-misionero-amarillo', activeBg: 'bg-misionero-amarillo/10', icon: (active: boolean) => (
+        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={active ? 2.5 : 2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+        </svg>
+    )},
     { id: 'room', label: 'Sala', activeClass: 'text-misionero-verde', activeBg: 'bg-misionero-verde/10', icon: (active: boolean) => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={active ? 2.5 : 2}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg> },
     { id: 'settings', label: 'Ajustes', activeClass: 'text-misionero-amarillo', activeBg: 'bg-misionero-amarillo/10', icon: (active: boolean) => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={active ? 2.5 : 2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6h9m-9 6h9m-9 6h9M6 6h.01M6 12h.01M6 18h.01" /></svg> }
   ];
@@ -177,7 +185,7 @@ const NavBar = ({ view, navigateTo, darkMode }: any) => {
     <>
       {/* Mobile Bottom Bar */}
       <div className={`md:hidden fixed bottom-0 left-0 right-0 ${darkMode ? 'bg-black/90 border-slate-800' : 'bg-white/90 border-slate-200'} backdrop-blur-lg border-t pb-[env(safe-area-inset-bottom)] z-40 transition-colors duration-500`}>
-        <div className="flex items-center justify-center h-16 gap-4">
+        <div className="flex items-center justify-around h-16">
           {navItems.map((item) => {
             const isActive = view === item.id;
             return (
@@ -186,8 +194,13 @@ const NavBar = ({ view, navigateTo, darkMode }: any) => {
                 onClick={() => handleNav(item.id)} 
                 className={`flex flex-col items-center justify-center h-full gap-1 active:scale-90 transition-all duration-300 px-4 ${isActive ? item.activeClass : 'text-slate-400'}`}
               >
-                <div className={`p-2 rounded-full transition-all duration-300 ${isActive ? (darkMode ? 'bg-slate-800' : item.activeBg) : 'bg-transparent'}`}>
+                <div className={`relative p-2 rounded-full transition-all duration-300 ${isActive ? (darkMode ? 'bg-slate-800' : item.activeBg) : 'bg-transparent'}`}>
                   {item.icon(isActive)}
+                  {item.id === 'chat' && totalUnreadCount > 0 && (
+                     <div className="absolute -top-1 -right-1 w-4 h-4 bg-misionero-rojo rounded-full flex items-center justify-center text-white text-[8px] font-black animate-in zoom-in-75">
+                         {totalUnreadCount > 9 ? '9+' : totalUnreadCount}
+                     </div>
+                  )}
                 </div>
                 <span className={`text-[9px] font-black uppercase transition-all duration-300 ${isActive ? 'opacity-100' : 'opacity-0 scale-0'}`}>{item.label}</span>
               </button>
@@ -210,10 +223,15 @@ const NavBar = ({ view, navigateTo, darkMode }: any) => {
                   <button 
                     key={item.id} 
                     onClick={() => handleNav(item.id)} 
-                    className={`flex flex-col items-center justify-center p-3 rounded-2xl transition-all hover:bg-slate-100 dark:hover:bg-slate-800 ${isActive ? `${item.activeBg} ${item.activeClass}` : 'text-slate-400'}`}
+                    className={`relative flex flex-col items-center justify-center p-3 rounded-2xl transition-all hover:bg-slate-100 dark:hover:bg-slate-800 ${isActive ? `${item.activeBg} ${item.activeClass}` : 'text-slate-400'}`}
                     title={item.label}
                   >
                     {item.icon(isActive)}
+                     {item.id === 'chat' && totalUnreadCount > 0 && (
+                       <div className="absolute top-1 right-1 w-4 h-4 bg-misionero-rojo rounded-full flex items-center justify-center text-white text-[8px] font-black animate-in zoom-in-75">
+                           {totalUnreadCount > 9 ? '9+' : totalUnreadCount}
+                       </div>
+                    )}
                   </button>
                 )
             })}
@@ -368,11 +386,10 @@ const RoomLobbyView = ({ roomCodeInput, setRoomCodeInput, handleJoinRoom, handle
 
 const SettingsView = ({ 
     darkMode, theme, setTheme, isAdmin, isSuperAdmin, categories, newCategoryName, setNewCategoryName, onAddCategory, 
-    editingCategory, setEditingCategory, onSaveEditCategory, handleDeleteCategory, newUsername, setNewUsername, 
-    showUsernamePass, setShowUsernamePass, usernameChangePassword, setUsernameChangePassword, isUpdatingUsername, 
-    handleUpdateUsername, passwordChangeData, setPasswordChangeData, showChangePassword, toggleShowChangePassword, 
+    editingCategory, setEditingCategory, onSaveEditCategory, handleDeleteCategory,
+    passwordChangeData, setPasswordChangeData, showChangePassword, toggleShowChangePassword, 
     passwordChangeMsg, isUpdatingPassword, handleChangePassword, setCategoryConfirmModal, canLinkGoogle, onLinkGoogle, 
-    isLinkingGoogle, adminUsers, onAddAdmin, onRevokeAdmin 
+    isLinkingGoogle, adminUsers, onAddAdmin, onRevokeAdmin, currentUser, onViewProfile
 }: any) => {
     
     const [newAdminEmail, setNewAdminEmail] = useState('');
@@ -386,6 +403,22 @@ const SettingsView = ({
     return (
     <div className="w-full h-full overflow-y-auto custom-scroll px-6 py-4 pb-48 grid grid-cols-1 lg:grid-cols-2 gap-8">
       <div className="space-y-8">
+        <section>
+            <button 
+                onClick={() => onViewProfile(currentUser.id)}
+                className="w-full flex items-center gap-4 p-4 rounded-[2.5rem] glass-ui glass-interactive text-left active:scale-[0.98] transition-transform"
+            >
+                <div className="w-16 h-16 rounded-full bg-misionero-azul flex items-center justify-center text-3xl font-black text-white shadow-lg shrink-0">
+                    {currentUser.username.charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1">
+                    <h3 className={`text-lg font-black ${darkMode ? 'text-white' : 'text-slate-900'}`}>{currentUser.username}</h3>
+                    <p className="text-xs text-slate-400 font-bold">Ver y editar perfil</p>
+                </div>
+                <svg className="w-5 h-5 ml-auto text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
+            </button>
+        </section>
+
         <section className="space-y-4">
            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Apariencia</h3>
            <div className="glass-ui p-4 rounded-[2.5rem] flex flex-col gap-3">
@@ -406,31 +439,6 @@ const SettingsView = ({
                 })}
               </div>
             </div>
-        </section>
-
-        <section className="space-y-4">
-           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Perfil</h3>
-           <div className="glass-ui p-6 rounded-[2.5rem] space-y-4">
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-[8px] font-black uppercase text-slate-400">Nombre de Usuario</span>
-                </div>
-                <input type="text" className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} value={newUsername} onChange={e => setNewUsername(e.target.value)} />
-                
-                <div className="relative mt-3">
-                    <input 
-                        type={showUsernamePass ? 'text' : 'password'} 
-                        placeholder="Confirma con tu contraseña" 
-                        className={`w-full glass-ui rounded-2xl px-4 py-4 text-sm font-bold outline-none placeholder:text-slate-400/50 ${darkMode ? 'bg-slate-800/50' : 'bg-white/50'}`} 
-                        value={usernameChangePassword} 
-                        onChange={e => setUsernameChangePassword(e.target.value)} 
-                    />
-                     <button type="button" onClick={() => setShowUsernamePass(!showUsernamePass)} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showUsernamePass ? <EyeOffIcon/> : <EyeIcon/>}</button>
-                </div>
-
-                <button onClick={handleUpdateUsername} disabled={isUpdatingUsername || !usernameChangePassword} className="w-full mt-3 glass-ui glass-interactive bg-misionero-azul/70 text-white font-black py-4 rounded-2xl text-[9px] uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">{isUpdatingUsername ? 'Verificando...' : 'Guardar Cambios'}</button>
-              </div>
-           </div>
         </section>
         
         <section className="space-y-4">
@@ -524,7 +532,9 @@ const SettingsView = ({
                       </button>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                      {categories.map((cat: {id: string, name: string}) => (
+                      {categories.length === 0 ? (
+                          <p className={`text-xs font-bold w-full text-center py-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>No hay categorías definidas.</p>
+                      ) : categories.map((cat: {id: string, name: string}) => (
                           <div key={cat.id} className={`flex items-center gap-2 pl-3 pr-1 py-1 rounded-lg text-[9px] font-black uppercase glass-ui ${darkMode ? 'bg-slate-800/40' : 'bg-white/40'}`}>
                               {editingCategory?.id === cat.id ? (
                                   <input 
@@ -556,21 +566,21 @@ const SettingsView = ({
 
 // --- COMPONENTE PRINCIPAL DE LA VISTA ---
 const MainView = ({
-  user, view, darkMode, theme, setTheme, isAdmin, isSuperAdmin, animationDirection, navigateTo,
+  user, view, darkMode, theme, setTheme, isAdmin, isSuperAdmin, animationDirection, navigateTo, totalUnreadCount,
   // Props para todas las vistas
   songs, favorites, openSongViewer, toggleFavorite,
   searchQuery, setSearchQuery, activeFilter, setActiveFilter, categories,
+  // Props para Chat
+  userChats, onlineStatuses, openDirectMessage, onViewProfile,
   // Props para Sala
   roomCodeInput, setRoomCodeInput, handleJoinRoom, handleCreateRoom, isJoiningRoom,
   // Props para Ajustes
-  handleCreateCategory, handleDeleteCategory, handleEditCategory, setCategoryConfirmModal,
-  newUsername, setNewUsername, showUsernamePass, setShowUsernamePass, usernameChangePassword, setUsernameChangePassword, isUpdatingUsername, handleUpdateUsername,
+  newCategoryName, setNewCategoryName, onAddCategory,
+  editingCategory, setEditingCategory, onSaveEditCategory, handleDeleteCategory, setCategoryConfirmModal,
   passwordChangeData, setPasswordChangeData, showChangePassword, toggleShowChangePassword, passwordChangeMsg, isUpdatingPassword, handleChangePassword,
   isLinkingGoogle, handleLinkGoogleAccount, adminUsers, handleAddAdmin, handleRevokeAdmin, handleSignOut, openSongEditor
 }: any) => {
   
-  const [newCategoryName, setNewCategoryName] = useState('');
-  const [editingCategory, setEditingCategory] = useState<{id: string, name: string} | null>(null);
   const touchStartCoords = useRef<{x: number, y: number} | null>(null);
   const minSwipeDistance = 60;
 
@@ -599,24 +609,9 @@ const MainView = ({
       }
       touchStartCoords.current = null;
   };
-
-
-  const onAddCategory = () => {
-    if(newCategoryName.trim()) {
-        handleCreateCategory(newCategoryName.trim());
-        setNewCategoryName('');
-    }
-  };
-
-  const onSaveEditCategory = () => {
-      if(editingCategory && editingCategory.name.trim()) {
-          handleEditCategory(editingCategory.id, editingCategory.name.trim());
-          setEditingCategory(null);
-      }
-  };
   
   const categoryNames = useMemo(() => categories.map((c: any) => c.name), [categories]);
-  const filteredSongs = useMemo(() => songs.filter((s: Song) => (s.title.toLowerCase().includes(searchQuery.toLowerCase()) || s.author.toLowerCase().includes(searchQuery.toLowerCase())) && (activeFilter === 'Todos' || s.category === activeFilter)).sort((a:Song, b:Song) => a.title.localeCompare(b.title)), [songs, searchQuery, activeFilter]);
+  const filteredSongs = useMemo(() => songs.filter((s: Song) => (s.title.toLowerCase().includes(searchQuery.toLowerCase()) || s.author.toLowerCase().includes(searchQuery.toLowerCase())) && (activeFilter === 'Todos' || s.category === activeFilter)).sort((a, b) => a.title.localeCompare(b.title)), [songs, searchQuery, activeFilter]);
   const favoriteSongs = useMemo(() => filteredSongs.filter((s: Song) => favorites.includes(s.id)), [filteredSongs, favorites]);
 
   const renderActiveView = () => {
@@ -625,6 +620,8 @@ const MainView = ({
               return <FeedView songs={filteredSongs} favorites={favorites} openSongViewer={openSongViewer} toggleFavorite={toggleFavorite} darkMode={darkMode} />;
           case 'favorites':
               return <FavoritesView songs={favoriteSongs} favorites={favorites} openSongViewer={openSongViewer} toggleFavorite={toggleFavorite} darkMode={darkMode} />;
+          case 'chat':
+              return <ChatListView userChats={userChats} onlineStatuses={onlineStatuses} onUserSelect={openDirectMessage} onViewProfile={onViewProfile} darkMode={darkMode} currentUser={user} db={db} rtdb={rtdb} />;
           case 'room':
               return <RoomLobbyView roomCodeInput={roomCodeInput} setRoomCodeInput={setRoomCodeInput} handleJoinRoom={handleJoinRoom} handleCreateRoom={handleCreateRoom} isAdmin={isAdmin} isJoiningRoom={isJoiningRoom} />;
           case 'settings':
@@ -632,8 +629,6 @@ const MainView = ({
                         darkMode={darkMode} theme={theme} setTheme={setTheme} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin}
                         categories={categories} newCategoryName={newCategoryName} setNewCategoryName={setNewCategoryName} onAddCategory={onAddCategory} 
                         editingCategory={editingCategory} setEditingCategory={setEditingCategory} onSaveEditCategory={onSaveEditCategory} handleDeleteCategory={handleDeleteCategory}
-                        newUsername={newUsername} setNewUsername={setNewUsername} showUsernamePass={showUsernamePass} setShowUsernamePass={setShowUsernamePass}
-                        usernameChangePassword={usernameChangePassword} setUsernameChangePassword={setUsernameChangePassword} isUpdatingUsername={isUpdatingUsername} handleUpdateUsername={handleUpdateUsername}
                         passwordChangeData={passwordChangeData} setPasswordChangeData={setPasswordChangeData} showChangePassword={showChangePassword}
                         toggleShowChangePassword={toggleShowChangePassword} passwordChangeMsg={passwordChangeMsg} isUpdatingPassword={isUpdatingPassword} handleChangePassword={handleChangePassword}
                         setCategoryConfirmModal={setCategoryConfirmModal}
@@ -641,6 +636,8 @@ const MainView = ({
                         onLinkGoogle={handleLinkGoogleAccount}
                         isLinkingGoogle={isLinkingGoogle}
                         adminUsers={adminUsers} onAddAdmin={handleAddAdmin} onRevokeAdmin={handleRevokeAdmin}
+                        currentUser={user}
+                        onViewProfile={onViewProfile}
                      />;
           default:
               return null;
@@ -654,7 +651,7 @@ const MainView = ({
 
   return (
     <div className={`fixed inset-0 transition-colors duration-500 ${darkMode ? 'text-white bg-black' : 'text-slate-900 bg-slate-50'} flex`}>
-      <NavBar view={view} navigateTo={navigateTo} darkMode={darkMode} />
+      <NavBar view={view} navigateTo={navigateTo} darkMode={darkMode} totalUnreadCount={totalUnreadCount} />
       <div className="md:pl-20 w-full flex flex-col">
         <header onTouchStart={(e) => e.stopPropagation()} className={`shrink-0 z-30 transition-colors duration-500 ${darkMode ? 'bg-black/80 backdrop-blur-sm' : 'bg-slate-50/80 backdrop-blur-sm'} border-b ${darkMode ? 'border-white/10' : 'border-slate-200'}`}>
           <div className="w-full max-w-7xl mx-auto px-4 pt-6 pb-3">
@@ -662,7 +659,7 @@ const MainView = ({
               <div>
                 <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.3em] mb-0.5">ADJStudios</p>
                 <h2 className="text-lg font-black tracking-tight">
-                  {view === 'feed' ? `Hola, ${user.username}` : view === 'favorites' ? 'Mis Favoritos' : view === 'room' ? 'Sala en Vivo' : 'Ajustes'}
+                  {view === 'feed' ? `Hola, ${user.username}` : view === 'favorites' ? 'Mis Favoritos' : view === 'chat' ? 'Mensajes' : view === 'room' ? 'Sala en Vivo' : 'Ajustes'}
                 </h2>
               </div>
               <div className="flex items-center gap-3">
@@ -672,7 +669,8 @@ const MainView = ({
                    </button>
                 )}
                 {view === 'settings' && (
-                  <button onClick={handleSignOut} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-misionero-rojo/10 text-misionero-rojo active:scale-95 transition-all">
+                  // FIX: Changed onClick to call handleSignOut within an arrow function to prevent passing the event object, which could cause a type error.
+                  <button onClick={() => handleSignOut()} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-misionero-rojo/10 text-misionero-rojo active:scale-95 transition-all">
                     <LogoutIcon />
                     <span className="text-[9px] font-black uppercase">Cerrar Sesión</span>
                   </button>
@@ -711,799 +709,638 @@ const MainView = ({
           </div>
         </main>
       </div>
+      {view === 'feed' && isAdmin && (
+        <button
+          onClick={() => openSongEditor(null)}
+          className="md:hidden fixed bottom-24 right-6 z-40 w-16 h-16 bg-misionero-rojo text-white rounded-full shadow-2xl flex items-center justify-center active:scale-95 transition-transform animate-in zoom-in-75"
+          aria-label="Añadir Música"
+        >
+          <PlusIcon />
+        </button>
+      )}
     </div>
   );
 };
 
-const isValidUsername = (username: string): boolean => {
-  // Must be between 3 and 24 characters, letters, accents and spaces allowed.
-  const regex = /^[a-zA-ZáéíóúÁÉÍÓÚñÑ ]{3,24}$/;
-  return regex.test(username) && username.trim().length >= 3;
-};
+// --- APP COMPONENT IMPLEMENTATION ---
 
-const App: React.FC = () => {
-  const [user, setUser] = useState<AppUser | null>(null);
-  const [songs, setSongs] = useState<Song[]>([]);
-  const [categories, setCategories] = useState<{id: string, name: string}[]>([]);
-  const [favorites, setFavorites] = useState<string[]>([]);
-  const [view, setView] = useState<AppView>('feed');
-  const [activeSong, setActiveSong] = useState<Song | null>(null);
-  const [activeRoom, setActiveRoom] = useState<Room | null>(null);
-  const [editingSong, setEditingSong] = useState<Song | boolean | null>(null);
-  const [isAuthLoading, setIsAuthLoading] = useState(true);
-  const [isAuthenticating, setIsAuthenticating] = useState(false);
-  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('theme') as Theme | null) || 'system');
-  const [systemPrefersDark, setSystemPrefersDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<string>('Todos');
-  const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot'>('login');
-  const [authData, setAuthData] = useState({ user: '', email: '', pass: '', confirmPass: '' });
-  const [authMsg, setAuthMsg] = useState<{type: 'success' | 'error', text: string} | null>(null);
-  const [roomCodeInput, setRoomCodeInput] = useState('');
-  const [newUsername, setNewUsername] = useState('');
-  const [usernameChangePassword, setUsernameChangePassword] = useState('');
-  const [showUsernamePass, setShowUsernamePass] = useState(false);
+const App = () => {
+    // Auth State
+    const [user, setUser] = useState<AppUser | null>(null);
+    const [authLoading, setAuthLoading] = useState(true);
+    const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot'>('login');
+    const [authData, setAuthData] = useState({ user: '', email: '', pass: '', confirmPass: '' });
+    const [isAuthenticating, setIsAuthenticating] = useState(false);
+    const [authMsg, setAuthMsg] = useState<{type: 'error' | 'success', text: string} | null>(null);
+    const [showPassword, setShowPassword] = useState(false);
   
-  const [passwordChangeData, setPasswordChangeData] = useState({ current: '', newPass: '', confirm: '' });
-  const [passwordChangeMsg, setPasswordChangeMsg] = useState<{type: 'success' | 'error', text: string} | null>(null);
-  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
-  const [isUpdatingUsername, setIsUpdatingUsername] = useState(false);
-  const [isJoiningRoom, setIsJoiningRoom] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [isLinkingGoogle, setIsLinkingGoogle] = useState(false);
-  const [showChangePassword, setShowChangePassword] = useState({ current: false, newPass: false, confirm: false });
-
-  const [showOpenInAppButton, setShowOpenInAppButton] = useState(false);
-  const [connectionKey, setConnectionKey] = useState(0);
-  const [globalAlert, setGlobalAlert] = useState<{ title: string, message: string, type: 'error' | 'success' | 'info' } | null>(null);
-  const [animationDirection, setAnimationDirection] = useState<AnimationDirection>('fade');
-  const [categoryConfirmModal, setCategoryConfirmModal] = useState<{ title: string, message: string, action: () => void, type: 'danger' | 'warning' } | null>(null);
-
-  const [showProfileUpdateModal, setShowProfileUpdateModal] = useState(false);
-  const [profileUpdateData, setProfileUpdateData] = useState({ username: '', email: '', password: '' });
-  const [profileUpdateError, setProfileUpdateError] = useState<string | null>(null);
-  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
-  const [profileUpdateReason, setProfileUpdateReason] = useState<'invalid_name' | 'missing_data' | null>(null);
-  const [showUpdatePassword, setShowUpdatePassword] = useState(false);
-  const [showExitConfirm, setShowExitConfirm] = useState<any>(null);
-  const isExitingApp = useRef(false);
-  const [adminUsers, setAdminUsers] = useState<AppUser[]>([]);
-  const [initialImportUrl, setInitialImportUrl] = useState('');
-
-  const darkMode = useMemo(() => {
-    if (theme === 'system') return systemPrefersDark;
-    return theme === 'dark';
-  }, [theme, systemPrefersDark]);
-
-  const categoryNames = useMemo(() => categories.map(c => c.name), [categories]);
-  // Re-memoize to use in App scope navigation
-  const filteredSongs = useMemo(() => songs.filter((s: Song) => (s.title.toLowerCase().includes(searchQuery.toLowerCase()) || s.author.toLowerCase().includes(searchQuery.toLowerCase())) && (activeFilter === 'Todos' || s.category === activeFilter)).sort((a, b) => a.title.localeCompare(b.title)), [songs, searchQuery, activeFilter]);
-
-  const toggleShowChangePassword = (field: 'current' | 'newPass' | 'confirm') => {
-    setShowChangePassword(prev => ({ ...prev, [field]: !prev[field] }));
-  };
-  
-  const toggleFavorite = async (e: React.MouseEvent, songId: string) => { e.stopPropagation(); if (user) await updateDoc(doc(db, "users", user.id), { favorites: favorites.includes(songId) ? arrayRemove(songId) : arrayUnion(songId) }); };
-  
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleChange = () => setSystemPrefersDark(mediaQuery.matches);
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem('theme', theme);
-    if (darkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [theme, darkMode]);
-
-  useEffect(() => {
-    if (!window.history.state) {
-      window.history.replaceState({ view: 'feed' }, '', '');
-    }
-  }, []);
-
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        setConnectionKey(prev => prev + 1);
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, []);
-
-  useEffect(() => {
-    const handleIncomingShare = () => {
-        const params = new URLSearchParams(window.location.search);
-        const sharedUrl = params.get('sharedUrl') || params.get('url') || params.get('text');
-        
-        if (sharedUrl && (sharedUrl.includes('lacuerda.net') || sharedUrl.startsWith('http'))) {
-            if (sharedUrl.includes('lacuerda.net')) {
-                setInitialImportUrl(sharedUrl);
-                // Si viene de share, abrimos el editor. Asumimos que si comparte es para importar.
-                setEditingSong(true); 
-                window.history.pushState({ overlay: 'editor' }, '', '');
-                // Limpiar la URL para evitar bucles si se refresca, pero con cuidado
-                // window.history.replaceState(null, '', window.location.pathname);
-            }
-        }
-    };
-
-    handleIncomingShare();
+    // App Logic State
+    const [view, setView] = useState<AppView>('feed');
+    const [songs, setSongs] = useState<Song[]>([]);
+    const [categories, setCategories] = useState<{id: string, name: string}[]>([]);
+    const [userChats, setUserChats] = useState<ChatInfo[]>([]);
+    const [allUsers, setAllUsers] = useState<AppUser[]>([]);
+    const [onlineStatuses, setOnlineStatuses] = useState<any>({});
     
-    // Median JS Bridge handler
-    (window as any).median_share_opened = (data: any) => {
-        console.log("Median share received:", data);
-        let url = '';
-        if (typeof data === 'string') url = data;
-        else if (typeof data === 'object') {
-            url = data.url || data.text || '';
-        }
-        
-        if (url && url.includes('lacuerda.net')) {
-             setInitialImportUrl(url);
-             setEditingSong(true);
-             window.history.pushState({ overlay: 'editor' }, '', '');
-        }
-    };
-
-  }, []);
+    // UI State
+    const [searchQuery, setSearchQuery] = useState('');
+    const [activeFilter, setActiveFilter] = useState('Todos');
+    const [activeSong, setActiveSong] = useState<Song | null>(null);
+    const [editingSong, setEditingSong] = useState<Song | null | undefined>(undefined);
+    const [activeChatPartner, setActiveChatPartner] = useState<AppUser | null>(null);
+    const [viewingProfileId, setViewingProfileId] = useState<string | null>(null);
+    const [viewingProfileUser, setViewingProfileUser] = useState<AppUser | null>(null);
+    const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
+    const [roomCodeInput, setRoomCodeInput] = useState('');
+    const [isJoiningRoom, setIsJoiningRoom] = useState(false);
+    const [categoryConfirmModal, setCategoryConfirmModal] = useState<any>(null);
+    const [animationDirection, setAnimationDirection] = useState<AnimationDirection>('fade');
   
-  const handleConfirmExit = useCallback(() => {
-    isExitingApp.current = true;
-    setShowExitConfirm(null);
-    window.history.back();
-  }, []);
-
-  const navigateTo = useCallback((newView: AppView, dir?: 'left' | 'right') => {
-    if (view === newView) return;
-    
-    let direction: AnimationDirection = 'fade';
-    if (dir) {
-        direction = dir;
-    } else {
-        const currentIndex = VIEW_ORDER.indexOf(view);
-        const nextIndex = VIEW_ORDER.indexOf(newView);
-        if (nextIndex > currentIndex) direction = 'left';
-        if (nextIndex < currentIndex) direction = 'right';
-    }
-    
-    setAnimationDirection(direction);
-    window.history.pushState({ view: newView }, '', '');
-    setView(newView);
-}, [view]);
-
-const goBack = useCallback(() => window.history.back(), []);
-
-const handlePopState = useCallback((event: PopStateEvent) => {
-    if (isExitingApp.current) return;
-
-    // Prioritize closing overlays first, even if inside a room.
-    if (editingSong) {
-        setEditingSong(null);
-        setInitialImportUrl(''); // Limpiar al cerrar
-        return;
-    }
-    if (activeSong) {
-        setActiveSong(null);
-        if (window.location.search.includes('song=')) {
-            window.history.replaceState(null, '', window.location.pathname);
-        }
-        return;
-    }
-
-    // If in a room, let the RoomView component handle its own navigation (exit prompts, etc.)
-    if (activeRoom) {
-        return;
-    }
-
-    // If no overlays are open, handle main view navigation or app exit confirmation.
-    if (event.state && event.state.view) {
-        setView(event.state.view as AppView);
-    } else {
-        window.history.pushState({ view: 'feed' }, '', ''); // Prevent exiting
-        setShowExitConfirm({
-            title: 'Salir de la App',
-            message: '¿Estás seguro de que quieres salir?',
-            action: handleConfirmExit,
-        });
-    }
-}, [activeSong, activeRoom, editingSong, handleConfirmExit]);
-
-useEffect(() => {
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-}, [handlePopState]);
+    // Settings State
+    const [passwordChangeData, setPasswordChangeData] = useState({ current: '', newPass: '', confirm: '' });
+    const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+    const [passwordChangeMsg, setPasswordChangeMsg] = useState<{type: 'error' | 'success', text: string} | null>(null);
+    const showChangePassword = useRef({ current: false, newPass: false, confirm: false });
+    const [forceRender, setForceRender] = useState(0); 
   
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-        if (user) {
-            e.preventDefault();
-            e.returnValue = '¿Estás seguro de que quieres salir?';
-            return e.returnValue;
-        }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-        window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [user]);
+    const [isLinkingGoogle, setIsLinkingGoogle] = useState(false);
+    const [adminUsers, setAdminUsers] = useState<AppUser[]>([]);
+    
+    // State for category management, now centralized here.
+    const [newCategoryName, setNewCategoryName] = useState('');
+    const [editingCategory, setEditingCategory] = useState<{id: string, name: string} | null>(null);
 
-  useEffect(() => {
-    if (!activeRoom?.id) return;
-    const unsubscribe = onSnapshot(doc(db, "rooms", activeRoom.id), async (docSnap) => {
-      if (docSnap.exists()) {
-        const roomData = docSnap.data();
-        
-        // Auto-Delete logic inside active session
-        if (roomData.expiresAt && Date.now() > roomData.expiresAt) {
-            if (user?.username === roomData.host) {
-                try { await deleteDoc(doc(db, "rooms", activeRoom.id)); } catch(e) {}
-            }
-            setActiveRoom(null);
-            setGlobalAlert({ title: "Tiempo Agotado", message: "La sala ha expirado y ha sido cerrada.", type: 'info' });
-            return;
-        }
-
-        setActiveRoom(prev => ({ ...prev, ...roomData, id: docSnap.id } as Room));
-      } else {
-        setActiveRoom(null);
-        setGlobalAlert({ title: "Sala Cerrada", message: "La sala ha sido cerrada por el servidor.", type: 'info' });
-      }
-    }, (error) => { console.error("Error en listener de sala:", error); });
-    return () => unsubscribe();
-  }, [activeRoom?.id, connectionKey, user?.username]); // added user?.username dependency
-
-  useEffect(() => {
-      if (!user) return;
-      const q = query(collection(db, "song_categories"), orderBy("name"));
-      const unsubscribe = onSnapshot(q, async (snapshot) => {
-          if (snapshot.empty) {
-              try {
-                  const batch = writeBatch(db);
-                  Object.values(LiturgicalTime).forEach(catName => {
-                      const ref = doc(collection(db, "song_categories"));
-                      batch.set(ref, { name: catName });
-                  });
-                  await batch.commit();
-              } catch (e) {
-                  console.error("Error seeding categories:", e);
-              }
-          } else {
-              setCategories(snapshot.docs.map(d => ({ id: d.id, name: d.data().name })));
-          }
-      }, (error) => {
-          console.error("Error subscribing to categories:", error);
-      });
-      return () => unsubscribe();
-  }, [user]);
-
-  useEffect(() => {
-    let unsubscribeUser = () => {};
-    let unsubscribeSongs = () => {};
-
-    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
-      // Limpiar los listeners del usuario anterior antes de configurar los nuevos
-      unsubscribeUser();
-      unsubscribeSongs();
-
-      if (currentUser) {
-        // El usuario ha iniciado sesión, configurar nuevos listeners en tiempo real
-        
-        // Listener para el documento del usuario (actualiza favoritos, rol, etc., en tiempo real)
-        unsubscribeUser = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
-          if (userDoc.exists()) {
-            const userData = userDoc.data();
-            const hasPasswordProvider = currentUser.providerData.some(p => p.providerId === 'password');
-            const hasGoogleProvider = currentUser.providerData.some(p => p.providerId === 'google.com');
-
-            setUser({ 
-              id: currentUser.uid, 
-              ...userData, 
-              isAuthenticated: true,
-              hasPasswordProvider,
-              hasGoogleProvider 
-            } as AppUser);
-            
-            setFavorites(userData.favorites || []);
-          } else {
-            // Caso raro: el usuario existe en Auth pero no en Firestore. Cerrar sesión.
-            signOut(auth);
-          }
-        });
-
-        // Listener para la colección de canciones
-        const songsQ = query(collection(db, "songs"), orderBy("title"));
-        unsubscribeSongs = onSnapshot(songsQ, (snapshot) => {
-          setSongs(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Song)));
-        });
-
-      } else {
-        // El usuario ha cerrado sesión, limpiar el estado
-        setUser(null);
-        setFavorites([]);
-        setSongs([]);
-      }
-      setIsAuthLoading(false);
+    const prevUserChatsRef = useRef<ChatInfo[]>();
+  
+    // Theme Management
+    const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('theme') as Theme) || 'system');
+    const [darkMode, setDarkMode] = useState<boolean>(() => {
+        const storedTheme = (localStorage.getItem('theme') as Theme) || 'system';
+        if (storedTheme === 'dark') return true;
+        if (storedTheme === 'light') return false;
+        return window.matchMedia('(prefers-color-scheme: dark)').matches;
     });
 
-    // Función de limpieza para cuando el componente se desmonte
-    return () => {
-      unsubscribeAuth();
-      unsubscribeUser();
-      unsubscribeSongs();
+    useEffect(() => {
+        localStorage.setItem('theme', theme);
+        const root = window.document.documentElement;
+        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+        const updateDarkMode = () => {
+            const isDark = theme === 'dark' || (theme === 'system' && mediaQuery.matches);
+            setDarkMode(isDark);
+            root.classList.toggle('dark', isDark);
+        };
+
+        const handleSystemChange = () => {
+            if (theme === 'system') {
+                updateDarkMode();
+            }
+        };
+
+        updateDarkMode();
+        mediaQuery.addEventListener('change', handleSystemChange);
+
+        return () => {
+            mediaQuery.removeEventListener('change', handleSystemChange);
+        };
+    }, [theme]);
+  
+    // Derived State
+    const isAdmin = user?.role === 'admin';
+    const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
+    const totalUnreadCount = useMemo(() => userChats.reduce((acc, chat) => acc + (chat.unreadCount || 0), 0), [userChats]);
+
+    // Calculate displayed user list for chat view
+    const displayedUserList = useMemo(() => {
+        if (!user || allUsers.length === 0) return [];
+        const existingChatPartners = new Set(userChats.map(c => c.partnerId));
+        // Include self (allow user to chat with themselves) and others not in chat list
+        const usersWithoutChat = allUsers
+            .filter(u => !existingChatPartners.has(u.id))
+            .map(u => ({
+                partnerUsername: u.username,
+                lastMessageText: undefined,
+                lastMessageTimestamp: undefined,
+                unreadCount: 0,
+                partnerId: u.id,
+                lastMessageSenderId: undefined
+            } as ChatInfo));
+
+        return [
+            ...userChats,
+            ...usersWithoutChat.sort((a, b) => a.partnerUsername.localeCompare(b.partnerUsername))
+        ];
+    }, [user, allUsers, userChats]);
+
+    // --- Navigation History Management ---
+    useEffect(() => {
+        const handlePopState = (event: PopStateEvent) => {
+            const newOverlay = event.state?.overlay || null;
+
+            // Sync all overlay states to match the new history state.
+            if (newOverlay !== 'song') setActiveSong(null);
+            if (newOverlay !== 'editor') setEditingSong(undefined);
+            if (newOverlay !== 'chat') setActiveChatPartner(null);
+            if (newOverlay !== 'profile') setViewingProfileId(null);
+            
+            // If the new state is not room-related at all, close the room.
+            if (newOverlay !== 'room' && !newOverlay?.startsWith('room_')) {
+                setCurrentRoom(null);
+            }
+        };
+
+        window.addEventListener('popstate', handlePopState);
+        window.history.replaceState({ overlay: null }, '');
+
+        return () => {
+            window.removeEventListener('popstate', handlePopState);
+        };
+    }, []);
+
+    const manageHistory = (overlayType: string | null) => {
+        const hasOverlay = !!overlayType;
+        const currentState = window.history.state;
+
+        if (hasOverlay && (!currentState || currentState.overlay !== overlayType)) {
+            window.history.pushState({ overlay: overlayType }, '');
+        }
     };
-  }, []);
-
-  useEffect(() => {
-      if (user?.role === 'admin' && user?.email === SUPER_ADMIN_EMAIL) {
-          const q = query(collection(db, "users"), where("role", "==", "admin"));
-          const unsub = onSnapshot(q, (snap) => {
-              setAdminUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser)));
-          });
-          return () => unsub();
-      }
-  }, [user]);
-
-  const handleCreateCategory = async (name: string) => {
-      if (categories.some(c => c.name.toLowerCase() === name.toLowerCase())) {
-        setGlobalAlert({ title: "Duplicado", message: "Esa categoría ya existe.", type: 'error' });
-        return;
-      }
-      try {
-        await addDoc(collection(db, "song_categories"), { name });
-        setGlobalAlert({ title: "Éxito", message: `Categoría "${name}" creada.`, type: 'success' });
-      } catch (e) {
-        console.error("Error creating category:", e);
-        setGlobalAlert({ title: "Error", message: "No se pudo crear la categoría.", type: 'error' });
-      }
-  };
-
-  const handleDeleteCategory = async (categoryId: string) => {
-      try {
-        await deleteDoc(doc(db, "song_categories", categoryId));
-        setGlobalAlert({ title: "Éxito", message: "Categoría eliminada.", type: 'success' });
-      } catch(e) {
-        console.error("Error deleting category:", e);
-        setGlobalAlert({ title: "Error", message: "No se pudo eliminar la categoría.", type: 'error' });
-      }
-  };
-
-  const handleEditCategory = async (categoryId: string, newName: string) => {
-      if (categories.some(c => c.name.toLowerCase() === newName.toLowerCase() && c.id !== categoryId)) {
-          setGlobalAlert({ title: "Error", message: "Esa categoría ya existe.", type: "error"});
-          return;
-      }
-      try {
-        await updateDoc(doc(db, "song_categories", categoryId), { name: newName });
-        setGlobalAlert({ title: "Éxito", message: `Categoría renombrada a "${newName}".`, type: 'success' });
-      } catch(e) {
-        console.error("Error editing category:", e);
-        setGlobalAlert({ title: "Error", message: "No se pudo editar la categoría.", type: 'error' });
-      }
-  };
-
-  const openSongViewer = (song: Song) => { setActiveSong(song); window.history.pushState({ overlay: 'song' }, '', ''); };
-  const openSongEditor = (song: Song | null) => { setEditingSong(song || true); window.history.pushState({ overlay: 'editor' }, '', ''); };
-
-  const performDeleteSong = useCallback(async (songId: string) => {
-    try {
-        await deleteDoc(doc(db, "songs", songId));
-        setGlobalAlert({ title: "Éxito", message: "La canción ha sido eliminada permanentemente.", type: 'success' });
-    } catch (err) {
-        console.error("Error deleting song document:", err);
-        setGlobalAlert({ title: "Error", message: "Error al eliminar la canción.", type: 'error' });
-    }
-  }, []);
+    
+    useEffect(() => manageHistory(activeSong ? 'song' : null), [activeSong]);
+    useEffect(() => manageHistory(editingSong !== undefined ? 'editor' : null), [editingSong]);
+    useEffect(() => manageHistory(currentRoom ? 'room' : null), [currentRoom]);
+    useEffect(() => manageHistory(activeChatPartner ? 'chat' : null), [activeChatPartner]);
+    useEffect(() => manageHistory(viewingProfileId ? 'profile' : null), [viewingProfileId]);
 
 
-  const handleDeleteSong = (song: Song | null) => {
-      if (!song) return;
-      setCategoryConfirmModal({
-          title: 'Eliminar Canción',
-          message: `¿Seguro que quieres eliminar "${song.title}"? Esta acción no se puede deshacer.`,
-          type: 'danger',
-          action: async () => {
-              setCategoryConfirmModal(null);
-              await performDeleteSong(song.id);
-              if (activeSong && activeSong.id === song.id) {
-                  goBack();
-              }
-          }
-      });
-  };
+    // Effects
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
+            if (authUser) {
+                const userRef = doc(db, 'users', authUser.uid);
+                const userSnap = await getDoc(userRef);
+                if (userSnap.exists()) {
+                    const userData = userSnap.data();
+                    const creationTime = userData.createdAt || authUser.metadata.creationTime || new Date().toISOString();
+                    
+                    // Auto-fix: Si no existe en la BD, lo guardamos para que otros lo vean
+                    if (!userData.createdAt && authUser.metadata.creationTime) {
+                        updateDoc(userRef, { createdAt: authUser.metadata.creationTime }).catch(console.error);
+                    }
 
-  const enterRoom = (room: Room) => { setActiveRoom(room); window.history.pushState({ overlay: 'room' }, '', ''); };
-  
-  const exitRoom = useCallback(() => {
-    if (activeRoom && user) {
-      updateDoc(doc(db, "rooms", activeRoom.id), {
-        participants: arrayRemove(user.username),
-      });
-    }
-    setActiveRoom(null);
-    goBack();
-  }, [activeRoom, user, goBack]);
-  
-  const handleCreateRoom = async () => {
-    if (!user) return;
-    setIsJoiningRoom(true);
-    try {
-        const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-        const now = Date.now();
-        const newRoom = { code, host: user.username, repertoire: [], participants: [user.username], createdAt: now, expiresAt: now + (24 * 60 * 60 * 1000) };
-        const docRef = await addDoc(collection(db, "rooms"), newRoom);
-        enterRoom({ id: docRef.id, ...newRoom } as Room);
-    } catch (error) { setGlobalAlert({ title: "Error", message: "Error al crear la sala.", type: 'error' }); } finally { setIsJoiningRoom(false); }
-  };
-
-  const handleJoinRoom = async () => {
-    if (!roomCodeInput || !user) return;
-    setIsJoiningRoom(true);
-    try {
-        const q = query(collection(db, "rooms"), where("code", "==", roomCodeInput.toUpperCase()));
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          const roomDoc = snap.docs[0];
-          const roomData = { id: roomDoc.id, ...roomDoc.data() } as Room;
-          
-          if (roomData.expiresAt && Date.now() > roomData.expiresAt) { 
-              // Try to delete expired room on access attempt
-              try {
-                  await deleteDoc(doc(db, "rooms", roomDoc.id));
-                  setGlobalAlert({ title: "SALA EXPIRADA", message: "El código ha vencido y la sala ha sido eliminada.", type: 'info' }); 
-              } catch(err) {
-                  // Fallback if permission denied
-                  setGlobalAlert({ title: "CÓDIGO VENCIDO", message: "El código de esta sala ha expirado.", type: 'error' }); 
-              }
-              setIsJoiningRoom(false);
-              return; 
-          }
-
-          if (roomData.banned?.includes(user.username)) { setGlobalAlert({ title: "ACCESO DENEGADO", message: "Has sido bloqueado de esta sala.", type: 'error' }); setIsJoiningRoom(false); return; }
-          await updateDoc(doc(db, "rooms", roomDoc.id), { participants: arrayUnion(user.username) });
-          enterRoom({ ...roomData, participants: [...new Set([...(roomData.participants || []), user.username])] });
-        } else { setGlobalAlert({ title: "SALA NO ENCONTRADA", message: "Verifica el código.", type: 'info' }); }
-    } catch (error) { setGlobalAlert({ title: "Error", message: "Ocurrió un error al intentar unirse.", type: 'error' }); } finally { setIsJoiningRoom(false); }
-  };
-  
-  const handleUpdateRoom = useCallback(async (roomId: string, updates: Partial<Room>) => {
-    if (roomId) {
-      try {
-        await updateDoc(doc(db, "rooms", roomId), updates);
-      } catch (error) {
-        console.error("Error updating room:", error);
-        setGlobalAlert({ title: "Error de Sala", message: "No se pudo actualizar la sala.", type: 'error' });
-      }
-    }
-  }, []);
-
-  const handleSaveSong = useCallback(async (data: Omit<Song, 'id' | 'createdAt'>) => {
-    try {
-        if (typeof editingSong !== 'boolean' && editingSong) {
-            await updateDoc(doc(db, "songs", editingSong.id), data);
-        } else if (user) {
-            const authorToSave = data.author && data.author.trim() !== '' ? data.author : user.username;
-            await addDoc(collection(db, "songs"), { ...data, author: authorToSave, createdAt: Date.now() });
-        }
-        goBack();
-    } catch (error) {
-        console.error("Error saving song:", error);
-        setGlobalAlert({ title: "Error", message: "Error al guardar la canción.", type: 'error' });
-    }
-  }, [editingSong, user, goBack]);
-
-  const handleAuthSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (isAuthenticating) return;
-    setIsAuthenticating(true);
-    setAuthMsg(null);
-
-    try {
-      if (authMode === 'login') {
-        await signInWithEmailAndPassword(auth, authData.email, authData.pass);
-      } else if (authMode === 'register') {
-        if (!isValidUsername(authData.user)) {
-             throw new Error('Nombre de usuario inválido (3-24 caracteres, solo letras/espacios).');
-        }
-        if (authData.pass !== authData.confirmPass) {
-             throw new Error('Las contraseñas no coinciden.');
-        }
-        const userCredential = await createUserWithEmailAndPassword(auth, authData.email, authData.pass);
-        await setDoc(doc(db, "users", userCredential.user.uid), {
-            username: authData.user,
-            username_lowercase: authData.user.toLowerCase(),
-            email: authData.email,
-            role: 'member',
-            favorites: [],
-            createdAt: new Date().toISOString()
+                    setUser({ id: authUser.uid, ...userData, createdAt: creationTime, isAuthenticated: true } as AppUser);
+                } else {
+                    const newUser = {
+                        id: authUser.uid,
+                        email: authUser.email || '',
+                        username: authUser.displayName || 'Usuario',
+                        username_lowercase: (authUser.displayName || 'usuario').toLowerCase(),
+                        role: 'member',
+                        isAuthenticated: true,
+                        createdAt: new Date().toISOString(),
+                        hasGoogleProvider: authUser.providerData.some(p => p.providerId === 'google.com'),
+                        hasPasswordProvider: authUser.providerData.some(p => p.providerId === 'password'),
+                        favorites: []
+                    };
+                    await setDoc(userRef, newUser);
+                    setUser(newUser as AppUser);
+                }
+            } else {
+                setUser(null);
+            }
+            setAuthLoading(false);
         });
-        await updateProfile(userCredential.user, { displayName: authData.user });
-      } else if (authMode === 'forgot') {
-         await sendPasswordResetEmail(auth, authData.email);
-         setAuthMsg({ type: 'success', text: 'Correo de recuperación enviado.' });
-         setIsAuthenticating(false);
-         return;
+        return () => unsubscribe();
+    }, []);
+
+    useEffect(() => {
+        if (!user) return;
+        const unsubSongs = onSnapshot(collection(db, 'songs'), (snap) => {
+            const loadedSongs: Song[] = [];
+            snap.forEach(doc => loadedSongs.push({ id: doc.id, ...doc.data() } as Song));
+            setSongs(loadedSongs);
+        });
+        const unsubCats = onSnapshot(collection(db, 'song_categories'), (snap) => {
+            try {
+                const loadedCats: {id: string, name: string}[] = [];
+                snap.forEach(doc => {
+                    const data = doc.data();
+                    // Force cast to string for safety, handle nulls gracefully
+                    // If 'name' is missing, fallback to 'Sin Nombre' to at least show the document exists
+                    const name = data?.name ? String(data.name) : "Sin Nombre";
+                    loadedCats.push({ id: doc.id, name: name });
+                });
+                // Safe sort
+                loadedCats.sort((a, b) => a.name.localeCompare(b.name));
+                setCategories(loadedCats);
+            } catch (err) {
+                console.error("Critical error loading categories:", err);
+            }
+        }, (error) => {
+            console.error("Firestore snapshot error:", error);
+        });
+        const unsubUser = onSnapshot(doc(db, 'users', user.id), (doc) => {
+             if (doc.exists()) setUser(prev => ({ ...prev!, ...doc.data() }));
+        });
+        const unsubAllUsers = onSnapshot(query(collection(db, 'users'), orderBy('username_lowercase')), (snap) => {
+            setAllUsers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as AppUser)));
+        });
+
+        return () => { unsubSongs(); unsubCats(); unsubUser(); unsubAllUsers(); };
+    }, [user?.id]); 
+
+    useEffect(() => {
+        if (!user) return;
+        const q = query(collection(db, 'user_chats', user.id, 'chats'), orderBy('lastMessageTimestamp', 'desc'));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const chats: ChatInfo[] = [];
+            snapshot.forEach(doc => chats.push(doc.data() as ChatInfo));
+            
+            if (prevUserChatsRef.current) {
+                const hasNewUnreadMessage = chats.some(newChat => {
+                    if (newChat.partnerId === activeChatPartner?.id || 
+                        newChat.lastMessageSenderId === user.id ||
+                        (newChat.mutedUntil && newChat.mutedUntil > Date.now())) {
+                        return false;
+                    }
+                    
+                    const oldChat = prevUserChatsRef.current!.find(c => c.partnerId === newChat.partnerId);
+                    
+                    if (!oldChat) {
+                        return (newChat.unreadCount || 0) > 0;
+                    }
+                    
+                    const newTimestamp = newChat.lastMessageTimestamp?.seconds || 0;
+                    const oldTimestamp = oldChat.lastMessageTimestamp?.seconds || 0;
+                    return newTimestamp > oldTimestamp;
+                });
+
+                if (hasNewUnreadMessage) {
+                    triggerHapticFeedback('notification');
+                }
+            }
+
+            setUserChats(chats);
+            prevUserChatsRef.current = chats;
+        });
+        return () => unsubscribe();
+    }, [user?.id, activeChatPartner?.id]);
+
+    useEffect(() => {
+        if (!user) return;
+        const connectedRef = ref(rtdb, '.info/connected');
+        const myStatusRef = ref(rtdb, 'status/' + user.id);
+        const unsubscribe = onValue(connectedRef, (snap) => {
+            if (snap.val() === true) {
+                set(myStatusRef, { state: 'online', last_changed: serverTimestamp() });
+                onDisconnect(myStatusRef).set({ state: 'offline', last_changed: serverTimestamp() });
+            }
+        });
+        
+        const allStatusRef = ref(rtdb, 'status');
+        const unsubStatus = onValue(allStatusRef, (snap) => {
+            setOnlineStatuses(snap.val() || {});
+        });
+
+        return () => { unsubscribe(); unsubStatus(); };
+    }, [user?.id]);
+
+    useEffect(() => {
+        if (!viewingProfileId) {
+            setViewingProfileUser(null);
+            return;
+        }
+        
+        const unsubscribe = onSnapshot(doc(db, 'users', viewingProfileId), (s) => {
+            if (s.exists()) {
+                setViewingProfileUser({ id: s.id, ...s.data() } as AppUser);
+            }
+        });
+
+        return () => unsubscribe();
+    }, [viewingProfileId]);
+
+    // Handlers
+    const navigateTo = (newView: AppView, direction?: AnimationDirection) => {
+        if (newView === view) return;
+        setAnimationDirection(direction || 'fade');
+        setView(newView);
+        setSearchQuery('');
+        if (newView === 'room' && currentRoom) {
+             // Re-entering room view
+        }
+    };
+
+    const handleAuthSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsAuthenticating(true);
+        setAuthMsg(null);
+        try {
+            if (authMode === 'login') {
+                await signInWithEmailAndPassword(auth, authData.email, authData.pass);
+            } else if (authMode === 'register') {
+                if (authData.pass !== authData.confirmPass) throw new Error('Las contraseñas no coinciden.');
+                if (authData.user.length < 3) throw new Error('El usuario debe tener al menos 3 caracteres.');
+                const userRes = await createUserWithEmailAndPassword(auth, authData.email, authData.pass);
+                await updateProfile(userRes.user, { displayName: authData.user });
+                // Firestore user creation handled in useEffect
+            } else {
+                await sendPasswordResetEmail(auth, authData.email);
+                setAuthMsg({ type: 'success', text: 'Correo de recuperación enviado.' });
+            }
+        } catch (error: any) {
+            setAuthMsg({ type: 'error', text: translateAuthError(error.code) || error.message });
+        } finally {
+            setIsAuthenticating(false);
+        }
+    };
+
+    const handleGoogleSignIn = async () => {
+        setIsAuthenticating(true);
+        try {
+            await signInWithPopup(auth, new GoogleAuthProvider());
+        } catch (error: any) {
+            setAuthMsg({ type: 'error', text: translateAuthError(error.code) });
+        } finally {
+            setIsAuthenticating(false);
+        }
+    };
+    
+    const toggleFavorite = async (e: React.MouseEvent, songId: string) => {
+        e.stopPropagation();
+        if (!user) return;
+        const ref = doc(db, 'users', user.id);
+        if (user.favorites?.includes(songId)) {
+            await updateDoc(ref, { favorites: arrayRemove(songId) });
+        } else {
+            await updateDoc(ref, { favorites: arrayUnion(songId) });
+        }
+    };
+
+    const handleJoinRoom = async () => {
+        if (!roomCodeInput || !user) return;
+        setIsJoiningRoom(true);
+        try {
+            const q = query(collection(db, 'rooms'), where('code', '==', roomCodeInput.toUpperCase()));
+            const snap = await getDocs(q);
+            if (snap.empty) {
+                alert("Sala no encontrada");
+            } else {
+                const roomDoc = snap.docs[0];
+                const roomData = roomDoc.data();
+                if (roomData.banned?.includes(user.username)) {
+                    alert("Estás bloqueado de esta sala.");
+                } else {
+                    const roomId = roomDoc.id;
+                    await updateDoc(doc(db, 'rooms', roomId), { participants: arrayUnion(user.username) });
+                    // Subscribe to room
+                    onSnapshot(doc(db, 'rooms', roomId), (doc) => {
+                        if (doc.exists()) setCurrentRoom({ id: doc.id, ...doc.data() } as Room);
+                        else setCurrentRoom(null);
+                    });
+                }
+            }
+        } catch (e) { console.error(e); }
+        setIsJoiningRoom(false);
+    };
+
+    const handleCreateRoom = async () => {
+        if (!user || !isAdmin) return;
+        const code = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const roomRef = await addDoc(collection(db, 'rooms'), {
+            code,
+            host: user.username,
+            repertoire: [],
+            participants: [user.username],
+            createdAt: Date.now()
+        });
+        onSnapshot(roomRef, (doc) => {
+             if (doc.exists()) setCurrentRoom({ id: doc.id, ...doc.data() } as Room);
+        });
+    };
+
+    const handleSignOut = async () => {
+        await signOut(auth);
+        setUser(null);
+        setView('feed');
+    };
+
+    const toggleShowChangePassword = (field: 'current' | 'newPass' | 'confirm') => {
+        showChangePassword.current[field] = !showChangePassword.current[field];
+        setForceRender(prev => prev + 1); // Helper to force re-render since ref doesn't
+    };
+
+    const openSongViewer = (song: Song) => setActiveSong(song);
+    
+    // Admin Handlers for Categories
+    const onAddCategory = async () => {
+      if (newCategoryName.trim()) {
+        try {
+            await addDoc(collection(db, 'song_categories'), { name: newCategoryName.trim() });
+            setNewCategoryName('');
+        } catch (e) {
+            console.error("Error adding category:", e);
+            alert("Error al guardar categoría");
+        }
       }
-    } catch (error: any) {
-       console.error("Auth error:", error);
-       setAuthMsg({ type: 'error', text: translateAuthError(error.code) });
-    }
-    setIsAuthenticating(false);
-  };
+    };
+    const handleDeleteCategory = async (id: string) => {
+        await deleteDoc(doc(db, 'song_categories', id));
+    };
+    const onSaveEditCategory = async () => {
+        if (editingCategory && editingCategory.name.trim()) {
+            await updateDoc(doc(db, 'song_categories', editingCategory.id), { name: editingCategory.name.trim() });
+            setEditingCategory(null);
+        }
+    };
+    
+    const handleUpdateUsername = async (newUsername: string, password_confirmation: string) => {
+        if(!user) return Promise.reject();
+        
+        try {
+            const cred = EmailAuthProvider.credential(user.email, password_confirmation);
+            await reauthenticateWithCredential(auth.currentUser!, cred);
+            await updateProfile(auth.currentUser!, { displayName: newUsername });
+            await updateDoc(doc(db, 'users', user.id), { username: newUsername, username_lowercase: newUsername.toLowerCase() });
+            alert("Nombre actualizado");
+            return Promise.resolve();
+        } catch (e: any) { 
+            alert(translateAuthError(e.code)); 
+            return Promise.reject();
+        }
+    };
 
-  const handleGoogleSignIn = async () => {
-      if(isAuthenticating) return;
-      setIsAuthenticating(true);
-      try {
-          const provider = new GoogleAuthProvider();
-          const result = await signInWithPopup(auth, provider);
-          const userDocRef = doc(db, "users", result.user.uid);
-          const userDocSnap = await getDoc(userDocRef);
-          
-          if (!userDocSnap.exists()) {
-              const username = result.user.displayName || result.user.email?.split('@')[0] || 'Usuario';
-              await setDoc(userDocRef, {
-                  username: username,
-                  username_lowercase: username.toLowerCase(),
-                  email: result.user.email,
-                  role: 'member',
-                  favorites: [],
-                  createdAt: new Date().toISOString()
-              });
-          }
-      } catch (error: any) {
-          console.error("Google Auth error:", error);
-          setAuthMsg({ type: 'error', text: translateAuthError(error.code) });
-      }
-      setIsAuthenticating(false);
-  };
+    const handleChangePassword = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if(!user) return;
+        if(passwordChangeData.newPass !== passwordChangeData.confirm) {
+             setPasswordChangeMsg({type: 'error', text: 'Las contraseñas no coinciden'}); return;
+        }
+        setIsUpdatingPassword(true);
+        try {
+            const cred = EmailAuthProvider.credential(user.email, passwordChangeData.current);
+            await reauthenticateWithCredential(auth.currentUser!, cred);
+            await updatePassword(auth.currentUser!, passwordChangeData.newPass);
+            setPasswordChangeMsg({type: 'success', text: 'Contraseña actualizada'});
+            setPasswordChangeData({current:'', newPass:'', confirm:''});
+        } catch (e: any) {
+            setPasswordChangeMsg({type: 'error', text: translatePasswordChangeError(e.code)});
+        }
+        setIsUpdatingPassword(false);
+    };
 
-  const handleUpdateUsername = async () => {
-     if (!user || !newUsername.trim()) return;
-     if (!isValidUsername(newUsername)) {
-         setGlobalAlert({ title: "Error", message: "Nombre de usuario inválido.", type: 'error' });
-         return;
-     }
-     setIsUpdatingUsername(true);
-     try {
-         const cred = EmailAuthProvider.credential(user.email, usernameChangePassword);
-         await reauthenticateWithCredential(auth.currentUser!, cred);
-         
-         await updateDoc(doc(db, "users", user.id), {
-             username: newUsername,
-             username_lowercase: newUsername.toLowerCase()
-         });
-         await updateProfile(auth.currentUser!, { displayName: newUsername });
+    const handleLinkGoogleAccount = async () => {
+        setIsLinkingGoogle(true);
+        try {
+             const res = await linkWithPopup(auth.currentUser!, new GoogleAuthProvider());
+             // Update user doc?
+        } catch(e: any) { alert(translateAuthError(e.code)); }
+        setIsLinkingGoogle(false);
+    };
+    
+    // Fetch admins
+    useEffect(() => {
+        if(isSuperAdmin) {
+            const q = query(collection(db, 'users'), where('role', '==', 'admin'));
+            const unsub = onSnapshot(q, (snap) => {
+                const admins: AppUser[] = [];
+                snap.forEach(d => admins.push({id: d.id, ...d.data()} as AppUser));
+                setAdminUsers(admins);
+            });
+            return () => unsub();
+        }
+    }, [isSuperAdmin]);
 
-         setNewUsername('');
-         setUsernameChangePassword('');
-         setGlobalAlert({ title: "Éxito", message: "Nombre de usuario actualizado.", type: 'success' });
-     } catch (e: any) {
-         setGlobalAlert({ title: "Error", message: translateAuthError(e.code), type: 'error' });
-     }
-     setIsUpdatingUsername(false);
-  };
+    const handleAddAdmin = async (email: string) => {
+        const q = query(collection(db, 'users'), where('email', '==', email));
+        const snap = await getDocs(q);
+        if(!snap.empty) {
+            await updateDoc(doc(db, 'users', snap.docs[0].id), { role: 'admin' });
+        } else { alert("Usuario no encontrado"); }
+    };
+    const handleRevokeAdmin = async (u: AppUser) => {
+        await updateDoc(doc(db, 'users', u.id), { role: 'member' });
+    };
 
-  const handleChangePassword = async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!user) return;
-      if (passwordChangeData.newPass !== passwordChangeData.confirm) {
-          setPasswordChangeMsg({ type: 'error', text: "Las contraseñas no coinciden." });
-          return;
-      }
-      setIsUpdatingPassword(true);
-      setPasswordChangeMsg(null);
-      try {
-         const cred = EmailAuthProvider.credential(user.email, passwordChangeData.current);
-         await reauthenticateWithCredential(auth.currentUser!, cred);
-         await updatePassword(auth.currentUser!, passwordChangeData.newPass);
-         setPasswordChangeMsg({ type: 'success', text: "Contraseña actualizada." });
-         setPasswordChangeData({ current: '', newPass: '', confirm: '' });
-      } catch (e: any) {
-         setPasswordChangeMsg({ type: 'error', text: translatePasswordChangeError(e.code) });
-      }
-      setIsUpdatingPassword(false);
-  };
+    if (authLoading) return <div className="fixed inset-0 bg-black flex items-center justify-center text-white"><div className="w-10 h-10 border-4 border-white/20 border-t-white rounded-full animate-spin"></div></div>;
 
-  const handleLinkGoogleAccount = async () => {
-      if (!user) return;
-      setIsLinkingGoogle(true);
-      try {
-          const provider = new GoogleAuthProvider();
-          await linkWithPopup(auth.currentUser!, provider);
-          setGlobalAlert({ title: "Éxito", message: "Cuenta de Google vinculada.", type: 'success' });
-      } catch (e: any) {
-          setGlobalAlert({ title: "Error", message: translateAuthError(e.code), type: 'error' });
-      }
-      setIsLinkingGoogle(false);
-  };
+    if (!user) return <LoginView 
+        handleAuthSubmit={handleAuthSubmit} authData={authData} setAuthData={setAuthData} 
+        authMode={authMode} setAuthMode={setAuthMode} authMsg={authMsg} 
+        isAuthenticating={isAuthenticating} showPassword={showPassword} setShowPassword={setShowPassword} 
+        setAuthMsg={setAuthMsg} handleGoogleSignIn={handleGoogleSignIn} 
+    />;
 
-  const handleAddAdmin = async (email: string) => {
-      try {
-          const q = query(collection(db, "users"), where("email", "==", email));
-          const snap = await getDocs(q);
-          if (snap.empty) {
-              setGlobalAlert({ title: "Error", message: "Usuario no encontrado.", type: 'error' });
-              return;
-          }
-          const userDoc = snap.docs[0];
-          await updateDoc(doc(db, "users", userDoc.id), { role: 'admin' });
-          setGlobalAlert({ title: "Éxito", message: "Rol de admin asignado.", type: 'success' });
-      } catch (e) {
-           setGlobalAlert({ title: "Error", message: "Error al asignar admin.", type: 'error' });
-      }
-  };
-
-  const handleRevokeAdmin = async (adminUser: AppUser) => {
-      if (adminUser.email === SUPER_ADMIN_EMAIL) return;
-       try {
-          await updateDoc(doc(db, "users", adminUser.id), { role: 'member' });
-          setGlobalAlert({ title: "Éxito", message: "Rol de admin revocado.", type: 'success' });
-      } catch (e) {
-           setGlobalAlert({ title: "Error", message: "Error al revocar admin.", type: 'error' });
-      }
-  };
-
-  const handleSignOut = async () => {
-      try {
-          await signOut(auth);
-      } catch(e) { console.error(e); }
-  };
-
-  if (isAuthLoading) return <div className={`fixed inset-0 flex items-center justify-center ${darkMode ? 'bg-black' : 'bg-white'}`}><div className="w-10 h-10 border-4 border-misionero-azul border-t-transparent rounded-full animate-spin"></div></div>;
-
-  if (!user) {
     return (
-      <LoginView 
-        handleAuthSubmit={handleAuthSubmit} 
-        authData={authData} 
-        setAuthData={setAuthData} 
-        authMode={authMode} 
-        setAuthMode={setAuthMode} 
-        authMsg={authMsg} 
-        isAuthenticating={isAuthenticating} 
-        showPassword={showPassword} 
-        setShowPassword={setShowPassword} 
-        setAuthMsg={setAuthMsg} 
-        handleGoogleSignIn={handleGoogleSignIn} 
-      />
-    );
-  }
-
-  return (
-    <>
-      <MainView 
-         user={user}
-         view={view}
-         darkMode={darkMode}
-         theme={theme}
-         setTheme={setTheme}
-         isAdmin={user.role === 'admin'}
-         isSuperAdmin={user.email === SUPER_ADMIN_EMAIL}
-         animationDirection={animationDirection}
-         navigateTo={navigateTo}
-         songs={songs}
-         favorites={favorites}
-         openSongViewer={openSongViewer}
-         toggleFavorite={toggleFavorite}
-         searchQuery={searchQuery}
-         setSearchQuery={setSearchQuery}
-         activeFilter={activeFilter}
-         setActiveFilter={setActiveFilter}
-         categories={categories}
-         roomCodeInput={roomCodeInput}
-         setRoomCodeInput={setRoomCodeInput}
-         handleJoinRoom={handleJoinRoom}
-         handleCreateRoom={handleCreateRoom}
-         isJoiningRoom={isJoiningRoom}
-         handleCreateCategory={handleCreateCategory}
-         handleDeleteCategory={handleDeleteCategory}
-         handleEditCategory={handleEditCategory}
-         setCategoryConfirmModal={setCategoryConfirmModal}
-         newUsername={newUsername}
-         setNewUsername={setNewUsername}
-         showUsernamePass={showUsernamePass}
-         setShowUsernamePass={setShowUsernamePass}
-         usernameChangePassword={usernameChangePassword}
-         setUsernameChangePassword={setUsernameChangePassword}
-         isUpdatingUsername={isUpdatingUsername}
-         handleUpdateUsername={handleUpdateUsername}
-         passwordChangeData={passwordChangeData}
-         setPasswordChangeData={setPasswordChangeData}
-         showChangePassword={showChangePassword}
-         toggleShowChangePassword={toggleShowChangePassword}
-         passwordChangeMsg={passwordChangeMsg}
-         isUpdatingPassword={isUpdatingPassword}
-         handleChangePassword={handleChangePassword}
-         isLinkingGoogle={isLinkingGoogle}
-         handleLinkGoogleAccount={handleLinkGoogleAccount}
-         adminUsers={adminUsers}
-         handleAddAdmin={handleAddAdmin}
-         handleRevokeAdmin={handleRevokeAdmin}
-         handleSignOut={handleSignOut}
-         openSongEditor={openSongEditor}
-      />
-
-      {/* Overlays */}
-      {activeSong && (
-        <div className="fixed inset-0 z-[100]">
-           <SongViewer 
-             song={activeSong} 
-             onBack={() => { setActiveSong(null); window.history.back(); }} 
-             onEdit={user.role === 'admin' ? () => openSongEditor(activeSong) : undefined}
-             onDelete={user.role === 'admin' ? () => handleDeleteSong(activeSong) : undefined} 
-             darkMode={darkMode}
-             onNext={() => {
-                 const idx = filteredSongs.findIndex(s => s.id === activeSong.id);
-                 if (idx !== -1 && idx < filteredSongs.length - 1) setActiveSong(filteredSongs[idx + 1]);
-             }}
-             onPrev={() => {
-                 const idx = filteredSongs.findIndex(s => s.id === activeSong.id);
-                 if (idx > 0) setActiveSong(filteredSongs[idx - 1]);
-             }}
-             hasNext={filteredSongs.findIndex(s => s.id === activeSong.id) < filteredSongs.length - 1}
-             hasPrev={filteredSongs.findIndex(s => s.id === activeSong.id) > 0}
-           />
-        </div>
-      )}
-      
-      {editingSong && (
-        <SongForm 
-           initialData={typeof editingSong !== 'boolean' ? editingSong : undefined}
-           onSave={handleSaveSong}
-           onCancel={() => { setEditingSong(null); window.history.back(); }}
-           darkMode={darkMode}
-           categories={categoryNames}
-           initialImportUrl={initialImportUrl}
-        />
-      )}
-      
-      {activeRoom && (
-        <div className="fixed inset-0 z-[200]">
-            <RoomView 
-                room={activeRoom}
-                songs={songs}
-                currentUser={user.username}
-                isAdmin={user.role === 'admin' || activeRoom.host === user.username}
-                onExit={exitRoom}
-                onUpdateRoom={handleUpdateRoom}
-                darkMode={darkMode}
-                db={db}
-                rtdb={rtdb}
-                onEditSong={(song) => openSongEditor(song)}
-                onDeleteSong={performDeleteSong}
-                categories={categoryNames}
+        <>
+            <MainView 
+                user={user} view={view} darkMode={darkMode} theme={theme} setTheme={setTheme} 
+                isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} animationDirection={animationDirection} navigateTo={navigateTo} 
+                totalUnreadCount={totalUnreadCount} songs={songs} favorites={user.favorites || []} openSongViewer={openSongViewer} 
+                toggleFavorite={toggleFavorite} searchQuery={searchQuery} setSearchQuery={setSearchQuery} 
+                activeFilter={activeFilter} setActiveFilter={setActiveFilter} categories={categories} 
+                userChats={displayedUserList} onlineStatuses={onlineStatuses} openDirectMessage={(u: any) => setActiveChatPartner({id: u.id, username: u.username} as AppUser)} 
+                onViewProfile={setViewingProfileId} roomCodeInput={roomCodeInput} setRoomCodeInput={setRoomCodeInput} 
+                handleJoinRoom={handleJoinRoom} handleCreateRoom={handleCreateRoom} isJoiningRoom={isJoiningRoom} 
+                
+                newCategoryName={newCategoryName} setNewCategoryName={setNewCategoryName} onAddCategory={onAddCategory}
+                editingCategory={editingCategory} setEditingCategory={setEditingCategory} onSaveEditCategory={onSaveEditCategory}
+                handleDeleteCategory={handleDeleteCategory} setCategoryConfirmModal={setCategoryConfirmModal}
+                
+                passwordChangeData={passwordChangeData} setPasswordChangeData={setPasswordChangeData} showChangePassword={showChangePassword} 
+                toggleShowChangePassword={toggleShowChangePassword} passwordChangeMsg={passwordChangeMsg} isUpdatingPassword={isUpdatingPassword} 
+                handleChangePassword={handleChangePassword} isLinkingGoogle={isLinkingGoogle} handleLinkGoogleAccount={handleLinkGoogleAccount} 
+                adminUsers={adminUsers} handleAddAdmin={handleAddAdmin} handleRevokeAdmin={handleRevokeAdmin} handleSignOut={handleSignOut} 
+                openSongEditor={setEditingSong}
             />
-        </div>
-      )}
-
-      {/* Global Alert / Modals */}
-      {globalAlert && (
-          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[300] w-full max-w-sm px-4 animate-in slide-in-from-top-4 duration-300">
-             <div onClick={() => setGlobalAlert(null)} className={`p-4 rounded-2xl shadow-2xl flex items-center gap-3 border ${globalAlert.type === 'error' ? 'bg-red-500 text-white border-red-600' : globalAlert.type === 'success' ? 'bg-green-500 text-white border-green-600' : 'bg-blue-500 text-white border-blue-600'}`}>
-                <div>
-                   <h4 className="font-black uppercase text-xs">{globalAlert.title}</h4>
-                   <p className="text-[10px] font-bold opacity-90">{globalAlert.message}</p>
+            
+            {activeSong && (
+                <div className="fixed inset-0 z-[100] animate-in slide-in-from-bottom duration-300" data-is-overlay="true">
+                    <SongViewer 
+                        song={activeSong} 
+                        onBack={() => window.history.back()} 
+                        darkMode={darkMode}
+                        onEdit={isAdmin ? () => { setActiveSong(null); setEditingSong(activeSong); } : undefined}
+                    />
                 </div>
-             </div>
-          </div>
-      )}
-
-      {categoryConfirmModal && (
-          <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setCategoryConfirmModal(null)}></div><div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{categoryConfirmModal.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{categoryConfirmModal.message}</p><div className="flex gap-3"><button onClick={() => setCategoryConfirmModal(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button><button onClick={categoryConfirmModal.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform ${categoryConfirmModal.type === 'danger' ? 'bg-misionero-rojo' : 'bg-misionero-azul'}`}>Confirmar</button></div></div></div>
-      )}
-
-      {showExitConfirm && (
-          <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowExitConfirm(null)}></div><div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{showExitConfirm.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{showExitConfirm.message}</p><div className="flex gap-3"><button onClick={() => setShowExitConfirm(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button><button onClick={showExitConfirm.action} className="flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform bg-misionero-rojo">Salir</button></div></div></div>
-      )}
-    </>
-  );
+            )}
+            
+            {editingSong !== undefined && (
+                 <SongForm 
+                    initialData={editingSong || undefined} 
+                    onCancel={() => window.history.back()} 
+                    darkMode={darkMode}
+                    categories={categories.map(c => c.name)}
+                    onSave={async (data) => {
+                        try {
+                            if (editingSong) {
+                                await updateDoc(doc(db, 'songs', editingSong.id), data);
+                            } else {
+                                await addDoc(collection(db, 'songs'), { ...data, createdAt: Date.now() });
+                            }
+                            window.history.back();
+                        } catch(e) { console.error(e); alert("Error al guardar"); }
+                    }}
+                 />
+            )}
+            
+            {currentRoom && (
+                 <div className="fixed inset-0 z-[100] animate-in slide-in-from-right duration-300" data-is-overlay="true">
+                     <RoomView 
+                        room={currentRoom} songs={songs} currentUser={user.username} isAdmin={isAdmin} 
+                        onExit={() => window.history.back()}
+                        onUpdateRoom={(id, updates) => updateDoc(doc(db, 'rooms', id), updates)} 
+                        darkMode={darkMode} db={db} rtdb={rtdb} categories={categories.map(c => c.name)}
+                        allUsers={allUsers}
+                        onViewProfile={setViewingProfileId}
+                        onEditSong={isAdmin ? (s) => setEditingSong(s) : () => {}}
+                        onDeleteSong={async (id) => await deleteDoc(doc(db, 'songs', id))}
+                     />
+                 </div>
+            )}
+            
+            {activeChatPartner && (
+                 <DirectMessageView 
+                    currentUser={user} 
+                    partner={activeChatPartner} 
+                    onBack={() => window.history.back()} 
+                    db={db} 
+                    rtdb={rtdb} 
+                    darkMode={darkMode} 
+                    partnerStatus={onlineStatuses[activeChatPartner.id]} 
+                    onViewProfile={setViewingProfileId}
+                 />
+            )}
+            
+            {viewingProfileUser && (
+                <UserProfileView 
+                    user={viewingProfileUser} 
+                    currentUser={user} 
+                    onBack={() => window.history.back()} 
+                    darkMode={darkMode} 
+                    songs={songs} 
+                    onOpenSong={openSongViewer}
+                    onSaveBio={async (bio) => await updateDoc(doc(db, 'users', viewingProfileUser.id), { biography: bio })}
+                    onUpdateUsername={handleUpdateUsername}
+                />
+            )}
+            
+            {categoryConfirmModal && (
+                <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200">
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setCategoryConfirmModal(null)}></div>
+                    <div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}>
+                        <h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{categoryConfirmModal.title}</h3>
+                        <p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{categoryConfirmModal.message}</p>
+                        <div className="flex gap-3">
+                            <button onClick={() => setCategoryConfirmModal(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button>
+                            <button onClick={categoryConfirmModal.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform ${categoryConfirmModal.type === 'danger' ? 'bg-misionero-rojo' : 'bg-misionero-azul'}`}>Confirmar</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </>
+    );
 };
 
 export default App;

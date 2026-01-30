@@ -1,8 +1,7 @@
-
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Song } from '../types';
 import { isChordLine, transposeSong, transposeRoot, findBestCapo } from '../services/musicUtils';
-import { set as setRtdb, ref as refRtdb } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+import { set as setRtdb, ref as refRtdb } from "firebase/database";
 
 interface SongViewerProps {
   song: Song;

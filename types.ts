@@ -1,5 +1,4 @@
 
-
 export enum LiturgicalTime {
   ADVIENTO = 'Adviento',
   NAVIDAD = 'Navidad',
@@ -30,6 +29,24 @@ export interface ChatMessage {
   timestamp: number;
 }
 
+export interface DirectMessage {
+  id: string;
+  senderId: string;
+  text: string;
+  timestamp: any;
+  read: boolean;
+  deleted?: boolean;
+  pinned?: boolean;
+  reactions?: { [emoji: string]: string[] }; // user IDs who reacted
+  deletedBy?: { [userId: string]: boolean };
+  replyTo?: {
+    messageId: string;
+    senderId: string;
+    senderUsername: string;
+    textSnippet: string;
+  };
+}
+
 export interface Room {
   id: string;
   code: string;
@@ -54,4 +71,18 @@ export interface User {
   createdAt?: string;
   hasPasswordProvider?: boolean;
   hasGoogleProvider?: boolean;
+  biography?: string;
+  favorites?: string[];
+}
+
+export interface ChatInfo {
+    partnerUsername: string;
+    lastMessageText?: string;
+    lastMessageTimestamp?: any;
+    unreadCount?: number;
+    partnerId: string;
+    lastMessageSenderId?: string;
+    mutedUntil?: number; // Timestamp until which the chat is muted
+    isBlocked?: boolean; // Whether the user blocked this chat
+    isReply?: boolean;
 }
