@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { LiturgicalTime, Song } from '../types';
 import { isChordLine } from '../services/musicUtils';
@@ -9,9 +10,10 @@ interface SongFormProps {
   onCancel: () => void;
   darkMode?: boolean;
   categories: string[];
+  initialImportUrl?: string;
 }
 
-const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, darkMode = false, categories }) => {
+const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, darkMode = false, categories, initialImportUrl }) => {
   const [title, setTitle] = useState('');
   const [author, setAuthor] = useState('');
   const [key, setKey] = useState('DO');
@@ -39,6 +41,13 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
       setContent(initialData.content);
     }
   }, [initialData]);
+
+  useEffect(() => {
+    if (initialImportUrl) {
+      setShowImporter(true);
+      setImportUrl(initialImportUrl);
+    }
+  }, [initialImportUrl]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -110,7 +119,7 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
   };
 
   return (
-    <div className={`fixed inset-0 ${darkMode ? 'bg-black text-white' : 'bg-white text-slate-900'} z-[80] flex flex-col overflow-hidden animate-in slide-in-from-right duration-200 transition-colors duration-500`}>
+    <div className={`fixed inset-0 ${darkMode ? 'bg-black text-white' : 'bg-white text-slate-900'} z-[250] flex flex-col overflow-hidden animate-in slide-in-from-right duration-200 transition-colors duration-500`}>
       <header className={`px-4 pt-12 pb-3 border-b ${darkMode ? 'border-slate-800 bg-black' : 'border-slate-100 bg-white'} flex items-center justify-between shrink-0 z-20 transition-colors duration-500`}>
         <button onClick={onCancel} className={`text-[10px] font-black uppercase ${darkMode ? 'text-slate-500 bg-slate-900 active:bg-slate-800' : 'text-slate-400 bg-slate-50 active:bg-slate-100'} px-3 py-2 rounded-xl transition-colors`}>Cerrar</button>
         <h2 className="text-[10px] font-black uppercase tracking-widest">{initialData ? 'Editor de Obra' : 'Nueva Música'}</h2>

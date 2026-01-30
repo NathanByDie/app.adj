@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Song } from '../types';
 import { isChordLine, transposeSong, transposeRoot, findBestCapo } from '../services/musicUtils';
@@ -145,16 +146,34 @@ const SongViewer: React.FC<SongViewerProps> = ({
 
   const handleShare = async () => {
     const webUrl = `https://myadjstudios.netlify.app/?song=${song.id}`;
+    const textData = `Mira esta música en ADJStudios: ${song.title}`;
     
     const shareData = {
       title: song.title,
-      text: `Mira esta música en ADJStudios: ${song.title}`,
+      text: textData,
       url: webUrl
     };
 
+    // 1. Prioridad: Plugin Nativo de Median (GoNative)
+    // Usamos tanto 'median' como 'gonative' para compatibilidad
+    const median = (window as any).median || (window as any).gonative;
+
+    if (median?.share) {
+        try {
+            median.share.share(shareData);
+        } catch (e) {
+            console.error("Fallo al compartir vía Median:", e);
+        }
+        setShowOptions(false);
+        return;
+    }
+
+    // 2. Fallback: Web Share API (Navegadores móviles estándar)
     if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
       await navigator.share(shareData).catch(err => console.error("Error sharing:", err));
-    } else {
+    } 
+    // 3. Fallback final: Copiar al portapapeles
+    else {
       try {
         await navigator.clipboard.writeText(webUrl);
         setShowShareToast(true);
@@ -442,6 +461,7 @@ const SongViewer: React.FC<SongViewerProps> = ({
         </div>
       )}
 
+      {/* ... (PDF Modal code remains the same) ... */}
       {pdfConfirmModal && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200">
             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setPdfConfirmModal(false)}></div>

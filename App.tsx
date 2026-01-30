@@ -160,6 +160,69 @@ const GoogleIcon = () => (
   </svg>
 );
 
+const NavBar = ({ view, navigateTo, darkMode }: any) => {
+  const navItems = [
+    { id: 'feed', label: 'Repertorio', activeClass: 'text-misionero-azul', activeBg: 'bg-misionero-azul/10', icon: (active: boolean) => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={active ? 2.5 : 2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" d="M9 22V12h6v10" /></svg> },
+    { id: 'favorites', label: 'Favoritos', activeClass: 'text-misionero-rojo', activeBg: 'bg-misionero-rojo/10', icon: (active: boolean) => <svg className="w-6 h-6" fill={active ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={active ? 2.5 : 2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg> },
+    { id: 'room', label: 'Sala', activeClass: 'text-misionero-verde', activeBg: 'bg-misionero-verde/10', icon: (active: boolean) => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={active ? 2.5 : 2}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg> },
+    { id: 'settings', label: 'Ajustes', activeClass: 'text-misionero-amarillo', activeBg: 'bg-misionero-amarillo/10', icon: (active: boolean) => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={active ? 2.5 : 2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6h9m-9 6h9m-9 6h9M6 6h.01M6 12h.01M6 18h.01" /></svg> }
+  ];
+
+  const handleNav = (id: string) => {
+      triggerHapticFeedback('light');
+      navigateTo(id);
+  };
+
+  return (
+    <>
+      {/* Mobile Bottom Bar */}
+      <div className={`md:hidden fixed bottom-0 left-0 right-0 ${darkMode ? 'bg-black/90 border-slate-800' : 'bg-white/90 border-slate-200'} backdrop-blur-lg border-t pb-[env(safe-area-inset-bottom)] z-40 transition-colors duration-500`}>
+        <div className="flex items-center justify-center h-16 gap-4">
+          {navItems.map((item) => {
+            const isActive = view === item.id;
+            return (
+              <button 
+                key={item.id} 
+                onClick={() => handleNav(item.id)} 
+                className={`flex flex-col items-center justify-center h-full gap-1 active:scale-90 transition-all duration-300 px-4 ${isActive ? item.activeClass : 'text-slate-400'}`}
+              >
+                <div className={`p-2 rounded-full transition-all duration-300 ${isActive ? (darkMode ? 'bg-slate-800' : item.activeBg) : 'bg-transparent'}`}>
+                  {item.icon(isActive)}
+                </div>
+                <span className={`text-[9px] font-black uppercase transition-all duration-300 ${isActive ? 'opacity-100' : 'opacity-0 scale-0'}`}>{item.label}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Desktop Sidebar */}
+      <div className={`hidden md:flex fixed left-0 top-0 bottom-0 w-20 flex-col items-center py-8 z-50 border-r ${darkMode ? 'bg-black border-slate-800' : 'bg-white border-slate-200'} transition-colors duration-500`}>
+         <img 
+            src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='512' height='512' viewBox='0 0 512 512'><defs><linearGradient id='gold' x1='0' y1='0' x2='0' y2='1'><stop offset='0%25' stop-color='%23FFE89A'/><stop offset='50%25' stop-color='%23E2B84A'/><stop offset='100%25' stop-color='%23B8901E'/></linearGradient><radialGradient id='halo' cx='50%25' cy='45%25' r='45%25'><stop offset='0%25' stop-color='%23FFD966' stop-opacity='0.9'/><stop offset='60%25' stop-color='%23FFD966' stop-opacity='0.3'/><stop offset='100%25' stop-color='%23FFD966' stop-opacity='0'/></radialGradient><linearGradient id='pages' x1='0' y1='0' x2='0' y2='1'><stop offset='0%25' stop-color='%23FFFFFF'/><stop offset='100%25' stop-color='%23EFEFEF'/></linearGradient><linearGradient id='edge' x1='0' y1='0' x2='0' y2='1'><stop offset='0%25' stop-color='%231F6B3F'/><stop offset='100%25' stop-color='%230B3D25'/></linearGradient></defs><circle cx='256' cy='150' r='110' fill='url(%23halo)'/><path fill='url(%23gold)' d='M242 55 H270 V118 H328 V146 H270 V245 H242 V146 H184 V118 H242 Z'/><path fill='url(%23edge)' d='M60 260 C150 210, 240 215, 256 240 C272 215, 362 210, 452 260 V350 C362 310, 272 315, 256 340 C240 315, 150 310, 60 350 Z'/><path fill='url(%23pages)' d='M78 268 C150 230, 225 235, 252 258 V330 C225 315, 150 315, 78 338 Z'/><path fill='url(%23pages)' d='M434 268 C362 230, 287 235, 260 258 V330 C287 315, 362 315, 434 338 Z'/><g stroke='%233E8C5A' stroke-width='3' fill='none'><path d='M110 295 C160 275, 205 278, 235 292'/><path d='M110 315 C160 295, 205 298, 235 312'/><path d='M402 295 C352 275, 307 278, 277 292'/><path d='M402 315 C352 295, 307 298, 277 312'/></g><path d='M256 258 V338' stroke='%230B3D25' stroke-width='6'/><path fill='url(%23gold)' d='M246 338 L256 355 L266 338 Z'/></svg>" 
+            alt="ADJStudios Logo" 
+            className="w-12 h-12 rounded-2xl shadow-lg mb-8" 
+         />
+         <div className="flex flex-col gap-6 w-full px-2">
+            {navItems.map((item) => {
+                const isActive = view === item.id;
+                return (
+                  <button 
+                    key={item.id} 
+                    onClick={() => handleNav(item.id)} 
+                    className={`flex flex-col items-center justify-center p-3 rounded-2xl transition-all hover:bg-slate-100 dark:hover:bg-slate-800 ${isActive ? `${item.activeBg} ${item.activeClass}` : 'text-slate-400'}`}
+                    title={item.label}
+                  >
+                    {item.icon(isActive)}
+                  </button>
+                )
+            })}
+         </div>
+      </div>
+    </>
+  );
+};
+
 const LoginView = ({ handleAuthSubmit, authData, setAuthData, authMode, setAuthMode, authMsg, isAuthenticating, showPassword, setShowPassword, setAuthMsg, handleGoogleSignIn }: any) => (
   <div className="fixed inset-0 login-background flex flex-col items-center justify-start pt-20 p-4 text-white font-sans overflow-y-auto">
     <div className="w-full max-w-sm space-y-8 text-center relative z-10">
@@ -526,10 +589,12 @@ const MainView = ({
       // Asegurarse que es un swipe horizontal y no un scroll vertical
       if (Math.abs(deltaX) > Math.abs(deltaY) * 1.5 && Math.abs(deltaX) > minSwipeDistance) {
           const currentIndex = VIEW_ORDER.indexOf(view);
-          if (deltaX < 0 && currentIndex < VIEW_ORDER.length - 1) { // Swipe Izquierda
-              navigateTo(VIEW_ORDER[currentIndex + 1], 'left');
-          } else if (deltaX > 0 && currentIndex > 0) { // Swipe Derecha
-              navigateTo(VIEW_ORDER[currentIndex - 1], 'right');
+          if (deltaX < 0) { // Swipe Izquierda (next)
+              const nextIndex = (currentIndex + 1) % VIEW_ORDER.length;
+              navigateTo(VIEW_ORDER[nextIndex], 'left');
+          } else if (deltaX > 0) { // Swipe Derecha (previous)
+              const prevIndex = (currentIndex - 1 + VIEW_ORDER.length) % VIEW_ORDER.length;
+              navigateTo(VIEW_ORDER[prevIndex], 'right');
           }
       }
       touchStartCoords.current = null;
@@ -589,6 +654,7 @@ const MainView = ({
 
   return (
     <div className={`fixed inset-0 transition-colors duration-500 ${darkMode ? 'text-white bg-black' : 'text-slate-900 bg-slate-50'} flex`}>
+      <NavBar view={view} navigateTo={navigateTo} darkMode={darkMode} />
       <div className="md:pl-20 w-full flex flex-col">
         <header onTouchStart={(e) => e.stopPropagation()} className={`shrink-0 z-30 transition-colors duration-500 ${darkMode ? 'bg-black/80 backdrop-blur-sm' : 'bg-slate-50/80 backdrop-blur-sm'} border-b ${darkMode ? 'border-white/10' : 'border-slate-200'}`}>
           <div className="w-full max-w-7xl mx-auto px-4 pt-6 pb-3">
@@ -616,7 +682,20 @@ const MainView = ({
             </div>
             {(view === 'feed' || view === 'favorites') && (
               <div className="space-y-3">
-                <input type="text" placeholder="Buscar música..." className={`w-full glass-ui rounded-2xl px-4 py-2 text-xs font-bold outline-none ${darkMode ? 'text-white placeholder:text-slate-600' : 'text-slate-900 placeholder:text-slate-400'}`} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+                <div className="relative w-full">
+                  <input type="text" placeholder="Buscar música..." className={`w-full glass-ui rounded-2xl px-4 py-2 text-xs font-bold outline-none pr-10 ${darkMode ? 'text-white placeholder:text-slate-600' : 'text-slate-900 placeholder:text-slate-400'}`} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+                  {searchQuery && (
+                    <button 
+                      onClick={() => setSearchQuery('')}
+                      className="absolute inset-y-0 right-0 flex items-center justify-center w-10 h-full text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                      aria-label="Limpiar búsqueda"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
                 <div className="flex gap-2 overflow-x-auto pb-2 pt-1 no-swipe custom-scroll">
                   {['Todos', ...categoryNames].map((f: string) => (
                     <button key={f} onClick={() => setActiveFilter(f as any)} className={`px-5 py-2 rounded-full text-[9px] font-black uppercase shrink-0 transition-all ${activeFilter === f ? 'bg-misionero-azul text-white' : 'glass-ui text-slate-400'}`}>{f}</button>
@@ -689,6 +768,7 @@ const App: React.FC = () => {
   const [showExitConfirm, setShowExitConfirm] = useState<any>(null);
   const isExitingApp = useRef(false);
   const [adminUsers, setAdminUsers] = useState<AppUser[]>([]);
+  const [initialImportUrl, setInitialImportUrl] = useState('');
 
   const darkMode = useMemo(() => {
     if (theme === 'system') return systemPrefersDark;
@@ -696,6 +776,8 @@ const App: React.FC = () => {
   }, [theme, systemPrefersDark]);
 
   const categoryNames = useMemo(() => categories.map(c => c.name), [categories]);
+  // Re-memoize to use in App scope navigation
+  const filteredSongs = useMemo(() => songs.filter((s: Song) => (s.title.toLowerCase().includes(searchQuery.toLowerCase()) || s.author.toLowerCase().includes(searchQuery.toLowerCase())) && (activeFilter === 'Todos' || s.category === activeFilter)).sort((a, b) => a.title.localeCompare(b.title)), [songs, searchQuery, activeFilter]);
 
   const toggleShowChangePassword = (field: 'current' | 'newPass' | 'confirm') => {
     setShowChangePassword(prev => ({ ...prev, [field]: !prev[field] }));
@@ -734,6 +816,43 @@ const App: React.FC = () => {
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, []);
+
+  useEffect(() => {
+    const handleIncomingShare = () => {
+        const params = new URLSearchParams(window.location.search);
+        const sharedUrl = params.get('sharedUrl') || params.get('url') || params.get('text');
+        
+        if (sharedUrl && (sharedUrl.includes('lacuerda.net') || sharedUrl.startsWith('http'))) {
+            if (sharedUrl.includes('lacuerda.net')) {
+                setInitialImportUrl(sharedUrl);
+                // Si viene de share, abrimos el editor. Asumimos que si comparte es para importar.
+                setEditingSong(true); 
+                window.history.pushState({ overlay: 'editor' }, '', '');
+                // Limpiar la URL para evitar bucles si se refresca, pero con cuidado
+                // window.history.replaceState(null, '', window.location.pathname);
+            }
+        }
+    };
+
+    handleIncomingShare();
+    
+    // Median JS Bridge handler
+    (window as any).median_share_opened = (data: any) => {
+        console.log("Median share received:", data);
+        let url = '';
+        if (typeof data === 'string') url = data;
+        else if (typeof data === 'object') {
+            url = data.url || data.text || '';
+        }
+        
+        if (url && url.includes('lacuerda.net')) {
+             setInitialImportUrl(url);
+             setEditingSong(true);
+             window.history.pushState({ overlay: 'editor' }, '', '');
+        }
+    };
+
+  }, []);
   
   const handleConfirmExit = useCallback(() => {
     isExitingApp.current = true;
@@ -767,6 +886,7 @@ const handlePopState = useCallback((event: PopStateEvent) => {
     // Prioritize closing overlays first, even if inside a room.
     if (editingSong) {
         setEditingSong(null);
+        setInitialImportUrl(''); // Limpiar al cerrar
         return;
     }
     if (activeSong) {
@@ -861,6 +981,73 @@ useEffect(() => {
           console.error("Error subscribing to categories:", error);
       });
       return () => unsubscribe();
+  }, [user]);
+
+  useEffect(() => {
+    let unsubscribeUser = () => {};
+    let unsubscribeSongs = () => {};
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      // Limpiar los listeners del usuario anterior antes de configurar los nuevos
+      unsubscribeUser();
+      unsubscribeSongs();
+
+      if (currentUser) {
+        // El usuario ha iniciado sesión, configurar nuevos listeners en tiempo real
+        
+        // Listener para el documento del usuario (actualiza favoritos, rol, etc., en tiempo real)
+        unsubscribeUser = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            const hasPasswordProvider = currentUser.providerData.some(p => p.providerId === 'password');
+            const hasGoogleProvider = currentUser.providerData.some(p => p.providerId === 'google.com');
+
+            setUser({ 
+              id: currentUser.uid, 
+              ...userData, 
+              isAuthenticated: true,
+              hasPasswordProvider,
+              hasGoogleProvider 
+            } as AppUser);
+            
+            setFavorites(userData.favorites || []);
+          } else {
+            // Caso raro: el usuario existe en Auth pero no en Firestore. Cerrar sesión.
+            signOut(auth);
+          }
+        });
+
+        // Listener para la colección de canciones
+        const songsQ = query(collection(db, "songs"), orderBy("title"));
+        unsubscribeSongs = onSnapshot(songsQ, (snapshot) => {
+          setSongs(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Song)));
+        });
+
+      } else {
+        // El usuario ha cerrado sesión, limpiar el estado
+        setUser(null);
+        setFavorites([]);
+        setSongs([]);
+      }
+      setIsAuthLoading(false);
+    });
+
+    // Función de limpieza para cuando el componente se desmonte
+    return () => {
+      unsubscribeAuth();
+      unsubscribeUser();
+      unsubscribeSongs();
+    };
+  }, []);
+
+  useEffect(() => {
+      if (user?.role === 'admin' && user?.email === SUPER_ADMIN_EMAIL) {
+          const q = query(collection(db, "users"), where("role", "==", "admin"));
+          const unsub = onSnapshot(q, (snap) => {
+              setAdminUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser)));
+          });
+          return () => unsub();
+      }
   }, [user]);
 
   const handleCreateCategory = async (name: string) => {
@@ -1007,621 +1194,313 @@ useEffect(() => {
         goBack();
     } catch (error) {
         console.error("Error saving song:", error);
-        setGlobalAlert({ title: "Error", message: "No se pudo guardar la canción.", type: 'error' });
+        setGlobalAlert({ title: "Error", message: "Error al guardar la canción.", type: 'error' });
     }
   }, [editingSong, user, goBack]);
 
-  const isSuperAdmin = useMemo(() => user?.email === SUPER_ADMIN_EMAIL, [user]);
-  const isAdmin = useMemo(() => {
-    if (!user) return false;
-    return user.role === 'admin' || isSuperAdmin;
-  }, [user, isSuperAdmin]);
-
-  const hasElevatedPermissions = useMemo(() => isAdmin, [isAdmin]);
-  
-  const isHostOfActiveRoom = useMemo(() => {
-    if (!user || !activeRoom) return false;
-    return activeRoom.host === user.username;
-  }, [user, activeRoom]);
-
-  useEffect(() => {
-    if (!isSuperAdmin) {
-        setAdminUsers([]);
-        return;
-    }
-    const q = query(collection(db, "users"), where("role", "==", "admin"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-        const admins = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AppUser));
-        setAdminUsers(admins);
-    });
-    return () => unsubscribe();
-  }, [isSuperAdmin]);
-
-  const handleAddAdmin = async (email: string) => {
-    const trimmedEmail = email.trim().toLowerCase();
-    if (!trimmedEmail) return;
-    const q = query(collection(db, "users"), where("email", "==", trimmedEmail), limit(1));
-    try {
-        const snapshot = await getDocs(q);
-        if (snapshot.empty) {
-            setGlobalAlert({ title: "Error", message: "Usuario no encontrado con ese correo.", type: 'error' });
-            return;
-        }
-        const userDoc = snapshot.docs[0];
-        if (userDoc.data().role === 'admin') {
-            setGlobalAlert({ title: "Información", message: `${userDoc.data().username} ya es administrador.`, type: 'info' });
-            return;
-        }
-        await updateDoc(doc(db, "users", userDoc.id), { role: 'admin' });
-        setGlobalAlert({ title: "Éxito", message: `${userDoc.data().username} ahora es administrador.`, type: 'success' });
-    } catch (e) {
-        console.error("Error adding admin:", e);
-        setGlobalAlert({ title: "Error", message: "No se pudo asignar el rol.", type: 'error' });
-    }
-  };
-
-  const handleRevokeAdmin = async (adminUser: AppUser) => {
-      if (adminUser.email === SUPER_ADMIN_EMAIL) {
-          setGlobalAlert({ title: "Acción no permitida", message: "No se puede revocar el rol del super administrador.", type: 'info' });
-          return;
-      }
-      try {
-          await updateDoc(doc(db, "users", adminUser.id), { role: 'member' });
-          setGlobalAlert({ title: "Éxito", message: `Se revocó el rol de administrador para ${adminUser.username}.`, type: 'success' });
-      } catch (e) {
-          console.error("Error revoking admin:", e);
-          setGlobalAlert({ title: "Error", message: "No se pudo revocar el rol.", type: 'error' });
-      }
-  };
-  
-  const handleOpenInApp = () => {
-    const songId = new URLSearchParams(window.location.search).get('song');
-    if (!songId) return;
-    const appUrl = window.location.href; 
-    const fallbackUrl = encodeURIComponent(`https://play.google.com/store/apps/details?id=co.median.android.dyynjol`);
-    const intentUri = appUrl.replace(/^https:\/\//, 'intent://');
-    const intentString = `${intentUri}#Intent;scheme=https;package=co.median.android.dyynjol;S.browser_fallback_url=${fallbackUrl};end`;
-    window.location.href = intentString;
-  };
-
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const sharedSongId = urlParams.get('song');
-    if (sharedSongId && /Android/i.test(navigator.userAgent)) {
-      setShowOpenInAppButton(true);
-    }
-    if (songs.length > 0 && !activeSong && !activeRoom && !editingSong && sharedSongId) {
-      const sharedSong = songs.find(s => s.id === sharedSongId);
-      if (sharedSong) openSongViewer(sharedSong);
-    }
-  }, [songs]);
-
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setAuthMsg(null);
+    if (isAuthenticating) return;
     setIsAuthenticating(true);
+    setAuthMsg(null);
+
     try {
       if (authMode === 'login') {
         await signInWithEmailAndPassword(auth, authData.email, authData.pass);
       } else if (authMode === 'register') {
-        if (authData.pass !== authData.confirmPass) { 
-            setAuthMsg({ type: 'error', text: 'Las contraseñas no coinciden.' }); 
-            setIsAuthenticating(false); 
-            return; 
-        }
         if (!isValidUsername(authData.user)) {
-          setAuthMsg({ type: 'error', text: 'El usuario debe tener entre 3 y 24 caracteres (letras, espacios y tildes).' });
-          setIsAuthenticating(false);
-          return;
+             throw new Error('Nombre de usuario inválido (3-24 caracteres, solo letras/espacios).');
         }
-
-        let cred;
-        try {
-            cred = await createUserWithEmailAndPassword(auth, authData.email, authData.pass);
-        } catch (authErr: any) {
-            throw authErr;
+        if (authData.pass !== authData.confirmPass) {
+             throw new Error('Las contraseñas no coinciden.');
         }
-
-        try {
-            const q = query(collection(db, "users"), where("username_lowercase", "==", authData.user.toLowerCase()), limit(1));
-            const snapshot = await getDocs(q);
-
-            if (!snapshot.empty) {
-                await cred.user.delete();
-                throw { code: 'custom/username-taken' };
-            }
-
-            await updateProfile(cred.user, { displayName: authData.user });
-            await setDoc(doc(db, "users", cred.user.uid), { 
-                username: authData.user, 
-                username_lowercase: authData.user.toLowerCase(), 
-                email: authData.email, 
-                role: 'member', 
-                favorites: [],
-                profileValidated: true
-            });
-
-        } catch (innerError: any) {
-            if (innerError.code === 'custom/username-taken') {
-                throw innerError;
-            }
-            if (cred && cred.user) {
-                try { await cred.user.delete(); } catch(e) {}
-            }
-            throw innerError;
-        }
-
+        const userCredential = await createUserWithEmailAndPassword(auth, authData.email, authData.pass);
+        await setDoc(doc(db, "users", userCredential.user.uid), {
+            username: authData.user,
+            username_lowercase: authData.user.toLowerCase(),
+            email: authData.email,
+            role: 'member',
+            favorites: [],
+            createdAt: new Date().toISOString()
+        });
+        await updateProfile(userCredential.user, { displayName: authData.user });
       } else if (authMode === 'forgot') {
-        await sendPasswordResetEmail(auth, authData.email);
-        setAuthMsg({ type: 'success', text: 'Correo de recuperación enviado.' });
+         await sendPasswordResetEmail(auth, authData.email);
+         setAuthMsg({ type: 'success', text: 'Correo de recuperación enviado.' });
+         setIsAuthenticating(false);
+         return;
       }
-    } catch (error: any) { 
-        console.error("Auth error:", error.code, error.message);
-        if (error.code === 'custom/username-taken') {
-             setAuthMsg({ type: 'error', text: 'El nombre de usuario ya está ocupado. Por favor elige otro.' });
-        } else {
-             setAuthMsg({ type: 'error', text: translateAuthError(error.code) }); 
-        }
-    } finally { setIsAuthenticating(false); }
+    } catch (error: any) {
+       console.error("Auth error:", error);
+       setAuthMsg({ type: 'error', text: translateAuthError(error.code) });
+    }
+    setIsAuthenticating(false);
   };
 
   const handleGoogleSignIn = async () => {
-    setIsAuthenticating(true);
-    setAuthMsg(null);
-    const provider = new GoogleAuthProvider();
-    try {
-        await signInWithPopup(auth, provider);
-        // El estado se manejará automáticamente en onAuthStateChanged
-    } catch (error: any) {
-        console.error("Error en Google Popup:", error);
-        // Add specific logging to help the user identify the current domain
-        if (error.code === 'auth/unauthorized-domain') {
-            console.error("Dominio actual no autorizado:", window.location.hostname || "VACIO (posible file:// o entorno restringido)");
-            console.error("Full origin:", window.location.origin);
-        }
-        setAuthMsg({ type: 'error', text: translateAuthError(error.code) });
-        setIsAuthenticating(false);
-    }
-  };
-
-  const handleLinkGoogleAccount = async () => {
-    if (!auth.currentUser) return;
-    setIsLinkingGoogle(true);
-    const provider = new GoogleAuthProvider();
-    try {
-      await linkWithPopup(auth.currentUser, provider);
-      setGlobalAlert({ title: "Vinculado", message: "Cuenta de Google vinculada correctamente.", type: 'success' });
-    } catch (error) {
-      console.error("Error linking Google:", error);
-      setGlobalAlert({ title: "Error", message: "No se pudo vincular la cuenta.", type: 'error' });
-    } finally {
-      setIsLinkingGoogle(false);
-    }
-  };
-
-  const handleChangePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setPasswordChangeMsg(null);
-    if (passwordChangeData.newPass !== passwordChangeData.confirm) { setPasswordChangeMsg({ type: 'error', text: 'Las nuevas contraseñas no coinciden.' }); return; }
-    const currentUser = auth.currentUser;
-    if (!currentUser?.email) return;
-    setIsUpdatingPassword(true);
-    const cred = EmailAuthProvider.credential(currentUser.email, passwordChangeData.current);
-    try {
-        await reauthenticateWithCredential(currentUser, cred);
-        await updatePassword(currentUser, passwordChangeData.newPass);
-        setPasswordChangeMsg({ type: 'success', text: '¡Contraseña actualizada!' });
-        setPasswordChangeData({ current: '', newPass: '', confirm: '' });
-    } catch (error: any) { setPasswordChangeMsg({ type: 'error', text: translatePasswordChangeError(error.code) }); } finally { setIsUpdatingPassword(false); }
+      if(isAuthenticating) return;
+      setIsAuthenticating(true);
+      try {
+          const provider = new GoogleAuthProvider();
+          const result = await signInWithPopup(auth, provider);
+          const userDocRef = doc(db, "users", result.user.uid);
+          const userDocSnap = await getDoc(userDocRef);
+          
+          if (!userDocSnap.exists()) {
+              const username = result.user.displayName || result.user.email?.split('@')[0] || 'Usuario';
+              await setDoc(userDocRef, {
+                  username: username,
+                  username_lowercase: username.toLowerCase(),
+                  email: result.user.email,
+                  role: 'member',
+                  favorites: [],
+                  createdAt: new Date().toISOString()
+              });
+          }
+      } catch (error: any) {
+          console.error("Google Auth error:", error);
+          setAuthMsg({ type: 'error', text: translateAuthError(error.code) });
+      }
+      setIsAuthenticating(false);
   };
 
   const handleUpdateUsername = async () => {
-    if (!user || !auth.currentUser) return;
-    const trimmedUsername = newUsername.trim();
-    
-    if (!isValidUsername(trimmedUsername)) {
-       setGlobalAlert({ title: "Nombre no válido", message: "El usuario debe tener entre 3 y 24 caracteres (letras, espacios y tildes).", type: 'error' });
-       return;
-    }
-    if (trimmedUsername.toLowerCase() === user.username.toLowerCase()) return;
-    
-    if (!usernameChangePassword) {
-        setGlobalAlert({ title: "Requerido", message: "Ingresa tu contraseña actual para confirmar.", type: 'info' });
-        return;
-    }
+     if (!user || !newUsername.trim()) return;
+     if (!isValidUsername(newUsername)) {
+         setGlobalAlert({ title: "Error", message: "Nombre de usuario inválido.", type: 'error' });
+         return;
+     }
+     setIsUpdatingUsername(true);
+     try {
+         const cred = EmailAuthProvider.credential(user.email, usernameChangePassword);
+         await reauthenticateWithCredential(auth.currentUser!, cred);
+         
+         await updateDoc(doc(db, "users", user.id), {
+             username: newUsername,
+             username_lowercase: newUsername.toLowerCase()
+         });
+         await updateProfile(auth.currentUser!, { displayName: newUsername });
 
-    setIsUpdatingUsername(true);
-
-    try {
-        if (auth.currentUser.email) {
-            const cred = EmailAuthProvider.credential(auth.currentUser.email, usernameChangePassword);
-            await reauthenticateWithCredential(auth.currentUser, cred);
-        } else {
-            throw new Error("No email associated");
-        }
-
-        const q = query(collection(db, "users"), where("username_lowercase", "==", trimmedUsername.toLowerCase()));
-        const querySnapshot = await getDocs(q);
-        const isTakenByOtherUser = querySnapshot.docs.some(doc => doc.id !== user.id);
-
-        if (isTakenByOtherUser) {
-            setGlobalAlert({ title: "Nombre no disponible", message: "El nombre de usuario ya está ocupado.", type: 'error' }); 
-            setIsUpdatingUsername(false); 
-            return; 
-        }
-
-        const batch = writeBatch(db);
-        const userRef = doc(db, "users", user.id);
-        batch.update(userRef, {
-            username: trimmedUsername,
-            username_lowercase: trimmedUsername.toLowerCase()
-        });
-
-        const songsRef = collection(db, "songs");
-        const qSongs = query(songsRef, where("author", "==", user.username));
-        const songsSnapshot = await getDocs(qSongs);
-        let songsUpdatedCount = 0;
-        songsSnapshot.forEach((songDoc) => {
-            batch.update(songDoc.ref, { author: trimmedUsername });
-            songsUpdatedCount++;
-        });
-
-        await batch.commit();
-        await updateProfile(auth.currentUser, { displayName: trimmedUsername });
-
-        const userStatusDatabaseRef = ref(rtdb, '/status/' + user.id);
-        updateRtdb(userStatusDatabaseRef, { username: trimmedUsername });
-        
-        setUser(prev => prev ? ({ ...prev, username: trimmedUsername, username_lowercase: trimmedUsername.toLowerCase() }) : null);
-
-        setGlobalAlert({ title: "Perfil Actualizado", message: `Nombre cambiado a ${trimmedUsername}. Se actualizaron ${songsUpdatedCount} canciones.`, type: 'success' });
-        setUsernameChangePassword('');
-
-    } catch (error: any) { 
-        console.error(error);
-        if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-             setGlobalAlert({ title: "Contraseña Incorrecta", message: "La contraseña ingresada no es válida.", type: 'error' });
-        } else {
-             setGlobalAlert({ title: "Error", message: "No se pudo actualizar el nombre de usuario.", type: 'error' }); 
-        }
-    } finally { 
-        setIsUpdatingUsername(false); 
-    }
+         setNewUsername('');
+         setUsernameChangePassword('');
+         setGlobalAlert({ title: "Éxito", message: "Nombre de usuario actualizado.", type: 'success' });
+     } catch (e: any) {
+         setGlobalAlert({ title: "Error", message: translateAuthError(e.code), type: 'error' });
+     }
+     setIsUpdatingUsername(false);
   };
 
-   const handleProfileUpdate = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!user || !auth.currentUser?.email) return;
-        setProfileUpdateError(null);
+  const handleChangePassword = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!user) return;
+      if (passwordChangeData.newPass !== passwordChangeData.confirm) {
+          setPasswordChangeMsg({ type: 'error', text: "Las contraseñas no coinciden." });
+          return;
+      }
+      setIsUpdatingPassword(true);
+      setPasswordChangeMsg(null);
+      try {
+         const cred = EmailAuthProvider.credential(user.email, passwordChangeData.current);
+         await reauthenticateWithCredential(auth.currentUser!, cred);
+         await updatePassword(auth.currentUser!, passwordChangeData.newPass);
+         setPasswordChangeMsg({ type: 'success', text: "Contraseña actualizada." });
+         setPasswordChangeData({ current: '', newPass: '', confirm: '' });
+      } catch (e: any) {
+         setPasswordChangeMsg({ type: 'error', text: translatePasswordChangeError(e.code) });
+      }
+      setIsUpdatingPassword(false);
+  };
 
-        if (!isValidUsername(profileUpdateData.username)) {
-            setProfileUpdateError('El usuario debe tener entre 3 y 24 caracteres (letras, espacios y tildes).');
-            return;
-        }
-        if (!profileUpdateData.password) {
-            setProfileUpdateError('Por favor, ingresa tu contraseña para confirmar.');
-            return;
-        }
+  const handleLinkGoogleAccount = async () => {
+      if (!user) return;
+      setIsLinkingGoogle(true);
+      try {
+          const provider = new GoogleAuthProvider();
+          await linkWithPopup(auth.currentUser!, provider);
+          setGlobalAlert({ title: "Éxito", message: "Cuenta de Google vinculada.", type: 'success' });
+      } catch (e: any) {
+          setGlobalAlert({ title: "Error", message: translateAuthError(e.code), type: 'error' });
+      }
+      setIsLinkingGoogle(false);
+  };
 
-        setIsUpdatingProfile(true);
-        try {
-            const credential = EmailAuthProvider.credential(auth.currentUser.email, profileUpdateData.password);
-            await reauthenticateWithCredential(auth.currentUser, credential);
-            
-            const newUsernameLower = profileUpdateData.username.toLowerCase();
-            
-            const q = query(collection(db, "users"), where("username_lowercase", "==", newUsernameLower));
-            const querySnapshot = await getDocs(q);
-            const isTakenByOtherUser = querySnapshot.docs.some(doc => doc.id !== user.id);
+  const handleAddAdmin = async (email: string) => {
+      try {
+          const q = query(collection(db, "users"), where("email", "==", email));
+          const snap = await getDocs(q);
+          if (snap.empty) {
+              setGlobalAlert({ title: "Error", message: "Usuario no encontrado.", type: 'error' });
+              return;
+          }
+          const userDoc = snap.docs[0];
+          await updateDoc(doc(db, "users", userDoc.id), { role: 'admin' });
+          setGlobalAlert({ title: "Éxito", message: "Rol de admin asignado.", type: 'success' });
+      } catch (e) {
+           setGlobalAlert({ title: "Error", message: "Error al asignar admin.", type: 'error' });
+      }
+  };
 
-            if (isTakenByOtherUser) {
-                setProfileUpdateError('Este nombre de usuario ya está ocupado. Elige otro.');
-                setIsUpdatingProfile(false);
-                return;
-            }
-            
-            const batch = writeBatch(db);
-
-            const userRef = doc(db, "users", user.id);
-            const updatePayload = {
-                username: profileUpdateData.username,
-                username_lowercase: newUsernameLower,
-                profileValidated: true,
-                role: user.role || 'member'
-            };
-            batch.update(userRef, updatePayload);
-
-            if (user.username) {
-                const songsRef = collection(db, "songs");
-                const qSongs = query(songsRef, where("author", "==", user.username));
-                const songsSnapshot = await getDocs(qSongs);
-                songsSnapshot.forEach((songDoc) => {
-                    batch.update(songDoc.ref, { author: profileUpdateData.username });
-                });
-            }
-
-            await batch.commit();
-
-            await updateProfile(auth.currentUser, { displayName: profileUpdateData.username });
-            
-            setUser(prev => prev ? ({ ...prev, ...updatePayload }) : null);
-            setNewUsername(profileUpdateData.username);
-            setShowProfileUpdateModal(false);
-
-        } catch (error: any) {
-            console.error("Error updating profile:", error);
-            if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-                setProfileUpdateError('La contraseña es incorrecta.');
-            } else {
-                setProfileUpdateError('Ocurrió un error. Inténtalo de nuevo.');
-            }
-        } finally {
-            setIsUpdatingProfile(false);
-        }
-    };
+  const handleRevokeAdmin = async (adminUser: AppUser) => {
+      if (adminUser.email === SUPER_ADMIN_EMAIL) return;
+       try {
+          await updateDoc(doc(db, "users", adminUser.id), { role: 'member' });
+          setGlobalAlert({ title: "Éxito", message: "Rol de admin revocado.", type: 'success' });
+      } catch (e) {
+           setGlobalAlert({ title: "Error", message: "Error al revocar admin.", type: 'error' });
+      }
+  };
 
   const handleSignOut = async () => {
-    if (user) {
-      const userStatusDatabaseRef = ref(rtdb, '/status/' + user.id);
-      await set(userStatusDatabaseRef, {
-        isOnline: false,
-        last_changed: serverTimestamp(),
-        username: user.username
-      });
-    }
-    await signOut(auth);
+      try {
+          await signOut(auth);
+      } catch(e) { console.error(e); }
   };
 
-  useEffect(() => {
-      // Listener para cambios de estado de autenticación
-      const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-        try {
-            if (firebaseUser) {
-              const userDocRef = doc(db, "users", firebaseUser.uid);
-              let userDoc = await getDoc(userDocRef);
+  if (isAuthLoading) return <div className={`fixed inset-0 flex items-center justify-center ${darkMode ? 'bg-black' : 'bg-white'}`}><div className="w-10 h-10 border-4 border-misionero-azul border-t-transparent rounded-full animate-spin"></div></div>;
 
-              if (!userDoc.exists()) {
-                  const generateBaseUsername = (displayName: string | null, email: string | null): string => {
-                      if (displayName) { const sanitized = displayName.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ ]/g, ''); if (sanitized.trim().length >= 3) return sanitized.trim().substring(0, 24); }
-                      if (email) { return email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').substring(0, 24); }
-                      return `user${Math.floor(1000 + Math.random() * 9000)}`;
-                  };
-                  const baseUsername = generateBaseUsername(firebaseUser.displayName, firebaseUser.email);
-                  let finalUsername = baseUsername; let isUnique = false; let attempts = 0;
-                  while (!isUnique && attempts < 10) {
-                      const q = query(collection(db, "users"), where("username_lowercase", "==", finalUsername.toLowerCase()), limit(1));
-                      const existingUser = await getDocs(q);
-                      if (existingUser.empty) { isUnique = true; } 
-                      else { finalUsername = `${baseUsername.substring(0, 21)}${Math.floor(100 + Math.random() * 900)}`; attempts++; }
-                  }
-                  await setDoc(userDocRef, { username: finalUsername, username_lowercase: finalUsername.toLowerCase(), email: firebaseUser.email, role: 'member', favorites: [], profileValidated: true });
-                  userDoc = await getDoc(userDocRef);
-              }
-              
-              const data = userDoc.data();
-              const username = data?.username || firebaseUser.displayName || '';
-              const email = data?.email || firebaseUser.email || '';
-              
-              const userStatusDatabaseRef = ref(rtdb, '/status/' + firebaseUser.uid);
-              const isOfflineForDatabase = { isOnline: false, last_changed: serverTimestamp(), username: username };
-              const isOnlineForDatabase = { isOnline: true, last_changed: serverTimestamp(), username: username };
-              const connectedRef = ref(rtdb, '.info/connected');
-              onValue(connectedRef, (snapshot) => {
-                  if (snapshot.val() === false) { return; }
-                  onDisconnect(userStatusDatabaseRef).set(isOfflineForDatabase).then(() => {
-                      set(userStatusDatabaseRef, isOnlineForDatabase);
-                  });
-              });
-
-              const providerIds = firebaseUser.providerData.map(p => p.providerId);
-              const hasPasswordProvider = providerIds.includes('password');
-              const hasGoogleProvider = providerIds.includes('google.com');
-
-              const currentUserData: AppUser = { 
-                id: firebaseUser.uid, 
-                username, 
-                username_lowercase: data?.username_lowercase || username.toLowerCase(), 
-                email: email, 
-                role: data?.role || 'member', 
-                isAuthenticated: true, 
-                createdAt: firebaseUser.metadata.creationTime,
-                hasPasswordProvider,
-                hasGoogleProvider
-              };
-              
-              setUser(currentUserData);
-
-              const profileValidated = data?.profileValidated || false;
-              const isDataMissing = !data?.username || !data?.email;
-              const isUsernameInvalid = username && !isValidUsername(username);
-
-              if (!profileValidated && (isDataMissing || isUsernameInvalid)) {
-                setProfileUpdateReason(isDataMissing ? 'missing_data' : 'invalid_name');
-                setProfileUpdateData({ username: username, email: email, password: '' });
-                setShowProfileUpdateModal(true);
-              } else {
-                setNewUsername(username);
-                setShowProfileUpdateModal(false);
-              }
-            } else {
-              setUser(null);
-            }
-        } catch (error) {
-            console.error("Error crítico en onAuthStateChanged:", error);
-            // Si hay error crítico, aseguramos que la app no se quede en loading
-            setUser(null);
-        } finally {
-            setIsAuthLoading(false);
-        }
-      });
-      return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (!user?.id) return;
-    const q = query(collection(db, "songs"), orderBy("createdAt", "desc"));
-    const unsubSongs = onSnapshot(q, 
-      (snap) => setSongs(snap.docs.map(d => ({ id: d.id, ...d.data() } as Song))),
-      (error) => console.error("Error subscribing to songs:", error)
+  if (!user) {
+    return (
+      <LoginView 
+        handleAuthSubmit={handleAuthSubmit} 
+        authData={authData} 
+        setAuthData={setAuthData} 
+        authMode={authMode} 
+        setAuthMode={setAuthMode} 
+        authMsg={authMsg} 
+        isAuthenticating={isAuthenticating} 
+        showPassword={showPassword} 
+        setShowPassword={setShowPassword} 
+        setAuthMsg={setAuthMsg} 
+        handleGoogleSignIn={handleGoogleSignIn} 
+      />
     );
-    const unsubFavs = onSnapshot(doc(db, "users", user.id), 
-      (docSnap) => { if (docSnap.exists()) setFavorites(docSnap.data().favorites || []); },
-      (error) => console.error("Error subscribing to favorites:", error)
-    );
-    return () => { unsubSongs(); unsubFavs(); };
-  }, [user?.id]);
-
-  useEffect(() => {
-    if (activeSong) {
-      const updatedActiveSong = songs.find(s => s.id === activeSong.id);
-      if (updatedActiveSong) {
-        if (updatedActiveSong.content !== activeSong.content || updatedActiveSong.title !== activeSong.title || updatedActiveSong.key !== activeSong.key) {
-           setActiveSong(updatedActiveSong);
-        }
-      } else {
-        setActiveSong(null);
-      }
-    }
-  }, [songs, activeSong]);
-
-  if (isAuthLoading) return (
-    <div className="fixed inset-0 login-background flex flex-col items-center justify-center text-white font-black z-[9999]">
-      <div className="flex flex-col items-center animate-in fade-in zoom-in duration-500">
-        <h1 className="text-5xl font-black tracking-tighter uppercase italic leading-tight login-text-shadow mb-8 text-center">ADJ<br/><span className="text-4xl font-semibold tracking-widest">Studios</span></h1>
-        <div className="w-12 h-12 border-4 border-white/30 border-t-white rounded-full animate-spin"></div>
-      </div>
-    </div>
-  );
+  }
 
   return (
     <>
-      <div className={`fixed inset-0 transition-opacity duration-500 ease-in-out ${user ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-        <LoginView
-          handleAuthSubmit={handleAuthSubmit}
-          authData={authData}
-          setAuthData={setAuthData}
-          authMode={authMode}
-          setAuthMode={setAuthMode}
-          authMsg={authMsg}
-          setAuthMsg={setAuthMsg}
-          isAuthenticating={isAuthenticating}
-          showPassword={showPassword}
-          setShowPassword={setShowPassword}
-          handleGoogleSignIn={handleGoogleSignIn}
-        />
-      </div>
+      <MainView 
+         user={user}
+         view={view}
+         darkMode={darkMode}
+         theme={theme}
+         setTheme={setTheme}
+         isAdmin={user.role === 'admin'}
+         isSuperAdmin={user.email === SUPER_ADMIN_EMAIL}
+         animationDirection={animationDirection}
+         navigateTo={navigateTo}
+         songs={songs}
+         favorites={favorites}
+         openSongViewer={openSongViewer}
+         toggleFavorite={toggleFavorite}
+         searchQuery={searchQuery}
+         setSearchQuery={setSearchQuery}
+         activeFilter={activeFilter}
+         setActiveFilter={setActiveFilter}
+         categories={categories}
+         roomCodeInput={roomCodeInput}
+         setRoomCodeInput={setRoomCodeInput}
+         handleJoinRoom={handleJoinRoom}
+         handleCreateRoom={handleCreateRoom}
+         isJoiningRoom={isJoiningRoom}
+         handleCreateCategory={handleCreateCategory}
+         handleDeleteCategory={handleDeleteCategory}
+         handleEditCategory={handleEditCategory}
+         setCategoryConfirmModal={setCategoryConfirmModal}
+         newUsername={newUsername}
+         setNewUsername={setNewUsername}
+         showUsernamePass={showUsernamePass}
+         setShowUsernamePass={setShowUsernamePass}
+         usernameChangePassword={usernameChangePassword}
+         setUsernameChangePassword={setUsernameChangePassword}
+         isUpdatingUsername={isUpdatingUsername}
+         handleUpdateUsername={handleUpdateUsername}
+         passwordChangeData={passwordChangeData}
+         setPasswordChangeData={setPasswordChangeData}
+         showChangePassword={showChangePassword}
+         toggleShowChangePassword={toggleShowChangePassword}
+         passwordChangeMsg={passwordChangeMsg}
+         isUpdatingPassword={isUpdatingPassword}
+         handleChangePassword={handleChangePassword}
+         isLinkingGoogle={isLinkingGoogle}
+         handleLinkGoogleAccount={handleLinkGoogleAccount}
+         adminUsers={adminUsers}
+         handleAddAdmin={handleAddAdmin}
+         handleRevokeAdmin={handleRevokeAdmin}
+         handleSignOut={handleSignOut}
+         openSongEditor={openSongEditor}
+      />
 
-      {user && !showProfileUpdateModal && (
-        <>
-            <MainView
-                user={user} view={view} darkMode={darkMode} theme={theme} setTheme={setTheme} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} animationDirection={animationDirection} navigateTo={navigateTo}
-                songs={songs} favorites={favorites} openSongViewer={openSongViewer} toggleFavorite={toggleFavorite}
-                searchQuery={searchQuery} setSearchQuery={setSearchQuery} activeFilter={activeFilter} setActiveFilter={setActiveFilter}
-                categories={categories}
-                roomCodeInput={roomCodeInput} setRoomCodeInput={setRoomCodeInput} handleJoinRoom={handleJoinRoom} handleCreateRoom={handleCreateRoom} isJoiningRoom={isJoiningRoom}
-                handleCreateCategory={handleCreateCategory} handleDeleteCategory={handleDeleteCategory} handleEditCategory={handleEditCategory} setCategoryConfirmModal={setCategoryConfirmModal}
-                newUsername={newUsername} setNewUsername={setNewUsername} showUsernamePass={showUsernamePass} setShowUsernamePass={setShowUsernamePass}
-                usernameChangePassword={usernameChangePassword} setUsernameChangePassword={setUsernameChangePassword} isUpdatingUsername={isUpdatingUsername} handleUpdateUsername={handleUpdateUsername}
-                passwordChangeData={passwordChangeData} setPasswordChangeData={setPasswordChangeData} showChangePassword={showChangePassword}
-                toggleShowChangePassword={toggleShowChangePassword} passwordChangeMsg={passwordChangeMsg} isUpdatingPassword={isUpdatingPassword} handleChangePassword={handleChangePassword}
-                isLinkingGoogle={isLinkingGoogle} handleLinkGoogleAccount={handleLinkGoogleAccount}
-                adminUsers={adminUsers} handleAddAdmin={handleAddAdmin} handleRevokeAdmin={handleRevokeAdmin}
-                handleSignOut={handleSignOut}
-                openSongEditor={openSongEditor}
+      {/* Overlays */}
+      {activeSong && (
+        <div className="fixed inset-0 z-[100]">
+           <SongViewer 
+             song={activeSong} 
+             onBack={() => { setActiveSong(null); window.history.back(); }} 
+             onEdit={user.role === 'admin' ? () => openSongEditor(activeSong) : undefined}
+             onDelete={user.role === 'admin' ? () => handleDeleteSong(activeSong) : undefined} 
+             darkMode={darkMode}
+             onNext={() => {
+                 const idx = filteredSongs.findIndex(s => s.id === activeSong.id);
+                 if (idx !== -1 && idx < filteredSongs.length - 1) setActiveSong(filteredSongs[idx + 1]);
+             }}
+             onPrev={() => {
+                 const idx = filteredSongs.findIndex(s => s.id === activeSong.id);
+                 if (idx > 0) setActiveSong(filteredSongs[idx - 1]);
+             }}
+             hasNext={filteredSongs.findIndex(s => s.id === activeSong.id) < filteredSongs.length - 1}
+             hasPrev={filteredSongs.findIndex(s => s.id === activeSong.id) > 0}
+           />
+        </div>
+      )}
+      
+      {editingSong && (
+        <SongForm 
+           initialData={typeof editingSong !== 'boolean' ? editingSong : undefined}
+           onSave={handleSaveSong}
+           onCancel={() => { setEditingSong(null); window.history.back(); }}
+           darkMode={darkMode}
+           categories={categoryNames}
+           initialImportUrl={initialImportUrl}
+        />
+      )}
+      
+      {activeRoom && (
+        <div className="fixed inset-0 z-[200]">
+            <RoomView 
+                room={activeRoom}
+                songs={songs}
+                currentUser={user.username}
+                isAdmin={user.role === 'admin' || activeRoom.host === user.username}
+                onExit={exitRoom}
+                onUpdateRoom={handleUpdateRoom}
+                darkMode={darkMode}
+                db={db}
+                rtdb={rtdb}
+                onEditSong={(song) => openSongEditor(song)}
+                onDeleteSong={performDeleteSong}
+                categories={categoryNames}
             />
-            
-            <nav onTouchStart={(e) => e.stopPropagation()} className={`fixed bottom-0 left-0 right-0 z-50 flex justify-center gap-14 items-center transition-all duration-500 
-              md:flex-col md:w-20 md:left-0 md:top-0 md:h-full md:justify-start md:gap-8 md:pt-20 md:px-0 md:bottom-auto md:right-auto
-              px-4 pt-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))]
-              ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-200'} border-t md:border-t-0 md:border-r`}>
-              {VIEW_ORDER.map((v) => {
-                const isActive = view === v;
-                let activeColorClass = 'text-slate-400 dark:text-slate-500';
-                let bubbleColorClass = 'bg-slate-400/10';
-                if (v === 'feed') { activeColorClass = isActive ? 'text-misionero-azul' : 'text-slate-400 dark:text-slate-500'; bubbleColorClass = 'bg-misionero-azul/15'; }
-                else if (v === 'favorites') { activeColorClass = isActive ? 'text-misionero-rojo' : 'text-slate-400 dark:text-slate-500'; bubbleColorClass = 'bg-misionero-rojo/15'; }
-                else if (v === 'room') { activeColorClass = isActive ? 'text-misionero-verde' : 'text-slate-400 dark:text-slate-500'; bubbleColorClass = 'bg-misionero-verde/15'; }
-                else if (v === 'settings') { activeColorClass = isActive ? (darkMode ? 'text-white' : 'text-slate-900') : 'text-slate-400 dark:text-slate-500'; bubbleColorClass = darkMode ? 'bg-white/10' : 'bg-slate-900/10'; }
-                return (
-                  <button key={v} onClick={() => navigateTo(v)} className={`flex flex-col items-center gap-1.5 transition-all duration-300 ${activeColorClass}`}>
-                    <div className="relative flex items-center justify-center">
-                      <div className={`absolute rounded-full transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${bubbleColorClass} ${isActive ? 'scale-100 opacity-100' : 'scale-0 opacity-0'} 
-                        inset-x-[-12px] inset-y-[-4px] md:inset-y-[-12px] md:inset-x-[-4px]`}></div>
-                      <div className={`relative transition-transform duration-300 z-10 ${isActive ? 'scale-110' : 'scale-100'}`}>
-                        {v === 'feed' && <svg className="w-6 h-6 md:w-7 md:h-7" fill="currentColor" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>}
-                        {v === 'favorites' && <svg className="w-5 h-5 md:w-6 md:h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>}
-                        {v === 'room' && <UsersIcon />}
-                        {v === 'settings' && <svg className="w-6 h-6 md:w-7 md:h-7" fill="currentColor" viewBox="0 0 24 24"><path d="M12 15.5A3.5 3.5 0 1 1 15.5 12 3.5 3.5 0 0 1 12 15.5z"/></svg>}
-                      </div>
-                    </div>
-                    <span className={`text-[8px] font-black uppercase tracking-tighter relative z-10 transition-colors duration-300 md:hidden`}>{v === 'feed' ? 'Inicio' : v === 'favorites' ? 'Favs' : v === 'room' ? 'Sala' : 'Ajustes'}</span>
-                  </button>
-                );
-              })}
-            </nav>
-            {view === 'feed' && isAdmin && !activeSong && !editingSong && !activeRoom && (
-              <button onClick={() => openSongEditor(null)} className="fixed bottom-[5rem] right-6 w-16 h-16 glass-ui glass-interactive bg-misionero-rojo/70 text-white rounded-[1.8rem] flex items-center justify-center z-[60] animate-bounce-subtle active:scale-90 transition-transform md:hidden"><PlusIcon /></button>
-            )}
-            {globalAlert && (<div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setGlobalAlert(null)}></div><div className="glass-ui relative w-full max-w-sm p-6 rounded-[2rem] animate-in zoom-in-95 duration-200"><div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 mx-auto ${globalAlert.type === 'error' ? 'glass-ui bg-misionero-rojo/30 text-misionero-rojo' : 'glass-ui bg-misionero-azul/30 text-misionero-azul'}`}>{globalAlert.type === 'error' ? ( <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>) : ( <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>)}</div><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{globalAlert.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{globalAlert.message}</p><button onClick={() => setGlobalAlert(null)} className={`w-full py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest active:scale-95 transition-transform glass-ui glass-interactive ${globalAlert.type === 'error' ? 'bg-misionero-rojo/70 text-white' : 'bg-misionero-azul/70 text-white'}`}>Entendido</button></div></div>)}
-            {categoryConfirmModal && (<div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setCategoryConfirmModal(null)}></div><div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{categoryConfirmModal.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{categoryConfirmModal.message}</p><div className="flex gap-3"><button onClick={() => setCategoryConfirmModal(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button><button onClick={categoryConfirmModal.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform ${categoryConfirmModal.type === 'danger' ? 'bg-misionero-rojo' : 'bg-misionero-azul'}`}>Confirmar</button></div></div></div>)}
-            {showExitConfirm && (<div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowExitConfirm(null)}></div><div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{showExitConfirm.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{showExitConfirm.message}</p><div className="flex gap-3"><button onClick={() => setShowExitConfirm(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button><button onClick={showExitConfirm.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform bg-misionero-rojo`}>Salir</button></div></div></div>)}
-            {showOpenInAppButton && (<div className="fixed bottom-[5rem] left-1/2 -translate-x-1/2 z-40 animate-in fade-in slide-in-from-bottom-5 duration-300"><button onClick={handleOpenInApp} className="glass-ui glass-interactive bg-misionero-azul/70 text-white flex items-center gap-3 px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-2xl active:scale-95 transition-transform"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg><span>Abrir en la App</span></button></div>)}
-            {editingSong && (isAdmin || isHostOfActiveRoom) && (<div data-is-overlay="true" className="fixed inset-0 z-[300]"><SongForm categories={categoryNames} initialData={typeof editingSong === 'boolean' ? undefined : editingSong} onSave={handleSaveSong} onCancel={goBack} darkMode={darkMode} /></div>)}
-            {activeSong && (<div data-is-overlay="true" className="fixed inset-0 z-[100]"><SongViewer song={activeSong} onBack={goBack} darkMode={darkMode} onEdit={hasElevatedPermissions ? () => openSongEditor(activeSong) : undefined} onDelete={hasElevatedPermissions ? () => handleDeleteSong(activeSong) : undefined} /></div>)}
-            {activeRoom && (<div data-is-overlay="true" className="fixed inset-0 z-[200]"><RoomView rtdb={rtdb} categories={categoryNames} room={activeRoom} songs={songs} currentUser={user.username} isAdmin={isAdmin} onExit={exitRoom} onUpdateRoom={handleUpdateRoom} darkMode={darkMode} db={db} onEditSong={openSongEditor} onDeleteSong={performDeleteSong} /></div>)}
-        </>
+        </div>
       )}
 
-      {showProfileUpdateModal && user && (
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 animate-in fade-in duration-300 bg-black/70 backdrop-blur-md">
-              <div className={`relative w-full max-w-sm p-8 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}>
-                  <h3 className={`text-center font-black text-xl uppercase mb-3 ${darkMode ? 'text-white' : 'text-slate-900'}`}>
-                    {profileUpdateReason === 'missing_data' ? 'Completa tu Perfil' : 'Actualiza tu Usuario'}
-                  </h3>
-                  <p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                    {profileUpdateReason === 'missing_data' 
-                      ? 'Para continuar, necesitamos que completes tu perfil. Confirma tu identidad con tu contraseña.'
-                      : 'Tu nombre de usuario no es válido. Elige uno nuevo (3-24 caracteres, letras, espacios y tildes) y confirma tu identidad con tu contraseña.'
-                    }
-                  </p>
-                  <form onSubmit={handleProfileUpdate} className="space-y-3">
-                      <input 
-                          type="text" 
-                          placeholder="Nuevo nombre de usuario"
-                          value={profileUpdateData.username} 
-                          onChange={e => setProfileUpdateData(d => ({...d, username: e.target.value}))} 
-                          className={`w-full text-center glass-ui rounded-2xl px-4 py-3.5 text-lg font-bold outline-none border ${profileUpdateError ? 'border-red-500/50' : (darkMode ? 'border-transparent' : 'border-slate-200/50')} ${darkMode ? 'bg-slate-800/50 text-white placeholder:text-slate-400' : 'bg-slate-50 text-slate-900 placeholder:text-slate-400'}`}
-                      />
-                      <input 
-                          type="email" 
-                          placeholder="Correo Electrónico"
-                          value={profileUpdateData.email}
-                          readOnly
-                          className={`w-full text-center glass-ui rounded-2xl px-4 py-3.5 text-sm font-bold outline-none border opacity-70 ${darkMode ? 'border-transparent bg-slate-800/50 text-white placeholder:text-slate-400' : 'border-slate-200/50 bg-slate-50 text-slate-900 placeholder:text-slate-400'}`}
-                      />
-                      <div className="relative">
-                        <input 
-                            type={showUpdatePassword ? 'text' : 'password'}
-                            placeholder="Tu contraseña actual"
-                            value={profileUpdateData.password}
-                            onChange={e => setProfileUpdateData(d => ({...d, password: e.target.value}))} 
-                            className={`w-full text-center glass-ui rounded-2xl px-4 py-3.5 text-sm font-bold outline-none border ${profileUpdateError?.includes('contraseña') ? 'border-red-500/50' : (darkMode ? 'border-transparent' : 'border-slate-200/50')} ${darkMode ? 'bg-slate-800/50 text-white placeholder:text-slate-400' : 'bg-slate-50 text-slate-900 placeholder:text-slate-400'}`}
-                        />
-                        <button type="button" onClick={() => setShowUpdatePassword(!showUpdatePassword)} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showUpdatePassword ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}</button>
-                      </div>
-
-                      {profileUpdateError && <p className="text-center text-xs font-bold text-red-400">{profileUpdateError}</p>}
-                      
-                      <button 
-                          type="submit" 
-                          disabled={isUpdatingProfile} 
-                          className="w-full !mt-5 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform bg-misionero-verde disabled:opacity-50"
-                      >
-                          {isUpdatingProfile ? 'Verificando...' : 'Guardar y Continuar'}
-                      </button>
-                  </form>
-              </div>
+      {/* Global Alert / Modals */}
+      {globalAlert && (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[300] w-full max-w-sm px-4 animate-in slide-in-from-top-4 duration-300">
+             <div onClick={() => setGlobalAlert(null)} className={`p-4 rounded-2xl shadow-2xl flex items-center gap-3 border ${globalAlert.type === 'error' ? 'bg-red-500 text-white border-red-600' : globalAlert.type === 'success' ? 'bg-green-500 text-white border-green-600' : 'bg-blue-500 text-white border-blue-600'}`}>
+                <div>
+                   <h4 className="font-black uppercase text-xs">{globalAlert.title}</h4>
+                   <p className="text-[10px] font-bold opacity-90">{globalAlert.message}</p>
+                </div>
+             </div>
           </div>
+      )}
+
+      {categoryConfirmModal && (
+          <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setCategoryConfirmModal(null)}></div><div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{categoryConfirmModal.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{categoryConfirmModal.message}</p><div className="flex gap-3"><button onClick={() => setCategoryConfirmModal(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button><button onClick={categoryConfirmModal.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform ${categoryConfirmModal.type === 'danger' ? 'bg-misionero-rojo' : 'bg-misionero-azul'}`}>Confirmar</button></div></div></div>
+      )}
+
+      {showExitConfirm && (
+          <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowExitConfirm(null)}></div><div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{showExitConfirm.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{showExitConfirm.message}</p><div className="flex gap-3"><button onClick={() => setShowExitConfirm(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button><button onClick={showExitConfirm.action} className="flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform bg-misionero-rojo">Salir</button></div></div></div>
       )}
     </>
   );
