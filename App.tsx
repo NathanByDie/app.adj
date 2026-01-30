@@ -659,7 +659,7 @@ const MainView = ({
       <NavBar view={view} navigateTo={navigateTo} darkMode={darkMode} totalUnreadCount={totalUnreadCount} />
       <div className="md:pl-20 w-full flex flex-col">
         <header onTouchStart={(e) => e.stopPropagation()} className={`shrink-0 z-30 transition-colors duration-500 ${darkMode ? 'bg-black/80 backdrop-blur-sm' : 'bg-slate-50/80 backdrop-blur-sm'} border-b ${darkMode ? 'border-white/10' : 'border-slate-200'}`}>
-          <div className="w-full max-w-7xl mx-auto px-4 pt-6 pb-3">
+          <div className="w-full max-w-7xl mx-auto px-4 pt-9 pb-3">
             <div className="flex justify-between items-center mb-3">
               <div>
                 <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.3em] mb-0.5">ADJStudios</p>
@@ -864,18 +864,47 @@ const App = () => {
     }, [user, allUsers, userChats]);
 
     // --- Navigation History Management ---
+    const isExitingRoomConfirmed = useRef(false);
+
+    const handleConfirmRoomExit = useCallback(() => {
+        setCategoryConfirmModal(null);
+        isExitingRoomConfirmed.current = true;
+        window.history.back();
+    }, []);
+
+    const promptRoomExit = useCallback(() => {
+        setCategoryConfirmModal({
+            title: 'Salir de la Sala',
+            message: '¿Seguro que quieres abandonar la sesión?',
+            type: 'danger',
+            action: handleConfirmRoomExit,
+        });
+    }, [handleConfirmRoomExit]);
+
     useEffect(() => {
         const handlePopState = (event: PopStateEvent) => {
             const newOverlay = event.state?.overlay || null;
+            const newSubview = event.state?.subview || null;
 
-            // Sync all overlay states to match the new history state.
+            if (isExitingRoomConfirmed.current) {
+                isExitingRoomConfirmed.current = false;
+                setCurrentRoom(null);
+                return;
+            }
+
+            if (currentRoom && newOverlay !== 'room') {
+                window.history.pushState({ overlay: 'room' }, '');
+                promptRoomExit();
+                return;
+            }
+            
+            // General overlay state sync
             if (newOverlay !== 'song') setActiveSong(null);
             if (newOverlay !== 'editor') setEditingSong(undefined);
             if (newOverlay !== 'chat') setActiveChatPartner(null);
             if (newOverlay !== 'profile') setViewingProfileId(null);
             
-            // If the new state is not room-related at all, close the room.
-            if (newOverlay !== 'room' && !newOverlay?.startsWith('room_')) {
+            if (newOverlay !== 'room') {
                 setCurrentRoom(null);
             }
         };
@@ -886,7 +915,7 @@ const App = () => {
         return () => {
             window.removeEventListener('popstate', handlePopState);
         };
-    }, []);
+    }, [currentRoom, promptRoomExit]);
 
     const manageHistory = (overlayType: string | null) => {
         const hasOverlay = !!overlayType;
@@ -1427,7 +1456,7 @@ const App = () => {
                  <div className="fixed inset-0 z-[100] animate-in slide-in-from-right duration-300" data-is-overlay="true">
                      <RoomView 
                         room={currentRoom} songs={songs} currentUser={user.username} isAdmin={isAdmin} 
-                        onExit={() => window.history.back()}
+                        onExitRequest={promptRoomExit}
                         onUpdateRoom={(id, updates) => updateDoc(doc(db, 'rooms', id), updates)} 
                         darkMode={darkMode} db={db} rtdb={rtdb} categories={categories.map(c => c.name)}
                         allUsers={allUsers}

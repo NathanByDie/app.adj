@@ -25,7 +25,7 @@ interface RoomViewProps {
   songs: Song[];
   currentUser: string;
   isAdmin: boolean;
-  onExit: () => void;
+  onExitRequest: () => void;
   onUpdateRoom: (roomId: string, updates: Partial<Room>) => void;
   darkMode?: boolean;
   db: Firestore;
@@ -154,7 +154,7 @@ const SwipeableMessage: React.FC<SwipeableMessageProps> = ({ msg, currentUser, o
 };
 
 const RoomView: React.FC<RoomViewProps> = ({ 
-    room, songs, currentUser, isAdmin, onExit, onUpdateRoom, darkMode = false, db, rtdb,
+    room, songs, currentUser, isAdmin, onExitRequest, onUpdateRoom, darkMode = false, db, rtdb,
     onEditSong, onDeleteSong, categories, allUsers, onViewProfile
 }) => {
   const [selectedSongId, setSelectedSongId] = useState<string | null>(null);
@@ -203,7 +203,6 @@ const RoomView: React.FC<RoomViewProps> = ({
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [dropIndicator, setDropIndicator] = useState<{ index: number; position: 'before' | 'after' } | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ title: string, message: string, action: () => void, type: 'danger' | 'warning' } | null>(null);
-  const [isExitingViaModal, setIsExitingViaModal] = useState(false);
 
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const typingTimeoutRef = useRef<number | null>(null);
@@ -221,27 +220,10 @@ const RoomView: React.FC<RoomViewProps> = ({
   const repertoireScrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollIntervalRef = useRef<number | null>(null);
   const scrollDirectionRef = useRef<'up' | 'down' | null>(null);
-  
-  const handleExitConfirmed = useCallback(() => {
-    setConfirmModal(null);
-    setIsExitingViaModal(true);
-    // Give time for modal to close visually
-    setTimeout(() => onExit(), 50);
-  }, [onExit]);
-
-  const promptExit = useCallback(() => {
-    setConfirmModal({
-        title: 'Salir de la Sala',
-        message: '¿Estás seguro de que quieres abandonar la sesión?',
-        type: 'danger',
-        action: handleExitConfirmed,
-    });
-  }, [handleExitConfirmed]);
 
   // --- NAVEGACIÓN Y GESTIÓN DE SUB-VISTAS ---
-
-  const openSubView = (subview: 'chat' | 'participants' | 'song', extraState = {}) => {
-      window.history.pushState({ overlay: 'room', subview, ...extraState }, '', '');
+  const openSubView = (subview: 'chat' | 'participants' | 'song') => {
+      window.history.pushState({ overlay: 'room', subview }, '');
   };
 
   const handleOpenChat = () => {
@@ -258,35 +240,24 @@ const RoomView: React.FC<RoomViewProps> = ({
       window.history.back();
   };
 
-  // Escuchar eventos PopState (botón Atrás nativo)
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
-        if (isExitingViaModal) return;
-
         const state = event.state || {};
         const currentOverlay = state.overlay;
         const currentSubview = state.subview;
 
-        // Si estamos saliendo de la sala (overlay ya no es 'room')
-        if (currentOverlay !== 'room') {
-            // Interceptamos la salida para pedir confirmación
-            window.history.pushState({ overlay: 'room' }, '', '');
-            promptExit();
-            return;
+        if (currentOverlay === 'room') {
+            if (currentSubview !== 'chat') setIsChatOpen(false);
+            if (currentSubview !== 'participants') setShowParticipants(false);
+            if (currentSubview !== 'song') setSelectedSongId(null);
         }
-
-        // Si seguimos en la sala, sincronizamos la UI con el subview actual
-        if (currentSubview !== 'chat') setIsChatOpen(false);
-        if (currentSubview !== 'participants') setShowParticipants(false);
-        if (currentSubview !== 'song') setSelectedSongId(null);
     };
 
     window.addEventListener('popstate', handlePopState);
     return () => {
         window.removeEventListener('popstate', handlePopState);
     };
-  }, [promptExit, isExitingViaModal]);
-
+  }, []);
   // --- FIN GESTIÓN NAVEGACIÓN ---
 
   useEffect(() => {
@@ -341,10 +312,6 @@ const RoomView: React.FC<RoomViewProps> = ({
       }
     });
   }, [selectedSongId, displayedRepertoire, repertoireSongsMap, room.globalTranspositions, isTheHost, isFollowingHost]);
-
-  const handleExitRoom = useCallback(() => {
-    promptExit();
-  }, [promptExit]);
 
   useEffect(() => {
     try {
@@ -444,7 +411,7 @@ const RoomView: React.FC<RoomViewProps> = ({
     prevChatLength.current = currentChat.length;
   }, [room.chat, currentUser, isChatOpen, room.id, room.code]);
 
-  useEffect(() => { if (room.participants && !room.participants.includes(currentUser)) onExit(); }, [room.participants, currentUser, onExit]);
+  useEffect(() => { if (room.participants && !room.participants.includes(currentUser)) onExitRequest(); }, [room.participants, currentUser, onExitRequest]);
 
   useEffect(() => {
     if (!isTheHost && isFollowingHost) {
@@ -499,7 +466,6 @@ const RoomView: React.FC<RoomViewProps> = ({
       if (isTheHost) {
         onUpdateRoom(room.id, { currentSongId: '' });
       }
-      // Navegamos atrás para cerrar el estado 'song' del historial
       handleCloseSubView();
   };
 
@@ -874,7 +840,7 @@ const RoomView: React.FC<RoomViewProps> = ({
                         <svg className={`w-3.5 h-3.5 ${darkMode ? 'text-misionero-amarillo' : 'text-white'}`} fill="currentColor" viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
                         <span className={`text-[10px] font-black ${darkMode ? 'text-misionero-amarillo' : 'text-white'}`}>{onlineParticipants.length}</span>
                     </button>
-                    <button onClick={handleExitRoom} className="bg-misionero-rojo text-white px-5 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg active:scale-95 transition-transform">SALIR</button>
+                    <button onClick={onExitRequest} className="bg-misionero-rojo text-white px-5 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg active:scale-95 transition-transform">SALIR</button>
                 </div>
             </div>
           )}
@@ -1051,4 +1017,5 @@ const RoomView: React.FC<RoomViewProps> = ({
   );
 };
 
+// Fix: Correctly export the RoomView component
 export default RoomView;

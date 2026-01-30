@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Song } from '../types';
 import { isChordLine, transposeSong, transposeRoot, findBestCapo } from '../services/musicUtils';
@@ -353,7 +354,7 @@ const SongViewer: React.FC<SongViewerProps> = ({
       <header className={`px-4 pt-12 pb-2 flex items-center justify-between sticky top-0 z-30 glass-ui`}>
         <div className="flex items-center gap-1 shrink-0">
           <button onClick={onBack} className={`w-10 h-10 flex items-center justify-center ${darkMode ? 'text-slate-400' : 'text-slate-500'} active:scale-90`}>
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7"/></svg>
           </button>
         </div>
 
