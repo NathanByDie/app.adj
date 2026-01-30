@@ -1131,7 +1131,18 @@ const App = () => {
         setForceRender(prev => prev + 1); // Helper to force re-render since ref doesn't
     };
 
-    const openSongViewer = (song: Song) => setActiveSong(song);
+    const openSongViewer = (song: Song) => {
+        setActiveSong(song);
+    };
+    
+    const openSongFromProfile = (song: Song) => {
+        // Replace the 'profile' history state with 'song' to ensure correct back navigation
+        window.history.replaceState({ overlay: 'song' }, '');
+        
+        // Manually update states as replaceState doesn't trigger popstate
+        setViewingProfileId(null);
+        setActiveSong(song);
+    };
     
     // Admin Handlers for Categories
     const onAddCategory = async () => {
@@ -1320,7 +1331,7 @@ const App = () => {
                     onBack={() => window.history.back()} 
                     darkMode={darkMode} 
                     songs={songs} 
-                    onOpenSong={openSongViewer}
+                    onOpenSong={openSongFromProfile}
                     onSaveBio={async (bio) => await updateDoc(doc(db, 'users', viewingProfileUser.id), { biography: bio })}
                     onUpdateUsername={handleUpdateUsername}
                 />
