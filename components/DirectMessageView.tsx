@@ -245,6 +245,32 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
 
     const chatId = generateChatId(currentUser.id, partner.id);
 
+    const updateTypingStatus = (isTyping: boolean) => {
+        if (!rtdb) return;
+        const myTypingRef = refRtdb(rtdb, `typing/${chatId}/${currentUser.id}`);
+        if (isTyping) {
+            setRtdb(myTypingRef, true);
+            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+            typingTimeoutRef.current = window.setTimeout(() => updateTypingStatus(false), 3000);
+        } else {
+            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+            removeRtdb(myTypingRef);
+        }
+    };
+    
+    useEffect(() => {
+        if (!rtdb) return;
+        const partnerTypingRef = refRtdb(rtdb, `typing/${chatId}/${partner.id}`);
+        const unsubscribe = onValueRtdb(partnerTypingRef, (snapshot) => {
+            setIsPartnerTyping(snapshot.val() === true);
+        });
+        
+        return () => {
+            unsubscribe();
+            updateTypingStatus(false);
+        };
+    }, [rtdb, chatId, partner.id]);
+
     useEffect(() => {
         const chatInfoRef = doc(db, 'user_chats', currentUser.id, 'chats', chatId);
         const unsubscribe = onSnapshot(chatInfoRef, (docSnap) => {
@@ -319,33 +345,6 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
     useEffect(() => {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
     }, [messages, isPartnerTyping]);
-
-    const updateTypingStatus = (isTyping: boolean) => {
-        if (!rtdb) return;
-        const myTypingRef = refRtdb(rtdb, `typing/${chatId}/${currentUser.id}`);
-        if (isTyping) {
-            setRtdb(myTypingRef, true);
-            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-            typingTimeoutRef.current = window.setTimeout(() => updateTypingStatus(false), 3000);
-        } else {
-            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-            removeRtdb(myTypingRef);
-        }
-    };
-
-    useEffect(() => {
-        if (!rtdb) return;
-        const partnerTypingRef = refRtdb(rtdb, `typing/${chatId}/${partner.id}`);
-        const unsubscribe = onValueRtdb(partnerTypingRef, (snapshot) => {
-            setIsPartnerTyping(snapshot.val() === true);
-        });
-        
-        return () => {
-            unsubscribe();
-            updateTypingStatus(false);
-        };
-    }, [rtdb, chatId, partner.id]);
-
 
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -494,14 +493,44 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
 
     const handleDeleteForEveryone = async () => {
         if (!selectedMessageForAction) return;
+    
+        const isLastMessage = messages.length > 0 && selectedMessageForAction.msg.id === messages[messages.length - 1].id;
+    
         const msgRef = doc(db, 'direct_messages', chatId, 'messages', selectedMessageForAction.msg.id);
-        await updateDoc(msgRef, {
-            text: 'Este mensaje fue eliminado.',
+        const batch = writeBatch(db);
+    
+        batch.update(msgRef, {
+            text: 'Este mensaje fue eliminado',
             deleted: true,
             reactions: {},
             pinned: false,
-            replyTo: null // Also clear reply context
+            replyTo: null
         });
+    
+        if (isLastMessage) {
+            const newLastMessage = messages.length > 1 ? messages[messages.length - 2] : null;
+            const myChatInfoRef = doc(db, 'user_chats', currentUser.id, 'chats', chatId);
+            const partnerChatInfoRef = doc(db, 'user_chats', partner.id, 'chats', chatId);
+    
+            if (newLastMessage) {
+                const newLastMessageInfo = {
+                    lastMessageText: newLastMessage.deleted ? 'Este mensaje fue eliminado' : newLastMessage.text,
+                    lastMessageTimestamp: newLastMessage.timestamp,
+                    lastMessageSenderId: newLastMessage.senderId,
+                    isReply: !!newLastMessage.replyTo,
+                };
+                batch.set(myChatInfoRef, newLastMessageInfo, { merge: true });
+                batch.set(partnerChatInfoRef, newLastMessageInfo, { merge: true });
+            } else {
+                const updatedInfo = {
+                    lastMessageText: 'Este mensaje fue eliminado',
+                };
+                batch.set(myChatInfoRef, updatedInfo, { merge: true });
+                batch.set(partnerChatInfoRef, updatedInfo, { merge: true });
+            }
+        }
+    
+        await batch.commit();
         setDeleteModalVisible(false);
         setSelectedMessageForAction(null);
     };
@@ -565,8 +594,8 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
                                         {isBlocked && <span className="text-[8px] bg-red-500 text-white px-1.5 rounded">BLOQUEADO</span>}
                                         {isMuted && !isBlocked && <svg className="w-3 h-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /><path strokeLinecap="round" strokeLinejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" /></svg>}
                                     </h3>
-                                    <p className={`text-xs font-bold ${partnerStatus?.state === 'online' ? 'text-misionero-verde' : 'text-slate-400'}`}>
-                                        {partnerStatus?.state === 'online' ? 'En línea' : (partnerStatus ? `Últ. vez ${formatLastSeen(partnerStatus.last_changed)}` : 'Desconectado')}
+                                    <p className={`text-xs font-bold ${isPartnerTyping ? 'text-misionero-amarillo animate-pulse' : partnerStatus?.state === 'online' ? 'text-misionero-verde' : 'text-slate-400'}`}>
+                                        {isPartnerTyping ? 'Escribiendo...' : (partnerStatus?.state === 'online' ? 'En línea' : (partnerStatus ? `Últ. vez ${formatLastSeen(partnerStatus.last_changed)}` : 'Desconectado'))}
                                     </p>
                                 </div>
                             </button>

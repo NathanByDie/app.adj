@@ -1,3 +1,4 @@
+
 export interface ImportedSongData {
   title: string;
   author: string;
@@ -52,50 +53,75 @@ export const importFromLaCuerda = async (url: string): Promise<ImportedSongData>
   const parser = new DOMParser();
   const doc = parser.parseFromString(htmlContent, 'text/html');
 
-  const titleEl = doc.querySelector('#TITULO h1');
-  const authorEl = doc.querySelector('#AUTOR a');
-  const keyEl = doc.querySelector('#TONO a'); // Este elemento puede ser nulo
-  const contentEl = doc.querySelector('#TEXTO');
+  // --- ESTRATEGIA DE TÍTULO ---
+  // Nuevo: <div id=tH1><h1>...</h1></div>
+  // Antiguo: <div id=TITULO><h1>...</h1></div>
+  let title = doc.querySelector('#tH1 h1')?.textContent;
+  if (!title) title = doc.querySelector('#TITULO h1')?.textContent;
+  title = title?.trim() || '';
 
-  // El tono es opcional, pero título y contenido son obligatorios
-  if (!titleEl || !authorEl || !contentEl) {
-    throw new Error('No se pudo analizar la página. El formato puede no ser compatible o la página no cargó correctamente.');
-  }
+  // --- ESTRATEGIA DE AUTOR ---
+  // Nuevo: <div id=tH1>...<h2>...</h2></div>
+  // Antiguo: <div id=AUTOR><a>...</a></div>
+  let author = doc.querySelector('#tH1 h2')?.textContent;
+  if (!author) author = doc.querySelector('#AUTOR a')?.textContent;
+  author = author?.trim() || 'Desconocido';
 
-  const title = titleEl.textContent?.trim() || '';
-  const author = authorEl.textContent?.trim() || 'Desconocido';
-  let key = 'DO'; // Tono por defecto
-
-  // Si existe el elemento de tono, lo analizamos
+  // --- ESTRATEGIA DE TONO ---
+  // El tono es opcional o a veces no está explícito en el nuevo diseño fuera de scripts.
+  // Intentamos buscarlo, si no, inferimos DO por defecto.
+  let key = 'DO'; 
+  const keyEl = doc.querySelector('#TONO a'); // Formato antiguo o explícito
+  
   if (keyEl) {
     const keyText = keyEl.textContent?.trim() || '';
     const keyMatch = keyText.match(/(?:Tono|Tone):\s*([A-G](?:#|b)?m?)/i);
     let parsedKey = keyMatch ? keyMatch[1].toUpperCase() : 'DO';
+    key = normalizeKey(parsedKey);
+  } else {
+      // Intento de inferencia simple: Buscar si hay un script con metadatos (común en diseño nuevo)
+      // o simplemente dejar DO. En el diseño nuevo (tHead), el tono a veces no es visible como texto simple.
+      // Podríamos intentar parsear el primer acorde del contenido, pero por seguridad dejamos el default o lo que encuentre.
+  }
 
-    // Convertir notación inglesa a latina
+  // --- ESTRATEGIA DE CONTENIDO ---
+  // Nuevo: <div id=t_body><PRE>...</PRE></div>
+  // Antiguo: <div id=TEXTO>...</div>
+  let contentEl = doc.querySelector('#t_body pre');
+  if (!contentEl) contentEl = doc.querySelector('#TEXTO');
+
+  if (!title || !contentEl) {
+    throw new Error('No se pudo analizar la página. El formato puede no ser compatible o la página no cargó correctamente.');
+  }
+
+  // Limpieza del contenido
+  // En el nuevo formato, los acordes están dentro de <a> tags.
+  // innerText suele preservar mejor el formato visual (saltos de línea) de un <pre>
+  const rawContent = (contentEl as HTMLElement).innerText || contentEl.textContent || '';
+  
+  // Limpieza adicional: Eliminar líneas vacías excesivas al inicio o final
+  const content = rawContent.replace(/^(\s*\n)+/, '').replace(/(\s*\n)+$/, '');
+
+  return { title, author, key, content };
+};
+
+// Helper para normalizar tonos de inglés a latino
+function normalizeKey(englishKey: string): string {
     const keyMap: { [key: string]: string } = {
       'C': 'DO', 'C#': 'DO#', 'DB': 'REb', 'D': 'RE', 'D#': 'RE#', 'EB': 'MIb',
       'E': 'MI', 'F': 'FA', 'F#': 'FA#', 'GB': 'SOLb', 'G': 'SOL', 'G#': 'SOL#',
       'AB': 'LAb', 'A': 'LA', 'A#': 'LA#', 'BB': 'SIb', 'B': 'SI'
     };
     
-    // Manejar acordes menores (ej: Am)
-    const isMinor = parsedKey.endsWith('M');
-    if (isMinor) {
-        const root = parsedKey.slice(0, -1);
-        parsedKey = (keyMap[root] || root) + 'm';
-    } else {
-        parsedKey = keyMap[parsedKey] || parsedKey;
+    let normalized = englishKey.toUpperCase();
+    const isMinor = normalized.endsWith('M');
+    
+    let root = isMinor ? normalized.slice(0, -1) : normalized;
+    
+    // Mapeo directo si existe
+    if (keyMap[root]) {
+        root = keyMap[root];
     }
 
-    key = parsedKey;
-  }
-
-  const content = (contentEl as HTMLElement).innerText || '';
-
-  if (!title || !content) {
-    throw new Error('Faltan datos esenciales (título o contenido) en la página.');
-  }
-
-  return { title, author, key, content };
-};
+    return root + (isMinor ? 'm' : '');
+}

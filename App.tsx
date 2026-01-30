@@ -17,7 +17,9 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   linkWithPopup,
-  signInWithCredential
+  signInWithCredential,
+  reauthenticateWithPopup,
+  deleteUser
 } from "firebase/auth";
 import { 
   getFirestore, 
@@ -75,6 +77,7 @@ type AnimationDirection = 'left' | 'right' | 'fade';
 type Theme = 'light' | 'dark' | 'system';
 
 const SUPER_ADMIN_EMAIL = 'biden.inf@gmail.com';
+const APP_ICON_URI = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='512' height='512' viewBox='0 0 512 512'><defs><linearGradient id='gold' x1='0' y1='0' x2='0' y2='1'><stop offset='0%25' stop-color='%23FFE89A'/><stop offset='50%25' stop-color='%23E2B84A'/><stop offset='100%25' stop-color='%23B8901E'/></linearGradient><radialGradient id='halo' cx='50%25' cy='45%25' r='45%25'><stop offset='0%25' stop-color='%23FFD966' stop-opacity='0.9'/><stop offset='60%25' stop-color='%23FFD966' stop-opacity='0.3'/><stop offset='100%25' stop-color='%23FFD966' stop-opacity='0'/></radialGradient><linearGradient id='pages' x1='0' y1='0' x2='0' y2='1'><stop offset='0%25' stop-color='%23FFFFFF'/><stop offset='100%25' stop-color='%23EFEFEF'/></linearGradient><linearGradient id='edge' x1='0' y1='0' x2='0' y2='1'><stop offset='0%25' stop-color='%231F6B3F'/><stop offset='100%25' stop-color='%230B3D25'/></linearGradient></defs><circle cx='256' cy='150' r='110' fill='url(%23halo)'/><path fill='url(%23gold)' d='M242 55 H270 V118 H328 V146 H270 V245 H242 V146 H184 V118 H242 Z'/><path fill='url(%23edge)' d='M60 260 C150 210, 240 215, 256 240 C272 215, 362 210, 452 260 V350 C362 310, 272 315, 256 340 C240 315, 150 310, 60 350 Z'/><path fill='url(%23pages)' d='M78 268 C150 230, 225 235, 252 258 V330 C225 315, 150 315, 78 338 Z'/><path fill='url(%23pages)' d='M434 268 C362 230, 287 235, 260 258 V330 C287 315, 362 315, 434 338 Z'/><g stroke='%233E8C5A' stroke-width='3' fill='none'><path d='M110 295 C160 275, 205 278, 235 292'/><path d='M110 315 C160 295, 205 298, 235 312'/><path d='M402 295 C352 275, 307 278, 277 292'/><path d='M402 315 C352 295, 307 298, 277 312'/></g><path d='M256 258 V338' stroke='%230B3D25' stroke-width='6'/><path fill='url(%23gold)' d='M246 338 L256 355 L266 338 Z'/></svg>";
 
 const LoadingSpinner = () => (
     <div className="absolute inset-0 flex items-center justify-center bg-slate-50/50 dark:bg-black/50 backdrop-blur-sm z-50">
@@ -212,7 +215,7 @@ const NavBar = ({ view, navigateTo, darkMode, totalUnreadCount }: any) => {
       {/* Desktop Sidebar */}
       <div className={`hidden md:flex fixed left-0 top-0 bottom-0 w-20 flex-col items-center py-8 z-50 border-r ${darkMode ? 'bg-black border-slate-800' : 'bg-white border-slate-200'} transition-colors duration-500`}>
          <img 
-            src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='512' height='512' viewBox='0 0 512 512'><defs><linearGradient id='gold' x1='0' y1='0' x2='0' y2='1'><stop offset='0%25' stop-color='%23FFE89A'/><stop offset='50%25' stop-color='%23E2B84A'/><stop offset='100%25' stop-color='%23B8901E'/></linearGradient><radialGradient id='halo' cx='50%25' cy='45%25' r='45%25'><stop offset='0%25' stop-color='%23FFD966' stop-opacity='0.9'/><stop offset='60%25' stop-color='%23FFD966' stop-opacity='0.3'/><stop offset='100%25' stop-color='%23FFD966' stop-opacity='0'/></radialGradient><linearGradient id='pages' x1='0' y1='0' x2='0' y2='1'><stop offset='0%25' stop-color='%23FFFFFF'/><stop offset='100%25' stop-color='%23EFEFEF'/></linearGradient><linearGradient id='edge' x1='0' y1='0' x2='0' y2='1'><stop offset='0%25' stop-color='%231F6B3F'/><stop offset='100%25' stop-color='%230B3D25'/></linearGradient></defs><circle cx='256' cy='150' r='110' fill='url(%23halo)'/><path fill='url(%23gold)' d='M242 55 H270 V118 H328 V146 H270 V245 H242 V146 H184 V118 H242 Z'/><path fill='url(%23edge)' d='M60 260 C150 210, 240 215, 256 240 C272 215, 362 210, 452 260 V350 C362 310, 272 315, 256 340 C240 315, 150 310, 60 350 Z'/><path fill='url(%23pages)' d='M78 268 C150 230, 225 235, 252 258 V330 C225 315, 150 315, 78 338 Z'/><path fill='url(%23pages)' d='M434 268 C362 230, 287 235, 260 258 V330 C287 315, 362 315, 434 338 Z'/><g stroke='%233E8C5A' stroke-width='3' fill='none'><path d='M110 295 C160 275, 205 278, 235 292'/><path d='M110 315 C160 295, 205 298, 235 312'/><path d='M402 295 C352 275, 307 278, 277 292'/><path d='M402 315 C352 295, 307 298, 277 312'/></g><path d='M256 258 V338' stroke='%230B3D25' stroke-width='6'/><path fill='url(%23gold)' d='M246 338 L256 355 L266 338 Z'/></svg>" 
+            src={APP_ICON_URI} 
             alt="ADJStudios Logo" 
             className="w-12 h-12 rounded-2xl shadow-lg mb-8" 
          />
@@ -571,14 +574,15 @@ const MainView = ({
   songs, favorites, openSongViewer, toggleFavorite,
   searchQuery, setSearchQuery, activeFilter, setActiveFilter, categories,
   // Props para Chat
-  userChats, onlineStatuses, openDirectMessage, onViewProfile,
+  userChats, onlineStatuses, openDirectMessage, onViewProfile, typingStatuses,
   // Props para Sala
   roomCodeInput, setRoomCodeInput, handleJoinRoom, handleCreateRoom, isJoiningRoom,
   // Props para Ajustes
   newCategoryName, setNewCategoryName, onAddCategory,
   editingCategory, setEditingCategory, onSaveEditCategory, handleDeleteCategory, setCategoryConfirmModal,
   passwordChangeData, setPasswordChangeData, showChangePassword, toggleShowChangePassword, passwordChangeMsg, isUpdatingPassword, handleChangePassword,
-  isLinkingGoogle, handleLinkGoogleAccount, adminUsers, handleAddAdmin, handleRevokeAdmin, handleSignOut, openSongEditor
+  isLinkingGoogle, handleLinkGoogleAccount, adminUsers, handleAddAdmin, handleRevokeAdmin, handleSignOut, openSongEditor,
+  onDeleteAccountRequest
 }: any) => {
   
   const touchStartCoords = useRef<{x: number, y: number} | null>(null);
@@ -621,7 +625,7 @@ const MainView = ({
           case 'favorites':
               return <FavoritesView songs={favoriteSongs} favorites={favorites} openSongViewer={openSongViewer} toggleFavorite={toggleFavorite} darkMode={darkMode} />;
           case 'chat':
-              return <ChatListView userChats={userChats} onlineStatuses={onlineStatuses} onUserSelect={openDirectMessage} onViewProfile={onViewProfile} darkMode={darkMode} currentUser={user} db={db} rtdb={rtdb} />;
+              return <ChatListView userChats={userChats} onlineStatuses={onlineStatuses} onUserSelect={openDirectMessage} onViewProfile={onViewProfile} darkMode={darkMode} currentUser={user} db={db} rtdb={rtdb} typingStatuses={typingStatuses} />;
           case 'room':
               return <RoomLobbyView roomCodeInput={roomCodeInput} setRoomCodeInput={setRoomCodeInput} handleJoinRoom={handleJoinRoom} handleCreateRoom={handleCreateRoom} isAdmin={isAdmin} isJoiningRoom={isJoiningRoom} />;
           case 'settings':
@@ -638,6 +642,7 @@ const MainView = ({
                         adminUsers={adminUsers} onAddAdmin={handleAddAdmin} onRevokeAdmin={handleRevokeAdmin}
                         currentUser={user}
                         onViewProfile={onViewProfile}
+                        onDeleteAccountRequest={onDeleteAccountRequest}
                      />;
           default:
               return null;
@@ -669,7 +674,6 @@ const MainView = ({
                    </button>
                 )}
                 {view === 'settings' && (
-                  // FIX: Changed onClick to call handleSignOut within an arrow function to prevent passing the event object, which could cause a type error.
                   <button onClick={() => handleSignOut()} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-misionero-rojo/10 text-misionero-rojo active:scale-95 transition-all">
                     <LogoutIcon />
                     <span className="text-[9px] font-black uppercase">Cerrar Sesión</span>
@@ -741,6 +745,7 @@ const App = () => {
     const [userChats, setUserChats] = useState<ChatInfo[]>([]);
     const [allUsers, setAllUsers] = useState<AppUser[]>([]);
     const [onlineStatuses, setOnlineStatuses] = useState<any>({});
+    const [typingStatuses, setTypingStatuses] = useState<Record<string, string[]>>({});
     
     // UI State
     const [searchQuery, setSearchQuery] = useState('');
@@ -771,6 +776,11 @@ const App = () => {
     const [editingCategory, setEditingCategory] = useState<{id: string, name: string} | null>(null);
 
     const prevUserChatsRef = useRef<ChatInfo[]>();
+    
+    // Delete Account State
+    const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
+    const [deleteAccountPassword, setDeleteAccountPassword] = useState('');
+    const [showDeletePassword, setShowDeletePassword] = useState(false);
   
     // Theme Management
     const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('theme') as Theme) || 'system');
@@ -805,6 +815,13 @@ const App = () => {
             mediaQuery.removeEventListener('change', handleSystemChange);
         };
     }, [theme]);
+
+    // Request Notification Permission on Mount
+    useEffect(() => {
+        if ('Notification' in window) {
+            Notification.requestPermission();
+        }
+    }, []);
   
     // Derived State
     const isAdmin = user?.role === 'admin';
@@ -813,24 +830,37 @@ const App = () => {
 
     // Calculate displayed user list for chat view
     const displayedUserList = useMemo(() => {
-        if (!user || allUsers.length === 0) return [];
-        const existingChatPartners = new Set(userChats.map(c => c.partnerId));
-        // Include self (allow user to chat with themselves) and others not in chat list
-        const usersWithoutChat = allUsers
-            .filter(u => !existingChatPartners.has(u.id))
-            .map(u => ({
+        if (!user) return [];
+
+        const chatInfoMap = new Map<string, ChatInfo>(userChats.map(chat => [chat.partnerId, chat]));
+        const directoryUsers = allUsers || [];
+
+        // Map over validated users, and enrich them with existing chat data.
+        // This automatically excludes users who are not validated.
+        const combinedList: ChatInfo[] = directoryUsers.map(u => {
+            const existingChat = chatInfoMap.get(u.id);
+            if (existingChat) {
+                return existingChat; // Use the rich chat info if it exists
+            }
+            // Otherwise, create a placeholder for a user we haven't chatted with yet.
+            return {
+                partnerId: u.id,
                 partnerUsername: u.username,
                 lastMessageText: undefined,
                 lastMessageTimestamp: undefined,
                 unreadCount: 0,
-                partnerId: u.id,
-                lastMessageSenderId: undefined
-            } as ChatInfo));
+                lastMessageSenderId: undefined,
+            } as ChatInfo;
+        });
 
-        return [
-            ...userChats,
-            ...usersWithoutChat.sort((a, b) => a.partnerUsername.localeCompare(b.partnerUsername))
-        ];
+        combinedList.sort((a, b) => {
+            const aTime = a.lastMessageTimestamp?.seconds || 0;
+            const bTime = b.lastMessageTimestamp?.seconds || 0;
+            if (aTime > 0 || bTime > 0) return bTime - aTime;
+            return a.partnerUsername.localeCompare(b.partnerUsername);
+        });
+
+        return combinedList;
     }, [user, allUsers, userChats]);
 
     // --- Navigation History Management ---
@@ -884,7 +914,6 @@ const App = () => {
                     const userData = userSnap.data();
                     const creationTime = userData.createdAt || authUser.metadata.creationTime || new Date().toISOString();
                     
-                    // Auto-fix: Si no existe en la BD, lo guardamos para que otros lo vean
                     if (!userData.createdAt && authUser.metadata.creationTime) {
                         updateDoc(userRef, { createdAt: authUser.metadata.creationTime }).catch(console.error);
                     }
@@ -901,7 +930,8 @@ const App = () => {
                         createdAt: new Date().toISOString(),
                         hasGoogleProvider: authUser.providerData.some(p => p.providerId === 'google.com'),
                         hasPasswordProvider: authUser.providerData.some(p => p.providerId === 'password'),
-                        favorites: []
+                        favorites: [],
+                        validated: true
                     };
                     await setDoc(userRef, newUser);
                     setUser(newUser as AppUser);
@@ -926,12 +956,9 @@ const App = () => {
                 const loadedCats: {id: string, name: string}[] = [];
                 snap.forEach(doc => {
                     const data = doc.data();
-                    // Force cast to string for safety, handle nulls gracefully
-                    // If 'name' is missing, fallback to 'Sin Nombre' to at least show the document exists
                     const name = data?.name ? String(data.name) : "Sin Nombre";
                     loadedCats.push({ id: doc.id, name: name });
                 });
-                // Safe sort
                 loadedCats.sort((a, b) => a.name.localeCompare(b.name));
                 setCategories(loadedCats);
             } catch (err) {
@@ -943,8 +970,14 @@ const App = () => {
         const unsubUser = onSnapshot(doc(db, 'users', user.id), (doc) => {
              if (doc.exists()) setUser(prev => ({ ...prev!, ...doc.data() }));
         });
-        const unsubAllUsers = onSnapshot(query(collection(db, 'users'), orderBy('username_lowercase')), (snap) => {
-            setAllUsers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as AppUser)));
+
+        const unsubAllUsers = onSnapshot(collection(db, 'users'), (snap) => {
+            const usersList = snap.docs
+                .map(doc => ({ id: doc.id, ...doc.data() } as AppUser))
+                .filter(u => u.id !== user.id && u.validated !== false); 
+
+            usersList.sort((a, b) => (a.username_lowercase || '').localeCompare(b.username_lowercase || ''));
+            setAllUsers(usersList);
         });
 
         return () => { unsubSongs(); unsubCats(); unsubUser(); unsubAllUsers(); };
@@ -956,36 +989,70 @@ const App = () => {
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const chats: ChatInfo[] = [];
             snapshot.forEach(doc => chats.push(doc.data() as ChatInfo));
+
+            const notify = (chat: ChatInfo) => {
+                triggerHapticFeedback('notification');
+                if (document.visibilityState === 'hidden' || !activeChatPartner) {
+                    if (Notification.permission === 'granted') {
+                        const n = new Notification(`Mensaje de ${chat.partnerUsername}`, {
+                            body: chat.lastMessageText || 'Te ha enviado un mensaje',
+                            icon: APP_ICON_URI,
+                            tag: `chat-${chat.partnerId}`
+                        });
+                        n.onclick = () => {
+                            window.focus();
+                            n.close();
+                            const partnerForChat = allUsers.find(u => u.id === chat.partnerId);
+                            if (partnerForChat) {
+                                setActiveChatPartner(partnerForChat);
+                            }
+                        };
+                    }
+                }
+            };
             
-            if (prevUserChatsRef.current) {
-                const hasNewUnreadMessage = chats.some(newChat => {
-                    if (newChat.partnerId === activeChatPartner?.id || 
-                        newChat.lastMessageSenderId === user.id ||
-                        (newChat.mutedUntil && newChat.mutedUntil > Date.now())) {
+            if (!prevUserChatsRef.current && !sessionStorage.getItem('notified_on_load')) {
+                // Initial load: find the single most recent unread chat and notify.
+                const mostRecentUnread = chats.reduce((latest, chat) => {
+                    if ((chat.unreadCount || 0) > 0 && chat.lastMessageSenderId !== user.id) {
+                        if (!latest || (chat.lastMessageTimestamp?.seconds || 0) > (latest.lastMessageTimestamp?.seconds || 0)) {
+                            return chat;
+                        }
+                    }
+                    return latest;
+                }, null as ChatInfo | null);
+
+                if (mostRecentUnread) {
+                    notify(mostRecentUnread);
+                    sessionStorage.setItem('notified_on_load', 'true');
+                }
+            } else if (prevUserChatsRef.current) {
+                // Subsequent updates: find any newly arrived message.
+                const newUnreadChat = chats.find(newChat => {
+                    if (newChat.partnerId === activeChatPartner?.id || newChat.lastMessageSenderId === user.id || (newChat.mutedUntil && newChat.mutedUntil > Date.now())) {
                         return false;
                     }
-                    
                     const oldChat = prevUserChatsRef.current!.find(c => c.partnerId === newChat.partnerId);
-                    
-                    if (!oldChat) {
-                        return (newChat.unreadCount || 0) > 0;
-                    }
-                    
                     const newTimestamp = newChat.lastMessageTimestamp?.seconds || 0;
-                    const oldTimestamp = oldChat.lastMessageTimestamp?.seconds || 0;
-                    return newTimestamp > oldTimestamp;
+                    const oldTimestamp = oldChat?.lastMessageTimestamp?.seconds || 0;
+                    return newTimestamp > oldTimestamp && (newChat.unreadCount || 0) > 0;
                 });
 
-                if (hasNewUnreadMessage) {
-                    triggerHapticFeedback('notification');
+                if (newUnreadChat) {
+                    notify(newUnreadChat);
                 }
             }
 
             setUserChats(chats);
             prevUserChatsRef.current = chats;
         });
-        return () => unsubscribe();
-    }, [user?.id, activeChatPartner?.id]);
+
+        return () => {
+            unsubscribe();
+            sessionStorage.removeItem('notified_on_load');
+        };
+    }, [user?.id, activeChatPartner?.id, allUsers]);
+
 
     useEffect(() => {
         if (!user) return;
@@ -1005,6 +1072,24 @@ const App = () => {
 
         return () => { unsubscribe(); unsubStatus(); };
     }, [user?.id]);
+
+    useEffect(() => {
+        if (!user || !rtdb) return;
+
+        const typingRef = ref(rtdb, 'typing');
+        const unsubscribe = onValue(typingRef, (snapshot) => {
+            const allTypingData = snapshot.val() || {};
+            const statuses: Record<string, string[]> = {};
+            for (const chatId in allTypingData) {
+                statuses[chatId] = Object.keys(allTypingData[chatId]).filter(
+                    userId => allTypingData[chatId][userId] && userId !== user.id
+                );
+            }
+            setTypingStatuses(statuses);
+        });
+
+        return () => unsubscribe();
+    }, [user?.id, rtdb]);
 
     useEffect(() => {
         if (!viewingProfileId) {
@@ -1094,7 +1179,6 @@ const App = () => {
                 } else {
                     const roomId = roomDoc.id;
                     await updateDoc(doc(db, 'rooms', roomId), { participants: arrayUnion(user.username) });
-                    // Subscribe to room
                     onSnapshot(doc(db, 'rooms', roomId), (doc) => {
                         if (doc.exists()) setCurrentRoom({ id: doc.id, ...doc.data() } as Room);
                         else setCurrentRoom(null);
@@ -1128,7 +1212,7 @@ const App = () => {
 
     const toggleShowChangePassword = (field: 'current' | 'newPass' | 'confirm') => {
         showChangePassword.current[field] = !showChangePassword.current[field];
-        setForceRender(prev => prev + 1); // Helper to force re-render since ref doesn't
+        setForceRender(prev => prev + 1);
     };
 
     const openSongViewer = (song: Song) => {
@@ -1136,15 +1220,11 @@ const App = () => {
     };
     
     const openSongFromProfile = (song: Song) => {
-        // Replace the 'profile' history state with 'song' to ensure correct back navigation
         window.history.replaceState({ overlay: 'song' }, '');
-        
-        // Manually update states as replaceState doesn't trigger popstate
         setViewingProfileId(null);
         setActiveSong(song);
     };
     
-    // Admin Handlers for Categories
     const onAddCategory = async () => {
       if (newCategoryName.trim()) {
         try {
@@ -1205,12 +1285,10 @@ const App = () => {
         setIsLinkingGoogle(true);
         try {
              const res = await linkWithPopup(auth.currentUser!, new GoogleAuthProvider());
-             // Update user doc?
         } catch(e: any) { alert(translateAuthError(e.code)); }
         setIsLinkingGoogle(false);
     };
     
-    // Fetch admins
     useEffect(() => {
         if(isSuperAdmin) {
             const q = query(collection(db, 'users'), where('role', '==', 'admin'));
@@ -1230,8 +1308,39 @@ const App = () => {
             await updateDoc(doc(db, 'users', snap.docs[0].id), { role: 'admin' });
         } else { alert("Usuario no encontrado"); }
     };
+
     const handleRevokeAdmin = async (u: AppUser) => {
         await updateDoc(doc(db, 'users', u.id), { role: 'member' });
+    };
+
+    const handleDeleteAccount = async () => {
+        if (!user || !auth.currentUser) return;
+        if (user.hasPasswordProvider && !deleteAccountPassword) {
+            setAuthMsg({ type: 'error', text: 'Por favor, introduce tu contraseña para confirmar.' });
+            return;
+        }
+        setIsAuthenticating(true);
+        setAuthMsg(null);
+        try {
+            if (user.hasPasswordProvider) {
+                const credential = EmailAuthProvider.credential(user.email, deleteAccountPassword);
+                await reauthenticateWithCredential(auth.currentUser, credential);
+            } else if (user.hasGoogleProvider) {
+                const provider = new GoogleAuthProvider();
+                await reauthenticateWithPopup(auth.currentUser, provider);
+            } else {
+                throw new Error("No supported authentication provider found for re-authentication.");
+            }
+            const userToDelete = auth.currentUser;
+            await deleteDoc(doc(db, 'users', user.id));
+            await deleteUser(userToDelete);
+            setShowDeleteAccountModal(false);
+            setDeleteAccountPassword('');
+        } catch (error: any) {
+            setAuthMsg({ type: 'error', text: translateAuthError(error.code) || 'Error al eliminar la cuenta.' });
+        } finally {
+            setIsAuthenticating(false);
+        }
     };
 
     if (authLoading) return <div className="fixed inset-0 bg-black flex items-center justify-center text-white"><div className="w-10 h-10 border-4 border-white/20 border-t-white rounded-full animate-spin"></div></div>;
@@ -1251,19 +1360,19 @@ const App = () => {
                 totalUnreadCount={totalUnreadCount} songs={songs} favorites={user.favorites || []} openSongViewer={openSongViewer} 
                 toggleFavorite={toggleFavorite} searchQuery={searchQuery} setSearchQuery={setSearchQuery} 
                 activeFilter={activeFilter} setActiveFilter={setActiveFilter} categories={categories} 
-                userChats={displayedUserList} onlineStatuses={onlineStatuses} openDirectMessage={(u: any) => setActiveChatPartner({id: u.id, username: u.username} as AppUser)} 
+                userChats={displayedUserList} onlineStatuses={onlineStatuses} typingStatuses={typingStatuses}
+                openDirectMessage={(u: any) => setActiveChatPartner({id: u.id, username: u.username} as AppUser)} 
                 onViewProfile={setViewingProfileId} roomCodeInput={roomCodeInput} setRoomCodeInput={setRoomCodeInput} 
                 handleJoinRoom={handleJoinRoom} handleCreateRoom={handleCreateRoom} isJoiningRoom={isJoiningRoom} 
-                
                 newCategoryName={newCategoryName} setNewCategoryName={setNewCategoryName} onAddCategory={onAddCategory}
                 editingCategory={editingCategory} setEditingCategory={setEditingCategory} onSaveEditCategory={onSaveEditCategory}
                 handleDeleteCategory={handleDeleteCategory} setCategoryConfirmModal={setCategoryConfirmModal}
-                
                 passwordChangeData={passwordChangeData} setPasswordChangeData={setPasswordChangeData} showChangePassword={showChangePassword} 
                 toggleShowChangePassword={toggleShowChangePassword} passwordChangeMsg={passwordChangeMsg} isUpdatingPassword={isUpdatingPassword} 
                 handleChangePassword={handleChangePassword} isLinkingGoogle={isLinkingGoogle} handleLinkGoogleAccount={handleLinkGoogleAccount} 
                 adminUsers={adminUsers} handleAddAdmin={handleAddAdmin} handleRevokeAdmin={handleRevokeAdmin} handleSignOut={handleSignOut} 
                 openSongEditor={setEditingSong}
+                onDeleteAccountRequest={() => { setShowDeleteAccountModal(true); setAuthMsg(null); }}
             />
             
             {activeSong && (
@@ -1273,6 +1382,24 @@ const App = () => {
                         onBack={() => window.history.back()} 
                         darkMode={darkMode}
                         onEdit={isAdmin ? () => { setActiveSong(null); setEditingSong(activeSong); } : undefined}
+                        onDelete={isAdmin ? () => {
+                            setCategoryConfirmModal({
+                                title: 'Eliminar Música',
+                                message: `¿Seguro que quieres eliminar "${activeSong.title}"? Esta acción no se puede deshacer.`,
+                                type: 'danger',
+                                action: async () => {
+                                    try {
+                                        await deleteDoc(doc(db, 'songs', activeSong.id));
+                                        setCategoryConfirmModal(null);
+                                        window.history.back();
+                                    } catch (e) {
+                                        console.error("Error al eliminar la canción:", e);
+                                        alert("Error al eliminar la canción.");
+                                        setCategoryConfirmModal(null);
+                                    }
+                                }
+                            });
+                        } : undefined}
                     />
                 </div>
             )}
@@ -1334,6 +1461,7 @@ const App = () => {
                     onOpenSong={openSongFromProfile}
                     onSaveBio={async (bio) => await updateDoc(doc(db, 'users', viewingProfileUser.id), { biography: bio })}
                     onUpdateUsername={handleUpdateUsername}
+                    onDeleteAccountRequest={() => { setShowDeleteAccountModal(true); setAuthMsg(null); }}
                 />
             )}
             
@@ -1346,6 +1474,47 @@ const App = () => {
                         <div className="flex gap-3">
                             <button onClick={() => setCategoryConfirmModal(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button>
                             <button onClick={categoryConfirmModal.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform ${categoryConfirmModal.type === 'danger' ? 'bg-misionero-rojo' : 'bg-misionero-azul'}`}>Confirmar</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showDeleteAccountModal && (
+                <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200">
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !isAuthenticating && setShowDeleteAccountModal(false)}></div>
+                    <div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}>
+                        <h3 className={`text-center font-black text-lg uppercase mb-2 text-misionero-rojo`}>Eliminar Cuenta</h3>
+                        <p className={`text-center text-xs font-bold mb-4 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                            Esta acción es permanente y eliminará todos tus datos.
+                        </p>
+                        
+                        {user.hasPasswordProvider && (
+                            <div className="relative my-4">
+                                <input 
+                                    type={showDeletePassword ? 'text' : 'password'} 
+                                    value={deleteAccountPassword}
+                                    onChange={(e) => setDeleteAccountPassword(e.target.value)}
+                                    placeholder="Introduce tu contraseña para confirmar"
+                                    className={`w-full text-center text-sm font-bold rounded-2xl p-3 outline-none ${darkMode ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-900'}`}
+                                />
+                                <button type="button" onClick={() => setShowDeletePassword(!showDeletePassword)} className={`absolute inset-y-0 right-0 flex items-center pr-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{showDeletePassword ? <EyeOffIcon/> : <EyeIcon/>}</button>
+                            </div>
+                        )}
+                        {!user.hasPasswordProvider && user.hasGoogleProvider && (
+                             <p className={`text-center text-xs font-bold my-4 p-3 rounded-lg ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>
+                                Se te pedirá que inicies sesión de nuevo con Google para confirmar.
+                            </p>
+                        )}
+
+                        {authMsg && <div className="text-center text-xs font-bold text-red-400 my-2">{authMsg.text}</div>}
+                        
+                        <div className="flex gap-3 mt-4">
+                            <button onClick={() => setShowDeleteAccountModal(false)} disabled={isAuthenticating} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>
+                                Cancelar
+                            </button>
+                            <button onClick={handleDeleteAccount} disabled={isAuthenticating} className="flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform bg-misionero-rojo disabled:opacity-50">
+                                {isAuthenticating ? 'Eliminando...' : 'Eliminar'}
+                            </button>
                         </div>
                     </div>
                 </div>

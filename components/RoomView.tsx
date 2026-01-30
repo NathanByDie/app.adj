@@ -174,6 +174,14 @@ const RoomView: React.FC<RoomViewProps> = ({
   const [copied, setCopied] = useState(false);
   const [participantDetails, setParticipantDetails] = useState<Record<string, { isAdmin: boolean }>>({});
 
+  const addNotification = useCallback((message: string, type: 'info' | 'success' | 'alert' = 'info') => {
+    const id = Date.now();
+    setNotifications(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== id));
+    }, 3000);
+  }, []);
+
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatMessage, setChatMessage] = useState('');
   const [replyingTo, setReplyingTo] = useState<{sender: string, text: string} | null>(null);
@@ -195,6 +203,7 @@ const RoomView: React.FC<RoomViewProps> = ({
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [dropIndicator, setDropIndicator] = useState<{ index: number; position: 'before' | 'after' } | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ title: string, message: string, action: () => void, type: 'danger' | 'warning' } | null>(null);
+  const [isExitingViaModal, setIsExitingViaModal] = useState(false);
 
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const typingTimeoutRef = useRef<number | null>(null);
@@ -208,15 +217,77 @@ const RoomView: React.FC<RoomViewProps> = ({
 
   const transposedContentCache = useRef<Record<string, string>>({});
   const prevSongsRef = useRef<Song[]>();
-  const prevSelectedSongIdRef = useRef<string | null>(null);
 
   const repertoireScrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollIntervalRef = useRef<number | null>(null);
   const scrollDirectionRef = useRef<'up' | 'down' | null>(null);
+  
+  const handleExitConfirmed = useCallback(() => {
+    setConfirmModal(null);
+    setIsExitingViaModal(true);
+    // Give time for modal to close visually
+    setTimeout(() => onExit(), 50);
+  }, [onExit]);
 
+  const promptExit = useCallback(() => {
+    setConfirmModal({
+        title: 'Salir de la Sala',
+        message: '¿Estás seguro de que quieres abandonar la sesión?',
+        type: 'danger',
+        action: handleExitConfirmed,
+    });
+  }, [handleExitConfirmed]);
+
+  // --- NAVEGACIÓN Y GESTIÓN DE SUB-VISTAS ---
+
+  const openSubView = (subview: 'chat' | 'participants' | 'song', extraState = {}) => {
+      window.history.pushState({ overlay: 'room', subview, ...extraState }, '', '');
+  };
+
+  const handleOpenChat = () => {
+      setIsChatOpen(true);
+      openSubView('chat');
+  };
+
+  const handleOpenParticipants = () => {
+      setShowParticipants(true);
+      openSubView('participants');
+  };
+
+  const handleCloseSubView = () => {
+      window.history.back();
+  };
+
+  // Escuchar eventos PopState (botón Atrás nativo)
   useEffect(() => {
-    prevSelectedSongIdRef.current = selectedSongId;
-  }, [selectedSongId]);
+    const handlePopState = (event: PopStateEvent) => {
+        if (isExitingViaModal) return;
+
+        const state = event.state || {};
+        const currentOverlay = state.overlay;
+        const currentSubview = state.subview;
+
+        // Si estamos saliendo de la sala (overlay ya no es 'room')
+        if (currentOverlay !== 'room') {
+            // Interceptamos la salida para pedir confirmación
+            window.history.pushState({ overlay: 'room' }, '', '');
+            promptExit();
+            return;
+        }
+
+        // Si seguimos en la sala, sincronizamos la UI con el subview actual
+        if (currentSubview !== 'chat') setIsChatOpen(false);
+        if (currentSubview !== 'participants') setShowParticipants(false);
+        if (currentSubview !== 'song') setSelectedSongId(null);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+        window.removeEventListener('popstate', handlePopState);
+    };
+  }, [promptExit, isExitingViaModal]);
+
+  // --- FIN GESTIÓN NAVEGACIÓN ---
 
   useEffect(() => {
     if (prevSongsRef.current && prevSongsRef.current !== songs) {
@@ -239,7 +310,6 @@ const RoomView: React.FC<RoomViewProps> = ({
         unsubscribe();
     };
   }, [room.id, rtdb, currentUser]);
-
 
   const repertoireSongsMap = useMemo(() => {
     const map: Record<string, Song> = {};
@@ -272,28 +342,9 @@ const RoomView: React.FC<RoomViewProps> = ({
     });
   }, [selectedSongId, displayedRepertoire, repertoireSongsMap, room.globalTranspositions, isTheHost, isFollowingHost]);
 
-  useEffect(() => {
-    const handler = () => setSelectedSongId(null);
-    window.addEventListener('closeRoomSong', handler);
-    return () => window.removeEventListener('closeRoomSong', handler);
-  }, []);
-  
   const handleExitRoom = useCallback(() => {
-    setConfirmModal({
-      title: 'Salir de la Sala',
-      message: '¿Estás seguro de que quieres abandonar la sesión?',
-      type: 'danger',
-      action: () => {
-        setConfirmModal(null);
-        onExit();
-      }
-    });
-  }, [onExit]);
-
-  const openChat = () => { if (!isChatOpen) { window.history.pushState({ overlay: 'chat' }, '', ''); setIsChatOpen(true); setShowParticipants(false); } };
-  const closeChat = () => window.history.back();
-  const openParticipants = () => { if (!showParticipants) { window.history.pushState({ overlay: 'participants' }, '', ''); setShowParticipants(true); setIsChatOpen(false); } };
-  const closeParticipants = () => window.history.back();
+    promptExit();
+  }, [promptExit]);
 
   useEffect(() => {
     try {
@@ -398,19 +449,10 @@ const RoomView: React.FC<RoomViewProps> = ({
   useEffect(() => {
     if (!isTheHost && isFollowingHost) {
         const targetSongId = room.currentSongId || null;
-        
         if (targetSongId && targetSongId !== lastSyncedHostSongId.current) {
             lastSyncedHostSongId.current = targetSongId;
             setSelectedSongId(targetSongId);
-            
-            const currentOverlay = window.history.state?.overlay;
-            if (currentOverlay === 'room_song') {
-                window.history.replaceState({ overlay: 'room_song' }, '', '');
-            } else {
-                window.history.pushState({ overlay: 'room_song' }, '', '');
-            }
-        } 
-        else if (!targetSongId && lastSyncedHostSongId.current) {
+        } else if (!targetSongId && lastSyncedHostSongId.current) {
             lastSyncedHostSongId.current = undefined;
         }
     }
@@ -438,42 +480,33 @@ const RoomView: React.FC<RoomViewProps> = ({
     fetchParticipantDetails();
   }, [db, onlineParticipants]);
 
-  const addNotification = (message: string, type: Notification['type'] = 'info') => {
-    const id = Date.now() + Math.random();
-    setNotifications(prev => [...prev, { id, message, type }]);
-    setTimeout(() => { setNotifications(prev => prev.filter(n => n.id !== id)); }, 3000);
-  };
-
-  useEffect(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }, [room.chat, isChatOpen]);
-  useEffect(() => { if (isChatOpen && chatInputRef.current) setTimeout(() => chatInputRef.current?.focus(), 100); }, [isChatOpen]);
-  
-  useEffect(() => {
-    if (prevParticipants.current.length > 0) {
-      const newUsers = onlineParticipants.filter(p => !prevParticipants.current.includes(p));
-      const leftUsers = prevParticipants.current.filter(p => !onlineParticipants.includes(p));
-      
-      newUsers.forEach(u => { if (u !== currentUser) addNotification(`${u} se ha unido`, 'success'); });
-      leftUsers.forEach(u => { if (u !== currentUser) addNotification(`${u} ha salido`, 'alert'); });
-    }
-    prevParticipants.current = onlineParticipants;
-  }, [onlineParticipants, currentUser]);
-  
   const handleCopyCode = () => { navigator.clipboard.writeText(room.code); setCopied(true); setTimeout(() => setCopied(false), 2000); };
   
   const navigateToSong = (songId: string | null) => {
-    const currentOverlay = window.history.state?.overlay;
     if (isTheHost) {
       lastSyncedHostSongId.current = songId || undefined;
-      setSelectedSongId(songId);
       onUpdateRoom(room.id, { currentSongId: songId || '' });
     } else {
-      setSelectedSongId(songId);
       setIsFollowingHost(false);
     }
+    setSelectedSongId(songId);
     if (songId) {
-       if (currentOverlay === 'room_song') window.history.replaceState({ overlay: 'room_song' }, '', '');
-       else window.history.pushState({ overlay: 'room_song' }, '', '');
+        openSubView('song');
     }
+  };
+  
+  const handleCloseSong = () => {
+      if (isTheHost) {
+        onUpdateRoom(room.id, { currentSongId: '' });
+      }
+      // Navegamos atrás para cerrar el estado 'song' del historial
+      handleCloseSubView();
+  };
+
+  const handleEditSong = (songToEdit: Song) => {
+    if (!canModify || !songToEdit) return;
+    setSelectedSongId(null);
+    onEditSong(songToEdit);
   };
 
   const toggleFollowing = () => setIsFollowingHost(prev => !prev);
@@ -520,7 +553,13 @@ const RoomView: React.FC<RoomViewProps> = ({
     }
   };
 
-  const handleReply = (msg: ChatMessage) => { setReplyingTo({ sender: msg.sender, text: msg.text }); openChat(); setTimeout(() => chatInputRef.current?.focus(), 100); };
+  const handleReply = (msg: ChatMessage) => { 
+      setReplyingTo({ sender: msg.sender, text: msg.text }); 
+      if (!isChatOpen) {
+          handleOpenChat();
+      }
+      setTimeout(() => chatInputRef.current?.focus(), 100); 
+  };
   
   const handleSendMessage = () => {
     if (chatMessage.trim() === '') return;
@@ -549,16 +588,13 @@ const RoomView: React.FC<RoomViewProps> = ({
         type: 'danger',
         action: async () => {
             setConfirmModal(null);
-            
-            const updates: any = {
-                repertoire: arrayRemove(songToDelete.id)
-            };
+            const updates: any = { repertoire: arrayRemove(songToDelete.id) };
             if (room.currentSongId === songToDelete.id) {
                 updates.currentSongId = '';
             }
             await onUpdateRoom(room.id, updates);
             await onDeleteSong(songToDelete.id); 
-            window.history.back();
+            setSelectedSongId(null);
         }
     });
   }, [canModify, room, onDeleteSong, onUpdateRoom]);
@@ -587,7 +623,7 @@ const RoomView: React.FC<RoomViewProps> = ({
         <div className="flex flex-col">
             <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex gap-2 items-center w-full">
                 {!isChatOpen && (
-                    <button type="button" onClick={openChat} className={`w-12 h-12 flex items-center justify-center rounded-2xl border shrink-0 transition-colors ${darkMode ? 'bg-slate-900 border-white/5 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
+                    <button type="button" onClick={handleOpenChat} className={`w-12 h-12 flex items-center justify-center rounded-2xl border shrink-0 transition-colors ${darkMode ? 'bg-slate-900 border-white/5 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
                       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
                     </button>
                 )}
@@ -729,7 +765,7 @@ const RoomView: React.FC<RoomViewProps> = ({
   const handleToastClick = () => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setIsToastVisible(false);
-    openChat();
+    handleOpenChat();
   };
   
   const handleToastTouchStart = (e: React.TouchEvent) => {
@@ -834,7 +870,7 @@ const RoomView: React.FC<RoomViewProps> = ({
                     </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0 pl-3">
-                    <button onClick={openParticipants} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-colors ${darkMode ? 'bg-black/40 border-white/5' : 'bg-black/20 border-white/10'}`}>
+                    <button onClick={handleOpenParticipants} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-colors ${darkMode ? 'bg-black/40 border-white/5' : 'bg-black/20 border-white/10'}`}>
                         <svg className={`w-3.5 h-3.5 ${darkMode ? 'text-misionero-amarillo' : 'text-white'}`} fill="currentColor" viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
                         <span className={`text-[10px] font-black ${darkMode ? 'text-misionero-amarillo' : 'text-white'}`}>{onlineParticipants.length}</span>
                     </button>
@@ -939,13 +975,13 @@ const RoomView: React.FC<RoomViewProps> = ({
         )}
       </div>
 
-      {showParticipants && (<div className={`fixed inset-0 z-[160] flex flex-col animate-in slide-in-from-right duration-300 ${darkMode ? 'bg-black' : 'bg-white'}`}>
-        <div className={`flex items-center justify-between px-4 pt-12 pb-4 border-b shrink-0 ${darkMode ? 'border-white/5 bg-slate-900' : 'border-slate-100 bg-white'}`}><div className="flex items-center gap-3"><button onClick={closeParticipants} className="p-2 rounded-full"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button><div><h3 className="font-black uppercase text-sm">Participantes</h3><p className="text-[10px] font-bold text-slate-400">{onlineParticipants.length} usuarios</p></div></div></div>
+      {showParticipants && (<div className={`fixed inset-0 z-[250] flex flex-col animate-in slide-in-from-right duration-300 ${darkMode ? 'bg-black' : 'bg-white'}`}>
+        <div className={`flex items-center justify-between px-4 pt-12 pb-4 border-b shrink-0 ${darkMode ? 'border-white/5 bg-slate-900' : 'border-slate-100 bg-white'}`}><div className="flex items-center gap-3"><button onClick={handleCloseSubView} className="p-2 rounded-full"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button><div><h3 className="font-black uppercase text-sm">Participantes</h3><p className="text-[10px] font-bold text-slate-400">{onlineParticipants.length} usuarios</p></div></div></div>
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {onlineParticipants.map((username) => <ParticipantItem key={username} username={username} />)}
         </div>
       </div>)}
-      {isChatOpen && (<div className={`fixed inset-0 z-[150] flex flex-col animate-in slide-in-from-bottom duration-300 ${darkMode ? 'bg-black' : 'bg-white'}`}><div className={`flex items-center justify-between px-4 pt-12 pb-4 border-b shrink-0 ${darkMode ? 'border-white/5 bg-slate-900' : 'border-slate-100 bg-white'}`}><div className="flex items-center gap-3"><button onClick={closeChat} className="p-2 rounded-full"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button><div><h3 className="font-black uppercase text-sm">Chat de Sala</h3><p className="text-[10px] font-bold text-slate-400">{onlineParticipants.length} conectados</p></div></div></div><div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">{(room.chat || []).map((msg, i) => <SwipeableMessage key={i} msg={msg} currentUser={currentUser} onReply={handleReply} darkMode={darkMode} formatTime={formatMessageTime} />)}</div>{chatInputArea}</div>)}
+      {isChatOpen && (<div className={`fixed inset-0 z-[250] flex flex-col animate-in slide-in-from-bottom duration-300 ${darkMode ? 'bg-black' : 'bg-white'}`}><div className={`flex items-center justify-between px-4 pt-12 pb-4 border-b shrink-0 ${darkMode ? 'border-white/5 bg-slate-900' : 'border-slate-100 bg-white'}`}><div className="flex items-center gap-3"><button onClick={handleCloseSubView} className="p-2 rounded-full"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button><div><h3 className="font-black uppercase text-sm">Chat de Sala</h3><p className="text-[10px] font-bold text-slate-400">{onlineParticipants.length} conectados</p></div></div></div><div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">{(room.chat || []).map((msg, i) => <SwipeableMessage key={i} msg={msg} currentUser={currentUser} onReply={handleReply} darkMode={darkMode} formatTime={formatMessageTime} />)}</div>{chatInputArea}</div>)}
       {confirmModal && (<div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmModal(null)}></div><div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{confirmModal.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{confirmModal.message}</p><div className="flex gap-3"><button onClick={() => setConfirmModal(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button><button onClick={confirmModal.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform ${confirmModal.type === 'danger' ? 'bg-misionero-rojo' : 'bg-misionero-azul'}`}>Confirmar</button></div></div></div>)}
       {songForViewer && (<div className={`fixed inset-0 z-[210] ${darkMode ? 'bg-black' : 'bg-white'} flex flex-col animate-in slide-in-from-bottom-2`}>{(() => {
           const transposeValue = room.globalTranspositions?.[songForViewer.id] || 0;
@@ -954,17 +990,12 @@ const RoomView: React.FC<RoomViewProps> = ({
           return (
             <SongViewer 
               song={songForViewer} 
-              onBack={() => {
-                  if (isTheHost) {
-                      onUpdateRoom(room.id, { currentSongId: '' });
-                  }
-                  window.history.back();
-              }} 
+              onBack={handleCloseSong} 
               externalTranspose={transposeValue} 
               transposedContent={cachedContent} 
               onTransposeChange={canModify ? (val) => handleGlobalTranspose(songForViewer.id, val) : undefined} 
               darkMode={darkMode} 
-              onEdit={canModify ? () => onEditSong(songForViewer) : undefined} 
+              onEdit={canModify ? () => handleEditSong(songForViewer) : undefined} 
               onDelete={canModify ? () => handleDeleteFromRoom(songForViewer) : undefined}
               onPrev={hasPrevSong ? () => navigateToSong(displayedRepertoire[currentSongIndex - 1]) : undefined} 
               onNext={hasNextSong ? () => navigateToSong(displayedRepertoire[currentSongIndex + 1]) : undefined} 
@@ -979,7 +1010,7 @@ const RoomView: React.FC<RoomViewProps> = ({
         })()}</div>)}
       
       {isEditingRepertoire && isAddSongDrawerOpen && (
-        <div className="fixed inset-0 z-[170] animate-in fade-in duration-300" onClick={() => setIsAddSongDrawerOpen(false)}>
+        <div className="fixed inset-0 z-[220] animate-in fade-in duration-300" onClick={() => setIsAddSongDrawerOpen(false)}>
           <div 
             className={`absolute bottom-0 left-0 right-0 h-[85vh] flex flex-col ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'} border-t rounded-t-[2.5rem] shadow-2xl animate-in slide-in-from-bottom-full duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]`}
             onClick={e => e.stopPropagation()}

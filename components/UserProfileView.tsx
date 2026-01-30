@@ -11,6 +11,7 @@ interface UserProfileViewProps {
     onOpenSong: (song: Song) => void;
     darkMode: boolean;
     onUpdateUsername?: (newUsername: string, password_confirmation: string) => Promise<void>;
+    onDeleteAccountRequest?: () => void;
 }
 
 const EyeIcon = ({ className }: { className?: string }) => (
@@ -35,7 +36,8 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
     songs, 
     onOpenSong,
     darkMode,
-    onUpdateUsername
+    onUpdateUsername,
+    onDeleteAccountRequest
 }) => {
     const isMe = user.id === currentUser.id;
     
@@ -209,6 +211,25 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
                         </div>
                     )}
                 </div>
+
+                {isMe && onDeleteAccountRequest && (
+                    <div className="px-6 mt-8">
+                        <h4 className={`px-2 mb-3 text-[10px] font-black uppercase tracking-widest text-red-500/70`}>
+                            Zona de Peligro
+                        </h4>
+                        <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/50 border-red-500/20' : 'bg-red-500/5 border-red-500/10'}`}>
+                            <button 
+                                onClick={onDeleteAccountRequest}
+                                className="w-full bg-red-500/10 text-red-500 font-black py-3 rounded-xl uppercase text-[10px] tracking-widest active:scale-95 transition-all"
+                            >
+                                Eliminar mi cuenta
+                            </button>
+                            <p className={`text-center text-[9px] font-bold mt-2 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                                Esta acción es permanente.
+                            </p>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

@@ -73,6 +73,7 @@ export interface User {
   hasGoogleProvider?: boolean;
   biography?: string;
   favorites?: string[];
+  validated?: boolean;
 }
 
 export interface ChatInfo {

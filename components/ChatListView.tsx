@@ -7,6 +7,7 @@ import { Firestore, doc, setDoc, updateDoc } from 'firebase/firestore';
 interface ChatListViewProps {
     userChats: ChatInfo[];
     onlineStatuses: Record<string, { state: 'online' } | { state: 'offline', last_changed: number }>;
+    typingStatuses: Record<string, string[]>;
     onUserSelect: (partner: { id: string; username: string; }) => void;
     onViewProfile: (userId: string) => void;
     darkMode: boolean;
@@ -32,7 +33,7 @@ const generateChatId = (uid1: string, uid2: string): string => {
     return [uid1, uid2].sort().join('_');
 };
 
-const ChatListView: React.FC<ChatListViewProps> = ({ userChats, onlineStatuses, onUserSelect, onViewProfile, darkMode, currentUser, db }) => {
+const ChatListView: React.FC<ChatListViewProps> = ({ userChats, onlineStatuses, onUserSelect, onViewProfile, darkMode, currentUser, db, typingStatuses }) => {
     const [filter, setFilter] = useState('');
     const [selectedChatForOptions, setSelectedChatForOptions] = useState<ChatInfo | null>(null);
     const longPressTimerRef = useRef<number | null>(null);
@@ -148,6 +149,9 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, onlineStatuses, 
                     const isMe = chat.partnerId === currentUser.id;
                     const isMeSender = chat.lastMessageSenderId === currentUser.id;
 
+                    const chatId = generateChatId(currentUser.id, chat.partnerId);
+                    const isPartnerTyping = (typingStatuses[chatId] || []).includes(chat.partnerId);
+
                     const lastMsgContent = chat.lastMessageText ? chat.lastMessageText.split('\n')[0] : '';
                     
                     let prefix = '';
@@ -157,9 +161,11 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, onlineStatuses, 
                         prefix = 'Tú: ';
                     }
 
-                    const previewText = lastMsgContent 
-                        ? `${prefix}${lastMsgContent}` 
-                        : (isOnline ? 'En línea' : 'Desconectado');
+                    const previewText = isPartnerTyping 
+                        ? <span className="text-misionero-verde animate-pulse">Escribiendo...</span>
+                        : (lastMsgContent 
+                            ? `${prefix}${lastMsgContent}` 
+                            : (isOnline ? 'En línea' : 'Desconectado'));
 
                     return (
                         <div
