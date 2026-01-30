@@ -556,14 +556,14 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
         getMessageAge(selectedMessageForAction.msg) < 3 * 60 * 1000;
 
     return (
-        <div className={`fixed inset-0 z-[150] flex flex-col animate-in slide-in-from-right duration-300 ${darkMode ? 'bg-black' : 'bg-white'}`}>
+        <div className={`fixed inset-0 z-[150] flex flex-col animate-in slide-in-from-right duration-300 ${darkMode ? 'bg-black text-white' : 'bg-white text-slate-900'}`}>
             {selectedMessageForAction && (
                 <div className="fixed inset-0 z-40" onClick={() => setSelectedMessageForAction(null)}></div>
             )}
             <header className={`px-4 pt-12 pb-3 border-b ${darkMode ? 'border-slate-800 bg-black' : 'border-slate-100 bg-white'} flex flex-col shrink-0 ${selectedMessageForAction ? 'z-50' : 'z-20'}`}>
                 {selectedMessageForAction ? (
                      <div className="flex items-center justify-between w-full h-[52px]">
-                        <button onClick={() => setSelectedMessageForAction(null)} className="p-2 rounded-full active:scale-90">
+                        <button onClick={() => setSelectedMessageForAction(null)} className="p-2 rounded-full active:scale-90 text-slate-500 dark:text-slate-400">
                             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
                         </button>
                         <div className="flex items-center gap-2">
@@ -581,7 +581,7 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
                 ) : (
                     <div className="flex items-center justify-between w-full h-[52px]">
                         <div className="flex items-center gap-3">
-                            <button onClick={onBack} className="p-2 rounded-full active:scale-90">
+                            <button onClick={onBack} className="p-2 rounded-full active:scale-90 text-slate-500 dark:text-slate-400">
                                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg>
                             </button>
                             <button onClick={() => onViewProfile(partner.id)} className="flex items-center gap-3 text-left">
@@ -601,7 +601,7 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
                             </button>
                         </div>
                         <div className="relative">
-                            <button onClick={() => setShowOptions(true)} className={`p-2 rounded-full active:bg-slate-100 dark:active:bg-slate-800 transition-colors`}>
+                            <button onClick={() => setShowOptions(true)} className={`p-2 rounded-full active:bg-slate-100 dark:active:bg-slate-800 transition-colors text-slate-500 dark:text-slate-400`}>
                                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" /></svg>
                             </button>
                         </div>

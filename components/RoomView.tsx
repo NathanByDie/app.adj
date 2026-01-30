@@ -223,7 +223,11 @@ const RoomView: React.FC<RoomViewProps> = ({
 
   // --- NAVEGACIÓN Y GESTIÓN DE SUB-VISTAS ---
   const openSubView = (subview: 'chat' | 'participants' | 'song') => {
-      window.history.pushState({ overlay: 'room', subview }, '');
+      // Solo empujar estado si no estamos ya en ese subview para evitar duplicados en el historial
+      const currentState = window.history.state;
+      if (currentState?.subview !== subview) {
+          window.history.pushState({ overlay: 'room', subview }, '');
+      }
   };
 
   const handleOpenChat = () => {
@@ -237,7 +241,16 @@ const RoomView: React.FC<RoomViewProps> = ({
   };
 
   const handleCloseSubView = () => {
-      window.history.back();
+      // Verificar si hay un estado para retroceder
+      const currentState = window.history.state;
+      if (currentState?.subview) {
+          window.history.back();
+      } else {
+          // Si no hay subview en el estado (edge case), forzamos el cierre localmente
+          setIsChatOpen(false);
+          setShowParticipants(false);
+          setSelectedSongId(null);
+      }
   };
 
   useEffect(() => {
@@ -247,6 +260,7 @@ const RoomView: React.FC<RoomViewProps> = ({
         const currentSubview = state.subview;
 
         if (currentOverlay === 'room') {
+            // Si estamos en 'room', cerramos cualquier subview activa si el estado actual no la tiene
             if (currentSubview !== 'chat') setIsChatOpen(false);
             if (currentSubview !== 'participants') setShowParticipants(false);
             if (currentSubview !== 'song') setSelectedSongId(null);
@@ -419,11 +433,34 @@ const RoomView: React.FC<RoomViewProps> = ({
         if (targetSongId && targetSongId !== lastSyncedHostSongId.current) {
             lastSyncedHostSongId.current = targetSongId;
             setSelectedSongId(targetSongId);
+            
+            // AUTOMÁTICAMENTE EMPUJAR EL ESTADO AL HISTORIAL SI AÚN NO ESTÁ
+            // Esto asegura que el botón "Atrás" funcione para cerrar la canción
+            const currentState = window.history.state;
+            if (targetSongId) {
+                // Si el host abre una canción y nosotros no estamos en una subvista, abrimos el subview
+                // Si ya estamos en una subvista (ej: chat), podríamos reemplazar o ignorar. 
+                // Priorizamos la canción del host.
+                if (currentState?.subview !== 'song') {
+                    openSubView('song');
+                }
+            } else {
+                // Si el host cierra la canción y nosotros estamos en subview 'song', simulamos un back
+                if (currentState?.subview === 'song') {
+                    // Evitamos loop infinito verificando el estado local
+                    if (selectedSongId) { 
+                        // Solo retrocedemos si realmente teníamos una canción abierta localmente
+                        // window.history.back() no es seguro en useEffect, mejor dejamos que el usuario salga o limpiamos el estado visual
+                        // setSelectedSongId(null) ya se hizo arriba
+                    }
+                }
+            }
+
         } else if (!targetSongId && lastSyncedHostSongId.current) {
             lastSyncedHostSongId.current = undefined;
         }
     }
-  }, [room.currentSongId, isFollowingHost, isTheHost]);
+  }, [room.currentSongId, isFollowingHost, isTheHost, selectedSongId]);
 
   useEffect(() => {
     if (!db || onlineParticipants.length === 0) return;
@@ -456,6 +493,7 @@ const RoomView: React.FC<RoomViewProps> = ({
     } else {
       setIsFollowingHost(false);
     }
+    
     setSelectedSongId(songId);
     if (songId) {
         openSubView('song');
@@ -1017,5 +1055,4 @@ const RoomView: React.FC<RoomViewProps> = ({
   );
 };
 
-// Fix: Correctly export the RoomView component
 export default RoomView;

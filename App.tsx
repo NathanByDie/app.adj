@@ -728,6 +728,14 @@ const MainView = ({
 
 // --- APP COMPONENT IMPLEMENTATION ---
 
+// Extend window interface for Median/GoNative bridge
+declare global {
+  interface Window {
+    median?: any;
+    gonative?: any;
+  }
+}
+
 const App = () => {
     // Auth State
     const [user, setUser] = useState<AppUser | null>(null);
@@ -816,10 +824,20 @@ const App = () => {
         };
     }, [theme]);
 
-    // Request Notification Permission on Mount
+    // Request Notification Permission on Mount & Register OneSignal via Median Bridge
     useEffect(() => {
+        // Standard Web Notification API (for browser support)
         if ('Notification' in window) {
             Notification.requestPermission();
+        }
+
+        // Median (GoNative) Bridge for OneSignal
+        // This handles "Manual" registration mode in Median configuration
+        const w = window as any;
+        const medianBridge = w.median || w.gonative;
+        
+        if (medianBridge?.onesignal?.register) {
+            medianBridge.onesignal.register();
         }
     }, []);
   
@@ -892,7 +910,9 @@ const App = () => {
                 return;
             }
 
-            if (currentRoom && newOverlay !== 'room') {
+            // Only prompt exit if we are in a room AND the new state is completely outside the room context.
+            if (currentRoom && newOverlay !== 'room' && !newOverlay?.startsWith('room')) {
+                // We are about to leave the room. Intercept.
                 window.history.pushState({ overlay: 'room' }, '');
                 promptRoomExit();
                 return;
@@ -904,13 +924,17 @@ const App = () => {
             if (newOverlay !== 'chat') setActiveChatPartner(null);
             if (newOverlay !== 'profile') setViewingProfileId(null);
             
-            if (newOverlay !== 'room') {
+            // Explicitly handle room closure if we navigated away validly (though intercepted above generally)
+            if (newOverlay !== 'room' && !newOverlay?.startsWith('room')) {
                 setCurrentRoom(null);
             }
         };
 
         window.addEventListener('popstate', handlePopState);
-        window.history.replaceState({ overlay: null }, '');
+        // Ensure initial state is set correctly so we don't have null state issues
+        if (!window.history.state) {
+             window.history.replaceState({ overlay: null }, '');
+        }
 
         return () => {
             window.removeEventListener('popstate', handlePopState);
@@ -948,6 +972,18 @@ const App = () => {
                     }
 
                     setUser({ id: authUser.uid, ...userData, createdAt: creationTime, isAuthenticated: true } as AppUser);
+                    
+                    // Identify user in OneSignal (User Model v5+ or Legacy) via Median Bridge
+                    const w = window as any;
+                    const medianBridge = w.median || w.gonative;
+                    if (medianBridge?.onesignal) {
+                        if (medianBridge.onesignal.login) {
+                            medianBridge.onesignal.login({ externalId: authUser.uid });
+                        } else if (medianBridge.onesignal.setExternalUserId) {
+                            medianBridge.onesignal.setExternalUserId({ externalId: authUser.uid });
+                        }
+                    }
+
                 } else {
                     const newUser = {
                         id: authUser.uid,
@@ -964,9 +1000,27 @@ const App = () => {
                     };
                     await setDoc(userRef, newUser);
                     setUser(newUser as AppUser);
+                    
+                    // Identify new user
+                    const w = window as any;
+                    const medianBridge = w.median || w.gonative;
+                    if (medianBridge?.onesignal?.login) {
+                        medianBridge.onesignal.login({ externalId: authUser.uid });
+                    }
                 }
             } else {
                 setUser(null);
+                
+                // Logout from OneSignal via Median Bridge
+                const w = window as any;
+                const medianBridge = w.median || w.gonative;
+                if (medianBridge?.onesignal) {
+                    if (medianBridge.onesignal.logout) {
+                        medianBridge.onesignal.logout();
+                    } else if (medianBridge.onesignal.removeExternalUserId) {
+                        medianBridge.onesignal.removeExternalUserId();
+                    }
+                }
             }
             setAuthLoading(false);
         });
