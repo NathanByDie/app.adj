@@ -1,5 +1,7 @@
 {
   "name": "ADJStudios",
   "description": "Una plataforma para músicos litúrgicos de ADJStudios para compartir, transponer y organizar repertorios para misas con la paleta misionera.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "microphone"
+  ]
 }

@@ -29,6 +29,11 @@ const BlockIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
+const ImageIcon = () => <svg className="w-4 h-4 inline -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>;
+const MicIcon = () => <svg className="w-4 h-4 inline -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>;
+const FileIcon = () => <svg className="w-4 h-4 inline -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>;
+
+
 const generateChatId = (uid1: string, uid2: string): string => {
     return [uid1, uid2].sort().join('_');
 };
@@ -121,6 +126,14 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, onlineStatuses, 
         setSelectedChatForOptions(null);
     };
 
+    const renderPreview = (text?: string) => {
+        if (!text) return null;
+        if (text.startsWith('📷')) return <span className="flex items-center gap-1.5"><ImageIcon/> {text.substring(2)}</span>;
+        if (text.startsWith('🎤')) return <span className="flex items-center gap-1.5"><MicIcon/> {text.substring(2)}</span>;
+        if (text.startsWith('📄')) return <span className="flex items-center gap-1.5"><FileIcon/> {text.substring(2)}</span>;
+        return text;
+    };
+
     return (
         <div className="w-full h-full flex flex-col relative">
             <div className="px-4 py-2 shrink-0">
@@ -155,16 +168,14 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, onlineStatuses, 
                     const lastMsgContent = chat.lastMessageText ? chat.lastMessageText.split('\n')[0] : '';
                     
                     let prefix = '';
-                    if (chat.isReply) {
-                        prefix = isMeSender ? 'Respondiste: ' : 'Te respondió: ';
-                    } else if (isMeSender) {
+                    if (isMeSender && lastMsgContent) {
                         prefix = 'Tú: ';
                     }
 
                     const previewText = isPartnerTyping 
                         ? <span className="text-misionero-verde animate-pulse">Escribiendo...</span>
                         : (lastMsgContent 
-                            ? `${prefix}${lastMsgContent}` 
+                            ? <>{prefix}{renderPreview(lastMsgContent)}</>
                             : (isOnline ? 'En línea' : 'Desconectado'));
 
                     return (
@@ -174,7 +185,6 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, onlineStatuses, 
                             onTouchEnd={() => handleTouchEnd(chat)}
                             onTouchMove={handleTouchMove}
                             onClick={(e) => {
-                                // Fallback for desktop/mouse users
                                 if (!(e.target as HTMLElement).closest('[data-avatar-button="true"]')) {
                                     onUserSelect({ id: chat.partnerId, username: chat.partnerUsername });
                                 }
@@ -190,9 +200,13 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, onlineStatuses, 
                                     onViewProfile(chat.partnerId);
                                 }}
                             >
-                                <div className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-lg text-white bg-misionero-azul shadow-lg`}>
-                                    {chat.partnerUsername.charAt(0).toUpperCase()}
-                                </div>
+                                {chat.partnerPhotoURL ? (
+                                    <img src={chat.partnerPhotoURL} alt={chat.partnerUsername} className="w-12 h-12 rounded-full object-cover shadow-lg" />
+                                ) : (
+                                    <div className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-lg text-white bg-misionero-azul shadow-lg`}>
+                                        {chat.partnerUsername.charAt(0).toUpperCase()}
+                                    </div>
+                                )}
                                 <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 ${darkMode ? 'border-black' : 'border-slate-50'} ${isOnline ? 'bg-misionero-verde' : 'bg-slate-400'}`}></div>
                             </div>
                             <div className="flex-1 min-w-0">
@@ -210,7 +224,7 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, onlineStatuses, 
                             <div className="flex flex-col items-end gap-1">
                                 {hasUnread && !isBlocked && (
                                     <div className="shrink-0 w-5 h-5 bg-misionero-rojo rounded-full flex items-center justify-center text-white text-[10px] font-black animate-in zoom-in-50">
-                                        {unreadCount}
+                                        {unreadCount > 9 ? '9+' : unreadCount}
                                     </div>
                                 )}
                                 <div className="flex items-center gap-1">

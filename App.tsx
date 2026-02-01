@@ -41,6 +41,7 @@ import {
   writeBatch
 } from "firebase/firestore";
 import { getDatabase, ref, onValue, set, onDisconnect, serverTimestamp, update as updateRtdb } from "firebase/database";
+import { getStorage } from "firebase/storage";
 
 import { User as AppUser, Song, LiturgicalTime, Room, UserRole, ChatInfo } from './types';
 import { PlusIcon, UsersIcon } from './constants';
@@ -68,6 +69,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const rtdb = getDatabase(app);
+const storage = getStorage(app);
 
 setPersistence(auth, browserLocalPersistence).catch(err => console.error("Error de persistencia:", err));
 
@@ -411,9 +413,13 @@ const SettingsView = ({
                 onClick={() => onViewProfile(currentUser.id)}
                 className="w-full flex items-center gap-4 p-4 rounded-[2.5rem] glass-ui glass-interactive text-left active:scale-[0.98] transition-transform"
             >
-                <div className="w-16 h-16 rounded-full bg-misionero-azul flex items-center justify-center text-3xl font-black text-white shadow-lg shrink-0">
-                    {currentUser.username.charAt(0).toUpperCase()}
-                </div>
+                {currentUser.photoURL ? (
+                    <img src={currentUser.photoURL} alt={currentUser.username} className="w-16 h-16 rounded-full object-cover shadow-lg shrink-0" />
+                ) : (
+                    <div className="w-16 h-16 rounded-full bg-misionero-azul flex items-center justify-center text-3xl font-black text-white shadow-lg shrink-0">
+                        {currentUser.username.charAt(0).toUpperCase()}
+                    </div>
+                )}
                 <div className="flex-1">
                     <h3 className={`text-lg font-black ${darkMode ? 'text-white' : 'text-slate-900'}`}>{currentUser.username}</h3>
                     <p className="text-xs text-slate-400 font-bold">Ver y editar perfil</p>
@@ -853,17 +859,15 @@ const App = () => {
         const chatInfoMap = new Map<string, ChatInfo>(userChats.map(chat => [chat.partnerId, chat]));
         const directoryUsers = allUsers || [];
 
-        // Map over validated users, and enrich them with existing chat data.
-        // This automatically excludes users who are not validated.
         const combinedList: ChatInfo[] = directoryUsers.map(u => {
             const existingChat = chatInfoMap.get(u.id);
             if (existingChat) {
-                return existingChat; // Use the rich chat info if it exists
+                return { ...existingChat, partnerPhotoURL: u.photoURL }; 
             }
-            // Otherwise, create a placeholder for a user we haven't chatted with yet.
             return {
                 partnerId: u.id,
                 partnerUsername: u.username,
+                partnerPhotoURL: u.photoURL,
                 lastMessageText: undefined,
                 lastMessageTimestamp: undefined,
                 unreadCount: 0,
@@ -993,6 +997,7 @@ const App = () => {
                         role: 'member',
                         isAuthenticated: true,
                         createdAt: new Date().toISOString(),
+                        photoURL: authUser.photoURL || null,
                         hasGoogleProvider: authUser.providerData.some(p => p.providerId === 'google.com'),
                         hasPasswordProvider: authUser.providerData.some(p => p.providerId === 'password'),
                         favorites: [],
@@ -1528,6 +1533,7 @@ const App = () => {
                     onBack={() => window.history.back()} 
                     db={db} 
                     rtdb={rtdb} 
+                    storage={storage}
                     darkMode={darkMode} 
                     partnerStatus={onlineStatuses[activeChatPartner.id]} 
                     onViewProfile={setViewingProfileId}
@@ -1545,6 +1551,8 @@ const App = () => {
                     onSaveBio={async (bio) => await updateDoc(doc(db, 'users', viewingProfileUser.id), { biography: bio })}
                     onUpdateUsername={handleUpdateUsername}
                     onDeleteAccountRequest={() => { setShowDeleteAccountModal(true); setAuthMsg(null); }}
+                    db={db}
+                    storage={storage}
                 />
             )}
             

@@ -1,6 +1,8 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { User as AppUser, Song } from '../types';
+import { Firestore, doc, updateDoc } from 'firebase/firestore';
+import { FirebaseStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 interface UserProfileViewProps {
     user: AppUser;
@@ -12,6 +14,8 @@ interface UserProfileViewProps {
     darkMode: boolean;
     onUpdateUsername?: (newUsername: string, password_confirmation: string) => Promise<void>;
     onDeleteAccountRequest?: () => void;
+    db: Firestore;
+    storage: FirebaseStorage;
 }
 
 const EyeIcon = ({ className }: { className?: string }) => (
@@ -37,7 +41,9 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
     onOpenSong,
     darkMode,
     onUpdateUsername,
-    onDeleteAccountRequest
+    onDeleteAccountRequest,
+    db,
+    storage
 }) => {
     const isMe = user.id === currentUser.id;
     
@@ -53,13 +59,15 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
     const [showPassword, setShowPassword] = useState(false);
     const [isSavingUsername, setIsSavingUsername] = useState(false);
 
+    // Photo Upload State
+    const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+    const photoInputRef = useRef<HTMLInputElement>(null);
 
     const favoriteSongs = songs.filter(s => (user.favorites || []).includes(s.id));
 
     const joinDate = useMemo(() => {
         if (!user.createdAt) return 'Desconocido';
         try {
-            // Manejar tanto string ISO como objeto Timestamp si existiera
             const date = new Date(user.createdAt);
             if (isNaN(date.getTime())) return 'Desconocido';
             return date.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
@@ -94,6 +102,25 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
         }
     };
 
+    const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file || !isMe) return;
+
+        setIsUploadingPhoto(true);
+        try {
+            const filePath = `profile_pictures/${currentUser.id}`;
+            const fileRef = storageRef(storage, filePath);
+            await uploadBytes(fileRef, file);
+            const photoURL = await getDownloadURL(fileRef);
+            await updateDoc(doc(db, 'users', currentUser.id), { photoURL });
+        } catch (error) {
+            console.error("Error al subir foto:", error);
+            alert("Error al subir la foto. Inténtalo de nuevo.");
+        } finally {
+            setIsUploadingPhoto(false);
+        }
+    };
+
     return (
         <div className={`fixed inset-0 z-[200] flex flex-col animate-in slide-in-from-right duration-300 ${darkMode ? 'bg-black' : 'bg-white'}`}>
             {/* Header */}
@@ -107,8 +134,30 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
             <div className="flex-1 overflow-y-auto custom-scroll pb-20">
                 {/* Hero Section */}
                 <div className="flex flex-col items-center pt-8 pb-6 px-6">
-                    <div className="w-28 h-28 rounded-full bg-misionero-azul flex items-center justify-center text-5xl font-black text-white shadow-2xl mb-4 animate-in zoom-in-50 duration-300">
-                        {user.username.charAt(0).toUpperCase()}
+                    <div className="relative w-28 h-28 mb-4 animate-in zoom-in-50 duration-300">
+                        {user.photoURL ? (
+                            <img src={user.photoURL} alt={user.username} className="w-28 h-28 rounded-full object-cover shadow-2xl" />
+                        ) : (
+                            <div className="w-28 h-28 rounded-full bg-misionero-azul flex items-center justify-center text-5xl font-black text-white shadow-2xl">
+                                {user.username.charAt(0).toUpperCase()}
+                            </div>
+                        )}
+                        {isMe && (
+                            <>
+                                <button
+                                    onClick={() => photoInputRef.current?.click()}
+                                    disabled={isUploadingPhoto}
+                                    className="absolute -bottom-1 -right-1 w-9 h-9 bg-misionero-azul text-white rounded-full flex items-center justify-center shadow-lg border-2 border-white dark:border-black active:scale-90 transition-transform"
+                                >
+                                    {isUploadingPhoto ? (
+                                        <div className="w-5 h-5 border-2 border-white/50 border-t-white rounded-full animate-spin"></div>
+                                    ) : (
+                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L14.732 3.732z" /></svg>
+                                    )}
+                                </button>
+                                <input type="file" ref={photoInputRef} onChange={handlePhotoUpload} hidden accept="image/*" />
+                            </>
+                        )}
                     </div>
                     
                     {isEditingUsername ? (

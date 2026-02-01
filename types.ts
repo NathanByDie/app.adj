@@ -32,9 +32,16 @@ export interface ChatMessage {
 export interface DirectMessage {
   id: string;
   senderId: string;
-  text: string;
   timestamp: any;
   read: boolean;
+
+  type: 'text' | 'image' | 'audio' | 'file';
+  text?: string;
+  mediaUrl?: string;
+  mediaType?: string; // e.g., 'image/jpeg', 'audio/webm'
+  fileName?: string;
+  fileSize?: number;
+  
   deleted?: boolean;
   pinned?: boolean;
   reactions?: { [emoji: string]: string[] }; // user IDs who reacted
@@ -69,6 +76,7 @@ export interface User {
   role: UserRole;
   isAuthenticated: boolean;
   createdAt?: string;
+  photoURL?: string;
   hasPasswordProvider?: boolean;
   hasGoogleProvider?: boolean;
   biography?: string;
@@ -82,6 +90,7 @@ export interface ChatInfo {
     lastMessageTimestamp?: any;
     unreadCount?: number;
     partnerId: string;
+    partnerPhotoURL?: string;
     lastMessageSenderId?: string;
     mutedUntil?: number; // Timestamp until which the chat is muted
     isBlocked?: boolean; // Whether the user blocked this chat
