@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { User as AppUser, Song } from '../types';
 import { Firestore, doc, updateDoc } from 'firebase/firestore';
 import { FirebaseStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import useCachedMedia from '../hooks/useCachedMedia';
 
 interface UserProfileViewProps {
     user: AppUser;
@@ -62,6 +63,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
     // Photo Upload State
     const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
     const photoInputRef = useRef<HTMLInputElement>(null);
+    const cachedPhotoUrl = useCachedMedia(user.photoURL);
 
     const favoriteSongs = songs.filter(s => (user.favorites || []).includes(s.id));
 
@@ -135,8 +137,8 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
                 {/* Hero Section */}
                 <div className="flex flex-col items-center pt-8 pb-6 px-6">
                     <div className="relative w-28 h-28 mb-4 animate-in zoom-in-50 duration-300">
-                        {user.photoURL ? (
-                            <img src={user.photoURL} alt={user.username} className="w-28 h-28 rounded-full object-cover shadow-2xl" />
+                        {cachedPhotoUrl ? (
+                            <img src={cachedPhotoUrl} alt={user.username} className="w-28 h-28 rounded-full object-cover shadow-2xl" />
                         ) : (
                             <div className="w-28 h-28 rounded-full bg-misionero-azul flex items-center justify-center text-5xl font-black text-white shadow-2xl">
                                 {user.username.charAt(0).toUpperCase()}

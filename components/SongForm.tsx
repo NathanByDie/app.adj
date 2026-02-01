@@ -6,7 +6,7 @@ import { importFromLaCuerda } from '../services/importer';
 
 interface SongFormProps {
   initialData?: Song;
-  onSave: (song: Omit<Song, 'id' | 'createdAt'>) => void;
+  onSave: (song: Omit<Song, 'id' | 'createdAt' | 'audioUrl'>, audioAction: { blob: Blob | null, shouldDelete: boolean }) => void;
   onCancel: () => void;
   darkMode?: boolean;
   categories: string[];
@@ -28,6 +28,15 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
   const [importUrl, setImportUrl] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+
+  // Audio state
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(initialData?.audioUrl || null);
+  const [deleteExistingAudio, setDeleteExistingAudio] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingTimerRef = useRef<number | null>(null);
   
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -39,8 +48,18 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
       setKey(initialData.key);
       setCategory(initialData.category);
       setContent(initialData.content);
+      setAudioPreviewUrl(initialData.audioUrl || null);
     }
   }, [initialData]);
+
+  useEffect(() => {
+    return () => {
+      // Limpiar URL de objeto si es de un blob para evitar memory leaks
+      if (audioPreviewUrl && audioPreviewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(audioPreviewUrl);
+      }
+    };
+  }, [audioPreviewUrl]);
 
   useEffect(() => {
     if (initialImportUrl) {
@@ -81,7 +100,7 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !content) return;
-    onSave({ title, key, category, content, author });
+    onSave({ title, key, category, content, author }, { blob: audioBlob, shouldDelete: deleteExistingAudio });
   };
   
   const handleImport = async () => {
@@ -101,6 +120,47 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
     } finally {
       setIsImporting(false);
     }
+  };
+
+  const startRecording = async () => {
+    if (isRecording) return;
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+        const audioChunks: Blob[] = [];
+        
+        mediaRecorderRef.current.ondataavailable = e => audioChunks.push(e.data);
+        mediaRecorderRef.current.onstop = () => {
+            stream.getTracks().forEach(track => track.stop());
+            const newAudioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            setAudioBlob(newAudioBlob);
+            setAudioPreviewUrl(URL.createObjectURL(newAudioBlob));
+        };
+
+        mediaRecorderRef.current.start();
+        setIsRecording(true);
+        recordingTimerRef.current = window.setInterval(() => setRecordingTime(t => t + 1), 1000);
+    } catch (err) {
+        alert("Necesitas permiso para usar el micrófono.");
+    }
+  };
+
+  const stopRecording = () => {
+      if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      setIsRecording(false);
+      setRecordingTime(0);
+  };
+
+  const handleDeleteAudio = () => {
+      if (audioPreviewUrl && audioPreviewUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(audioPreviewUrl);
+      }
+      setAudioBlob(null);
+      setAudioPreviewUrl(null);
+      if (initialData?.audioUrl) {
+          setDeleteExistingAudio(true);
+      }
   };
 
 
@@ -130,7 +190,7 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
       </header>
 
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto flex flex-col custom-scroll no-pull">
-        <div className={`px-5 py-6 space-y-6 transition-all duration-500 ${darkMode ? 'bg-black border-slate-800' : 'bg-white border-slate-50'} border-b ${isFocused ? 'max-h-0 opacity-0 pointer-events-none -translate-y-4' : 'max-h-[500px] opacity-100'}`}>
+        <div className={`px-5 py-6 space-y-6 transition-all duration-500 ${darkMode ? 'bg-black border-slate-800' : 'bg-white border-slate-50'} border-b ${isFocused ? 'max-h-0 opacity-0 pointer-events-none -translate-y-4' : 'max-h-[800px] opacity-100'}`}>
           <div className="space-y-1">
             <label className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Título de la Música</label>
             <input type="text" placeholder="Ej: Alma Misionera" className={`w-full text-2xl font-black border-none focus:ring-0 p-0 transition-colors duration-500 ${darkMode ? 'bg-transparent text-white placeholder:text-slate-800' : 'bg-transparent text-slate-900 placeholder:text-slate-200'}`} value={title} onChange={e => setTitle(e.target.value)} />
@@ -150,6 +210,29 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
                 {categories.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
+          </div>
+          {/* Audio Section */}
+          <div className={`${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-100'} rounded-2xl p-4 border transition-colors duration-500`}>
+              <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest block mb-2">Nota de Voz</label>
+              {audioPreviewUrl ? (
+                  <div className="space-y-3">
+                      <audio controls src={audioPreviewUrl} className="w-full h-10" />
+                      <button type="button" onClick={handleDeleteAudio} className="w-full text-center text-red-500 bg-red-500/10 hover:bg-red-500/20 py-2 rounded-lg text-[10px] font-black uppercase">Eliminar Audio</button>
+                  </div>
+              ) : isRecording ? (
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-red-500/10">
+                      <div className="flex items-center gap-2 text-red-500 font-bold text-sm">
+                          <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                          <span>Grabando... {Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}</span>
+                      </div>
+                      <button type="button" onClick={stopRecording} className="bg-red-500 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase">Detener</button>
+                  </div>
+              ) : (
+                  <button type="button" onClick={startRecording} className={`w-full flex items-center justify-center gap-3 py-3 rounded-xl border-2 border-dashed ${darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-200 hover:bg-slate-100'} transition-colors`}>
+                      <svg className={`w-5 h-5 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
+                      <span className={`text-sm font-bold ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Grabar Audio</span>
+                  </button>
+              )}
           </div>
         </div>
 

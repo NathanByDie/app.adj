@@ -1,12 +1,12 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { User as AppUser, DirectMessage } from '../types';
-import { Firestore, collection, query, orderBy, onSnapshot, serverTimestamp, writeBatch, doc, setDoc, increment, updateDoc, getDoc, runTransaction } from 'firebase/firestore';
+import { Firestore, collection, query, orderBy, onSnapshot, serverTimestamp, writeBatch, doc, setDoc, increment, updateDoc, getDoc, runTransaction, deleteField } from 'firebase/firestore';
 import { FirebaseStorage, ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { ref as refRtdb, onValue as onValueRtdb, set as setRtdb, remove as removeRtdb } from 'firebase/database';
 import { triggerHapticFeedback } from '../services/haptics';
 import { getMessagesFromCache, saveMessagesToCache } from '../services/cache';
 import ImageViewer from './ImageViewer';
+import useCachedMedia from '../hooks/useCachedMedia';
 
 interface DirectMessageViewProps {
     currentUser: AppUser;
@@ -92,6 +92,7 @@ const SwipeableDirectMessage: React.FC<SwipeableDirectMessageProps> = ({
     const longPressTimerRef = useRef<number | null>(null);
     const isSwipingRef = useRef(false);
     const longPressTriggered = useRef(false);
+    const cachedMediaUrl = useCachedMedia(msg.mediaUrl);
 
     const onTouchStart = (e: React.TouchEvent) => {
         if (isSelected) return;
@@ -171,9 +172,9 @@ const SwipeableDirectMessage: React.FC<SwipeableDirectMessageProps> = ({
         }
         switch (msg.type) {
             case 'image':
-                return <img src={msg.mediaUrl} alt="Imagen enviada" className="max-w-xs max-h-80 rounded-lg object-cover cursor-pointer active:scale-95 transition-transform" onClick={() => onViewImage(msg)} />;
+                return <img src={cachedMediaUrl || msg.mediaUrl} alt="Imagen enviada" className="max-w-xs max-h-80 rounded-lg object-cover cursor-pointer active:scale-95 transition-transform" onClick={() => onViewImage(msg)} />;
             case 'audio':
-                return <audio controls src={msg.mediaUrl} className="w-60 h-12" />;
+                return <audio controls src={cachedMediaUrl || msg.mediaUrl} className="w-60 h-12" />;
             case 'file':
                 return (
                     <a href={msg.mediaUrl} download={msg.fileName} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-3 rounded-lg bg-black/10 dark:bg-white/10 hover:bg-black/20 dark:hover:bg-white/20">
@@ -285,6 +286,7 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
     const fileInputRef = useRef<HTMLInputElement>(null);
     
     const typingTimeoutRef = useRef<number | null>(null);
+    const cachedPartnerPhoto = useCachedMedia(partner.photoURL);
 
     const chatId = generateChatId(currentUser.id, partner.id);
 
@@ -384,6 +386,9 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
                 batch.set(myChatInfoRef, { unreadCount: 0 }, { merge: true });
                 await batch.commit();
             }
+        }, (error) => {
+            console.error("Error listening to messages:", error);
+            alert("Error al cargar mensajes. Verifica tu conexión o revisa la consola del navegador por si falta un índice de base de datos.");
         });
         
         return () => unsubscribe();
@@ -439,8 +444,13 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
         batch.set(myChatInfoRef, { ...commonChatInfo, partnerId: partner.id, partnerUsername: partner.username, partnerPhotoURL: partner.photoURL || null }, { merge: true });
         batch.set(partnerChatInfoRef, { ...commonChatInfo, partnerId: currentUser.id, partnerUsername: currentUser.username, partnerPhotoURL: currentUser.photoURL || null, unreadCount: increment(1) }, { merge: true });
     
-        await batch.commit();
-        setReplyingTo(null);
+        try {
+            await batch.commit();
+            setReplyingTo(null);
+        } catch (error) {
+            console.error("Error sending message:", error);
+            alert("No se pudo enviar el mensaje. Por favor, intenta de nuevo.");
+        }
     };
 
     const handleSendText = async (e?: React.FormEvent) => {
@@ -626,7 +636,19 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
         const isLastMessage = messages.length > 0 && selectedMessageForAction.msg.id === messages[messages.length - 1].id;
         const msgRef = doc(db, 'direct_messages', chatId, 'messages', selectedMessageForAction.msg.id);
         const batch = writeBatch(db);
-        batch.update(msgRef, { text: '', type: 'text', mediaUrl: '', mediaType: '', fileName: '', fileSize: 0, deleted: true, reactions: {}, pinned: false, replyTo: null });
+
+        batch.update(msgRef, {
+            deleted: true,
+            text: deleteField(),
+            mediaUrl: deleteField(),
+            mediaType: deleteField(),
+            fileName: deleteField(),
+            fileSize: deleteField(),
+            reactions: deleteField(),
+            pinned: deleteField(),
+            replyTo: deleteField()
+        });
+        
         if (isLastMessage) {
             const newLastMessage = messages.length > 1 ? messages[messages.length - 2] : null;
             const myChatInfoRef = doc(db, 'user_chats', currentUser.id, 'chats', chatId);
@@ -697,7 +719,7 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
                             </button>
                             <button onClick={() => onViewProfile(partner.id)} className="flex items-center gap-3 text-left">
                                 <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-md text-white bg-misionero-azul overflow-hidden`}>
-                                    {partner.photoURL ? <img src={partner.photoURL} alt={partner.username} className="w-full h-full object-cover" /> : partner.username.charAt(0).toUpperCase()}
+                                    {cachedPartnerPhoto ? <img src={cachedPartnerPhoto} alt={partner.username} className="w-full h-full object-cover" /> : partner.username.charAt(0).toUpperCase()}
                                 </div>
                                 <div>
                                     <h3 className="font-black uppercase text-sm flex items-center gap-2">

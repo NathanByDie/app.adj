@@ -3,12 +3,13 @@ import React, { useState, useRef } from 'react';
 import { User as AppUser, ChatInfo } from '../types';
 import { triggerHapticFeedback } from '../services/haptics';
 import { Firestore, doc, setDoc, updateDoc } from 'firebase/firestore';
+import useCachedMedia from '../hooks/useCachedMedia';
 
 interface ChatListViewProps {
     userChats: ChatInfo[];
     onlineStatuses: Record<string, { state: 'online' } | { state: 'offline', last_changed: number }>;
     typingStatuses: Record<string, string[]>;
-    onUserSelect: (partner: { id: string; username: string; }) => void;
+    onUserSelect: (partner: { id: string; }) => void;
     onViewProfile: (userId: string) => void;
     darkMode: boolean;
     currentUser: AppUser;
@@ -37,6 +38,113 @@ const FileIcon = () => <svg className="w-4 h-4 inline -mt-0.5" fill="none" viewB
 const generateChatId = (uid1: string, uid2: string): string => {
     return [uid1, uid2].sort().join('_');
 };
+
+// FIX: Added explicit props interface for ChatListItem
+interface ChatListItemProps {
+    chat: ChatInfo;
+    darkMode: boolean;
+    onlineStatuses: Record<string, { state: 'online' } | { state: 'offline', last_changed: number }>;
+    currentUser: AppUser;
+    typingStatuses: Record<string, string[]>;
+    handleTouchStart: (chat: ChatInfo, e: React.TouchEvent) => void;
+    handleTouchEnd: (chat: ChatInfo) => void;
+    handleTouchMove: (e: React.TouchEvent) => void;
+    onViewProfile: (userId: string) => void;
+    onUserSelect: (partner: { id: string; }) => void;
+}
+
+const ChatListItem: React.FC<ChatListItemProps> = ({ chat, darkMode, onlineStatuses, currentUser, typingStatuses, handleTouchStart, handleTouchEnd, handleTouchMove, onViewProfile, onUserSelect }) => {
+    const cachedPhotoUrl = useCachedMedia(chat.partnerPhotoURL);
+
+    const partnerStatus = onlineStatuses[chat.partnerId];
+    const isOnline = partnerStatus?.state === 'online';
+    const unreadCount = chat.unreadCount || 0;
+    const hasUnread = unreadCount > 0;
+    const isBlocked = chat.isBlocked === true;
+    const isMuted = chat.mutedUntil && chat.mutedUntil > Date.now();
+    const isMe = chat.partnerId === currentUser.id;
+    const isMeSender = chat.lastMessageSenderId === currentUser.id;
+
+    const chatId = generateChatId(currentUser.id, chat.partnerId);
+    const isPartnerTyping = (typingStatuses[chatId] || []).includes(chat.partnerId);
+
+    const lastMsgContent = chat.lastMessageText ? chat.lastMessageText.split('\n')[0] : '';
+    
+    let prefix = '';
+    if (isMeSender && lastMsgContent) {
+        prefix = 'Tú: ';
+    }
+
+    const renderPreview = (text?: string) => {
+        if (!text) return null;
+        if (text.startsWith('📷')) return <span className="flex items-center gap-1.5"><ImageIcon/> {text.substring(2)}</span>;
+        if (text.startsWith('🎤')) return <span className="flex items-center gap-1.5"><MicIcon/> {text.substring(2)}</span>;
+        if (text.startsWith('📄')) return <span className="flex items-center gap-1.5"><FileIcon/> {text.substring(2)}</span>;
+        return text;
+    };
+    
+    const previewText = isPartnerTyping 
+        ? <span className="text-misionero-verde animate-pulse">Escribiendo...</span>
+        : (lastMsgContent 
+            ? <>{prefix}{renderPreview(lastMsgContent)}</>
+            : (isOnline ? 'En línea' : 'Desconectado'));
+
+    return (
+        <div
+            onTouchStart={(e) => handleTouchStart(chat, e)}
+            onTouchEnd={() => handleTouchEnd(chat)}
+            onTouchMove={handleTouchMove}
+            onClick={(e) => {
+                if (!(e.target as HTMLElement).closest('[data-avatar-button="true"]')) {
+                    onUserSelect({ id: chat.partnerId });
+                }
+            }}
+            className={`relative glass-ui rounded-2xl p-4 flex items-center gap-4 active:scale-[0.98] transition-transform animate-stagger-in cursor-pointer ${isBlocked ? 'opacity-60 grayscale' : ''}`}
+        >
+            <div 
+                className="relative shrink-0 active:scale-90 transition-transform z-10"
+                data-avatar-button="true"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onViewProfile(chat.partnerId);
+                }}
+            >
+                {cachedPhotoUrl ? (
+                    <img src={cachedPhotoUrl} alt={chat.partnerUsername} className="w-12 h-12 rounded-full object-cover shadow-lg" />
+                ) : (
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-lg text-white bg-misionero-azul shadow-lg`}>
+                        {chat.partnerUsername.charAt(0).toUpperCase()}
+                    </div>
+                )}
+                <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 ${darkMode ? 'border-black' : 'border-slate-50'} ${isOnline ? 'bg-misionero-verde' : 'bg-slate-400'}`}></div>
+            </div>
+            <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                    <h4 className={`font-black text-sm uppercase truncate ${darkMode ? 'text-white' : 'text-slate-800'} ${hasUnread ? 'font-extrabold' : ''}`}>
+                        {isMe ? <span className="text-slate-500 mr-1">(Tú)</span> : null}
+                        {chat.partnerUsername}
+                    </h4>
+                </div>
+                <p className={`text-xs truncate ${hasUnread ? `font-bold ${darkMode ? 'text-white' : 'text-slate-900'}` : `font-medium ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}`}>
+                    {previewText}
+                </p>
+            </div>
+            
+            <div className="flex flex-col items-end gap-1">
+                {hasUnread && !isBlocked && (
+                    <div className="shrink-0 w-5 h-5 bg-misionero-rojo rounded-full flex items-center justify-center text-white text-[10px] font-black animate-in zoom-in-50">
+                        {unreadCount > 9 ? '9+' : unreadCount}
+                    </div>
+                )}
+                <div className="flex items-center gap-1">
+                    {isMuted && !isBlocked && <MuteIcon className={`w-3.5 h-3.5 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`} />}
+                    {isBlocked && <BlockIcon className="w-3.h-3.5 text-misionero-rojo" />}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 const ChatListView: React.FC<ChatListViewProps> = ({ userChats, onlineStatuses, onUserSelect, onViewProfile, darkMode, currentUser, db, typingStatuses }) => {
     const [filter, setFilter] = useState('');
@@ -90,7 +198,7 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, onlineStatuses, 
             if ((touchStartTargetRef.current as HTMLElement)?.closest('[data-avatar-button="true"]')) {
                 onViewProfile(chat.partnerId);
             } else {
-                onUserSelect({ id: chat.partnerId, username: chat.partnerUsername });
+                onUserSelect({ id: chat.partnerId });
             }
         }
         
@@ -126,14 +234,6 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, onlineStatuses, 
         setSelectedChatForOptions(null);
     };
 
-    const renderPreview = (text?: string) => {
-        if (!text) return null;
-        if (text.startsWith('📷')) return <span className="flex items-center gap-1.5"><ImageIcon/> {text.substring(2)}</span>;
-        if (text.startsWith('🎤')) return <span className="flex items-center gap-1.5"><MicIcon/> {text.substring(2)}</span>;
-        if (text.startsWith('📄')) return <span className="flex items-center gap-1.5"><FileIcon/> {text.substring(2)}</span>;
-        return text;
-    };
-
     return (
         <div className="w-full h-full flex flex-col relative">
             <div className="px-4 py-2 shrink-0">
@@ -152,89 +252,21 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, onlineStatuses, 
                         <p className="text-[10px] font-black uppercase">No se encontraron chats</p>
                     </div>
                 )}
-                {filteredChats.map((chat, index) => {
-                    const partnerStatus = onlineStatuses[chat.partnerId];
-                    const isOnline = partnerStatus?.state === 'online';
-                    const unreadCount = chat.unreadCount || 0;
-                    const hasUnread = unreadCount > 0;
-                    const isBlocked = chat.isBlocked === true;
-                    const isMuted = chat.mutedUntil && chat.mutedUntil > Date.now();
-                    const isMe = chat.partnerId === currentUser.id;
-                    const isMeSender = chat.lastMessageSenderId === currentUser.id;
-
-                    const chatId = generateChatId(currentUser.id, chat.partnerId);
-                    const isPartnerTyping = (typingStatuses[chatId] || []).includes(chat.partnerId);
-
-                    const lastMsgContent = chat.lastMessageText ? chat.lastMessageText.split('\n')[0] : '';
-                    
-                    let prefix = '';
-                    if (isMeSender && lastMsgContent) {
-                        prefix = 'Tú: ';
-                    }
-
-                    const previewText = isPartnerTyping 
-                        ? <span className="text-misionero-verde animate-pulse">Escribiendo...</span>
-                        : (lastMsgContent 
-                            ? <>{prefix}{renderPreview(lastMsgContent)}</>
-                            : (isOnline ? 'En línea' : 'Desconectado'));
-
-                    return (
-                        <div
-                            key={chat.partnerId}
-                            onTouchStart={(e) => handleTouchStart(chat, e)}
-                            onTouchEnd={() => handleTouchEnd(chat)}
-                            onTouchMove={handleTouchMove}
-                            onClick={(e) => {
-                                if (!(e.target as HTMLElement).closest('[data-avatar-button="true"]')) {
-                                    onUserSelect({ id: chat.partnerId, username: chat.partnerUsername });
-                                }
-                            }}
-                            className={`relative glass-ui rounded-2xl p-4 flex items-center gap-4 active:scale-[0.98] transition-transform animate-stagger-in cursor-pointer ${isBlocked ? 'opacity-60 grayscale' : ''}`}
-                            style={{ animationDelay: `${index * 20}ms` }}
-                        >
-                            <div 
-                                className="relative shrink-0 active:scale-90 transition-transform z-10"
-                                data-avatar-button="true"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onViewProfile(chat.partnerId);
-                                }}
-                            >
-                                {chat.partnerPhotoURL ? (
-                                    <img src={chat.partnerPhotoURL} alt={chat.partnerUsername} className="w-12 h-12 rounded-full object-cover shadow-lg" />
-                                ) : (
-                                    <div className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-lg text-white bg-misionero-azul shadow-lg`}>
-                                        {chat.partnerUsername.charAt(0).toUpperCase()}
-                                    </div>
-                                )}
-                                <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 ${darkMode ? 'border-black' : 'border-slate-50'} ${isOnline ? 'bg-misionero-verde' : 'bg-slate-400'}`}></div>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <div className="flex items-center justify-between">
-                                    <h4 className={`font-black text-sm uppercase truncate ${darkMode ? 'text-white' : 'text-slate-800'} ${hasUnread ? 'font-extrabold' : ''}`}>
-                                        {isMe ? <span className="text-slate-500 mr-1">(Tú)</span> : null}
-                                        {chat.partnerUsername}
-                                    </h4>
-                                </div>
-                                <p className={`text-xs truncate ${hasUnread ? `font-bold ${darkMode ? 'text-white' : 'text-slate-900'}` : `font-medium ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}`}>
-                                    {previewText}
-                                </p>
-                            </div>
-                            
-                            <div className="flex flex-col items-end gap-1">
-                                {hasUnread && !isBlocked && (
-                                    <div className="shrink-0 w-5 h-5 bg-misionero-rojo rounded-full flex items-center justify-center text-white text-[10px] font-black animate-in zoom-in-50">
-                                        {unreadCount > 9 ? '9+' : unreadCount}
-                                    </div>
-                                )}
-                                <div className="flex items-center gap-1">
-                                    {isMuted && !isBlocked && <MuteIcon className={`w-3.5 h-3.5 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`} />}
-                                    {isBlocked && <BlockIcon className="w-3.h-3.5 text-misionero-rojo" />}
-                                </div>
-                            </div>
-                        </div>
-                    );
-                })}
+                {filteredChats.map((chat) => (
+                    <ChatListItem
+                        key={chat.partnerId}
+                        chat={chat}
+                        darkMode={darkMode}
+                        onlineStatuses={onlineStatuses}
+                        currentUser={currentUser}
+                        typingStatuses={typingStatuses}
+                        handleTouchStart={handleTouchStart}
+                        handleTouchEnd={handleTouchEnd}
+                        handleTouchMove={handleTouchMove}
+                        onViewProfile={onViewProfile}
+                        onUserSelect={onUserSelect}
+                    />
+                ))}
             </div>
 
             {selectedChatForOptions && (

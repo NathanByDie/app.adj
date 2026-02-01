@@ -3,6 +3,7 @@ import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { Song } from '../types';
 import { isChordLine, transposeSong, transposeRoot, findBestCapo } from '../services/musicUtils';
 import { set as setRtdb, ref as refRtdb } from "firebase/database";
+import useCachedMedia from '../hooks/useCachedMedia';
 
 interface SongViewerProps {
   song: Song;
@@ -70,6 +71,8 @@ const SongViewer: React.FC<SongViewerProps> = ({
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
   const minSwipeDistance = 50;
+
+  const cachedAudioUrl = useCachedMedia(song.audioUrl);
   
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -443,6 +446,13 @@ const SongViewer: React.FC<SongViewerProps> = ({
               </>
             )}
           </ul>
+        </div>
+      )}
+
+      {song.audioUrl && (
+        <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 shrink-0">
+          <h4 className="text-[8px] font-black uppercase text-slate-400 mb-2 tracking-widest">Nota de Voz</h4>
+          <audio controls src={cachedAudioUrl || song.audioUrl} className="w-full h-10"></audio>
         </div>
       )}
 

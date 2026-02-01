@@ -38,10 +38,11 @@ import {
   getDoc,
   arrayUnion,
   arrayRemove,
-  writeBatch
+  writeBatch,
+  deleteField
 } from "firebase/firestore";
 import { getDatabase, ref, onValue, set, onDisconnect, serverTimestamp, update as updateRtdb } from "firebase/database";
-import { getStorage } from "firebase/storage";
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 
 import { User as AppUser, Song, LiturgicalTime, Room, UserRole, ChatInfo } from './types';
 import { PlusIcon, UsersIcon } from './constants';
@@ -52,6 +53,7 @@ import ChatListView from './components/ChatListView';
 import DirectMessageView from './components/DirectMessageView';
 import UserProfileView from './components/UserProfileView';
 import { triggerHapticFeedback } from './services/haptics';
+import useCachedMedia from './hooks/useCachedMedia';
 
 // --- CONFIGURACIÓN DE FIREBASE ---
 const firebaseConfig = {
@@ -398,6 +400,7 @@ const SettingsView = ({
 }: any) => {
     
     const [newAdminEmail, setNewAdminEmail] = useState('');
+    const cachedPhotoUrl = useCachedMedia(currentUser.photoURL);
 
     const EditIcon = ({ className }: { className?: string }) => (
       <svg className={className || "w-3 h-3"} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
@@ -413,8 +416,8 @@ const SettingsView = ({
                 onClick={() => onViewProfile(currentUser.id)}
                 className="w-full flex items-center gap-4 p-4 rounded-[2.5rem] glass-ui glass-interactive text-left active:scale-[0.98] transition-transform"
             >
-                {currentUser.photoURL ? (
-                    <img src={currentUser.photoURL} alt={currentUser.username} className="w-16 h-16 rounded-full object-cover shadow-lg shrink-0" />
+                {cachedPhotoUrl ? (
+                    <img src={cachedPhotoUrl} alt={currentUser.username} className="w-16 h-16 rounded-full object-cover shadow-lg shrink-0" />
                 ) : (
                     <div className="w-16 h-16 rounded-full bg-misionero-azul flex items-center justify-center text-3xl font-black text-white shadow-lg shrink-0">
                         {currentUser.username.charAt(0).toUpperCase()}
@@ -766,7 +769,7 @@ const App = () => {
     const [activeFilter, setActiveFilter] = useState('Todos');
     const [activeSong, setActiveSong] = useState<Song | null>(null);
     const [editingSong, setEditingSong] = useState<Song | null | undefined>(undefined);
-    const [activeChatPartner, setActiveChatPartner] = useState<AppUser | null>(null);
+    const [activeChatPartnerId, setActiveChatPartnerId] = useState<string | null>(null);
     const [viewingProfileId, setViewingProfileId] = useState<string | null>(null);
     const [viewingProfileUser, setViewingProfileUser] = useState<AppUser | null>(null);
     const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
@@ -852,6 +855,11 @@ const App = () => {
     const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
     const totalUnreadCount = useMemo(() => userChats.reduce((acc, chat) => acc + (chat.unreadCount || 0), 0), [userChats]);
 
+    const activeChatPartner = useMemo(() => {
+        if (!activeChatPartnerId) return null;
+        return allUsers.find(u => u.id === activeChatPartnerId) || null;
+    }, [activeChatPartnerId, allUsers]);
+
     // Calculate displayed user list for chat view
     const displayedUserList = useMemo(() => {
         if (!user) return [];
@@ -925,7 +933,7 @@ const App = () => {
             // General overlay state sync
             if (newOverlay !== 'song') setActiveSong(null);
             if (newOverlay !== 'editor') setEditingSong(undefined);
-            if (newOverlay !== 'chat') setActiveChatPartner(null);
+            if (newOverlay !== 'chat') setActiveChatPartnerId(null);
             if (newOverlay !== 'profile') setViewingProfileId(null);
             
             // Explicitly handle room closure if we navigated away validly (though intercepted above generally)
@@ -957,7 +965,7 @@ const App = () => {
     useEffect(() => manageHistory(activeSong ? 'song' : null), [activeSong]);
     useEffect(() => manageHistory(editingSong !== undefined ? 'editor' : null), [editingSong]);
     useEffect(() => manageHistory(currentRoom ? 'room' : null), [currentRoom]);
-    useEffect(() => manageHistory(activeChatPartner ? 'chat' : null), [activeChatPartner]);
+    useEffect(() => manageHistory(activeChatPartnerId ? 'chat' : null), [activeChatPartnerId]);
     useEffect(() => manageHistory(viewingProfileId ? 'profile' : null), [viewingProfileId]);
 
 
@@ -1090,10 +1098,7 @@ const App = () => {
                         n.onclick = () => {
                             window.focus();
                             n.close();
-                            const partnerForChat = allUsers.find(u => u.id === chat.partnerId);
-                            if (partnerForChat) {
-                                setActiveChatPartner(partnerForChat);
-                            }
+                            setActiveChatPartnerId(chat.partnerId);
                         };
                     }
                 }
@@ -1117,7 +1122,7 @@ const App = () => {
             } else if (prevUserChatsRef.current) {
                 // Subsequent updates: find any newly arrived message.
                 const newUnreadChat = chats.find(newChat => {
-                    if (newChat.partnerId === activeChatPartner?.id || newChat.lastMessageSenderId === user.id || (newChat.mutedUntil && newChat.mutedUntil > Date.now())) {
+                    if (newChat.partnerId === activeChatPartnerId || newChat.lastMessageSenderId === user.id || (newChat.mutedUntil && newChat.mutedUntil > Date.now())) {
                         return false;
                     }
                     const oldChat = prevUserChatsRef.current!.find(c => c.partnerId === newChat.partnerId);
@@ -1139,7 +1144,7 @@ const App = () => {
             unsubscribe();
             sessionStorage.removeItem('notified_on_load');
         };
-    }, [user?.id, activeChatPartner?.id, allUsers]);
+    }, [user?.id, activeChatPartnerId, allUsers]);
 
 
     useEffect(() => {
@@ -1237,6 +1242,71 @@ const App = () => {
             setAuthMsg({ type: 'error', text: translateAuthError(error.code) });
         } finally {
             setIsAuthenticating(false);
+        }
+    };
+
+    const handleSaveSong = async (
+        data: Omit<Song, 'id' | 'createdAt' | 'audioUrl'>,
+        audioAction: { blob: Blob | null, shouldDelete: boolean }
+    ) => {
+        let songData: Partial<Song> = { ...data };
+        let songId = editingSong ? editingSong.id : '';
+        let audioUploadFailed = false;
+
+        try {
+            if (editingSong) { // UPDATE
+                songId = editingSong.id;
+            } else { // CREATE
+                const newSongRef = doc(collection(db, 'songs'));
+                songId = newSongRef.id;
+            }
+
+            // 1. Intentar subir el audio si existe
+            if (audioAction.blob) {
+                try {
+                    // Asegurar que el blob tenga el tipo MIME correcto antes de subir
+                    const metadata = {
+                        contentType: 'audio/webm',
+                    };
+                    const audioRef = storageRef(storage, `song_audio/${songId}`);
+                    await uploadBytes(audioRef, audioAction.blob, metadata);
+                    songData.audioUrl = await getDownloadURL(audioRef);
+                } catch (audioError: any) {
+                    console.error("Fallo al subir audio:", audioError);
+                    audioUploadFailed = true;
+                    // IMPORTANTE: Si falla el audio por permisos, NO bloqueamos el guardado de la canción.
+                    // Simplemente no guardamos la URL del audio.
+                    if (audioError.code === 'storage/unauthorized') {
+                        alert(`Alerta: No tienes permiso para subir audios (Error de servidor). Tu canción se guardará SIN la nota de voz. Verifica tu User ID: ${user?.id}`);
+                    } else {
+                        alert("Hubo un error al subir el audio, pero se guardará el texto de la canción.");
+                    }
+                }
+            } else if (audioAction.shouldDelete) {
+                songData.audioUrl = deleteField() as any;
+                try {
+                    const audioRef = storageRef(storage, `song_audio/${songId}`);
+                    await deleteObject(audioRef);
+                } catch (e: any) {
+                    if (e.code !== 'storage/object-not-found') {
+                        console.warn("Error al borrar audio (posiblemente permisos):", e);
+                        // No lanzamos error para permitir que se guarde el borrado del campo URL
+                    }
+                }
+            }
+
+            // 2. Guardar los datos de la canción en Firestore
+            if (editingSong) {
+                await updateDoc(doc(db, 'songs', songId), songData);
+            } else {
+                await setDoc(doc(db, 'songs', songId), { ...songData, id: songId, createdAt: Date.now() });
+            }
+
+            window.history.back();
+
+        } catch(e: any) { 
+            console.error("Error crítico al guardar la canción:", e);
+            alert(`Error al guardar la canción: ${e.message}`); 
         }
     };
     
@@ -1449,7 +1519,7 @@ const App = () => {
                 toggleFavorite={toggleFavorite} searchQuery={searchQuery} setSearchQuery={setSearchQuery} 
                 activeFilter={activeFilter} setActiveFilter={setActiveFilter} categories={categories} 
                 userChats={displayedUserList} onlineStatuses={onlineStatuses} typingStatuses={typingStatuses}
-                openDirectMessage={(u: any) => setActiveChatPartner({id: u.id, username: u.username} as AppUser)} 
+                openDirectMessage={(partner: { id: string }) => setActiveChatPartnerId(partner.id)} 
                 onViewProfile={setViewingProfileId} roomCodeInput={roomCodeInput} setRoomCodeInput={setRoomCodeInput} 
                 handleJoinRoom={handleJoinRoom} handleCreateRoom={handleCreateRoom} isJoiningRoom={isJoiningRoom} 
                 newCategoryName={newCategoryName} setNewCategoryName={setNewCategoryName} onAddCategory={onAddCategory}
@@ -1498,16 +1568,7 @@ const App = () => {
                     onCancel={() => window.history.back()} 
                     darkMode={darkMode}
                     categories={categories.map(c => c.name)}
-                    onSave={async (data) => {
-                        try {
-                            if (editingSong) {
-                                await updateDoc(doc(db, 'songs', editingSong.id), data);
-                            } else {
-                                await addDoc(collection(db, 'songs'), { ...data, createdAt: Date.now() });
-                            }
-                            window.history.back();
-                        } catch(e) { console.error(e); alert("Error al guardar"); }
-                    }}
+                    onSave={handleSaveSong}
                  />
             )}
             

@@ -21,6 +21,7 @@ export interface Song {
   content: string; // The full text including chord lines
   author: string;
   createdAt: number;
+  audioUrl?: string; // URL to the voice note
 }
 
 export interface ChatMessage {
