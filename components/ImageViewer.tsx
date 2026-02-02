@@ -17,7 +17,6 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ imageUrl, onClose, onDelete, 
         const handleClickOutside = (event: MouseEvent) => {
             if (
                 optionsMenuRef.current &&
-                // Fix: Corrected typo from `optionsMenu` to `optionsMenuRef`.
                 !optionsMenuRef.current.contains(event.target as Node) &&
                 optionsButtonRef.current &&
                 !optionsButtonRef.current.contains(event.target as Node)

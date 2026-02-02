@@ -1,14 +1,16 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { User as AppUser, ChatInfo } from '../types';
 import { triggerHapticFeedback } from '../services/haptics';
 import { Firestore, doc, setDoc, updateDoc } from 'firebase/firestore';
 import useCachedMedia from '../hooks/useCachedMedia';
+import { SecureMessenger } from '../services/security';
 
 interface ChatListViewProps {
     userChats: ChatInfo[];
+    allValidatedUsers: AppUser[];
     onlineStatuses: Record<string, { state: 'online' } | { state: 'offline', last_changed: number }>;
-    typingStatuses: Record<string, string[]>;
+    typingStatuses: Record<string, any>; // Changed from string[] to any to reflect RTDB object structure
     onUserSelect: (partner: { id: string; }) => void;
     onViewProfile: (userId: string) => void;
     darkMode: boolean;
@@ -30,6 +32,12 @@ const BlockIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
+const VerifiedIcon = ({ className }: { className?: string }) => (
+    <svg className={className || "w-3 h-3"} viewBox="0 0 24 24" fill="currentColor">
+        <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
+    </svg>
+);
+
 const ImageIcon = () => <svg className="w-4 h-4 inline -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>;
 const MicIcon = () => <svg className="w-4 h-4 inline -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>;
 const FileIcon = () => <svg className="w-4 h-4 inline -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>;
@@ -39,21 +47,14 @@ const generateChatId = (uid1: string, uid2: string): string => {
     return [uid1, uid2].sort().join('_');
 };
 
-// FIX: Added explicit props interface for ChatListItem
-interface ChatListItemProps {
-    chat: ChatInfo;
-    darkMode: boolean;
-    onlineStatuses: Record<string, { state: 'online' } | { state: 'offline', last_changed: number }>;
-    currentUser: AppUser;
-    typingStatuses: Record<string, string[]>;
-    handleTouchStart: (chat: ChatInfo, e: React.TouchEvent) => void;
-    handleTouchEnd: (chat: ChatInfo) => void;
-    handleTouchMove: (e: React.TouchEvent) => void;
-    onViewProfile: (userId: string) => void;
-    onUserSelect: (partner: { id: string; }) => void;
-}
-
-const ChatListItem: React.FC<ChatListItemProps> = ({ chat, darkMode, onlineStatuses, currentUser, typingStatuses, handleTouchStart, handleTouchEnd, handleTouchMove, onViewProfile, onUserSelect }) => {
+const ChatListItem: React.FC<{
+    chat: ChatInfo, darkMode: boolean, onlineStatuses: Record<string, any>, currentUser: AppUser, 
+    typingStatuses: Record<string, any>, handleTouchStart: any, handleTouchEnd: any, 
+    handleTouchMove: any, onViewProfile: any, onUserSelect: any 
+}> = ({ chat, darkMode, onlineStatuses, currentUser, typingStatuses, handleTouchStart, handleTouchEnd, handleTouchMove, onViewProfile, onUserSelect }) => {
+    
+    // Check both timestamp and text to prevent "New Chat" state when timestamp is pending (null) but text exists
+    const isNewChat = !chat.lastMessageTimestamp && !chat.lastMessageText;
     const cachedPhotoUrl = useCachedMedia(chat.partnerPhotoURL);
 
     const partnerStatus = onlineStatuses[chat.partnerId];
@@ -62,18 +63,41 @@ const ChatListItem: React.FC<ChatListItemProps> = ({ chat, darkMode, onlineStatu
     const hasUnread = unreadCount > 0;
     const isBlocked = chat.isBlocked === true;
     const isMuted = chat.mutedUntil && chat.mutedUntil > Date.now();
-    const isMe = chat.partnerId === currentUser.id;
-    const isMeSender = chat.lastMessageSenderId === currentUser.id;
+    
+    const isMeSender = Boolean(chat.lastMessageSenderId && String(chat.lastMessageSenderId) === String(currentUser.id));
+    const isSelfChat = String(chat.partnerId) === String(currentUser.id);
 
     const chatId = generateChatId(currentUser.id, chat.partnerId);
-    const isPartnerTyping = (typingStatuses[chatId] || []).includes(chat.partnerId);
-
-    const lastMsgContent = chat.lastMessageText ? chat.lastMessageText.split('\n')[0] : '';
     
-    let prefix = '';
-    if (isMeSender && lastMsgContent) {
-        prefix = 'Tú: ';
-    }
+    // Fix: Access property by key instead of using .includes on an object
+    const isPartnerTyping = typingStatuses[chatId] && typingStatuses[chatId][chat.partnerId];
+
+    // Estado para almacenar el texto descifrado
+    const [decryptedPreview, setDecryptedPreview] = useState<string>('');
+    const [isDecrypting, setIsDecrypting] = useState(false);
+
+    // Efecto para descifrar el mensaje
+    useEffect(() => {
+        let isMounted = true;
+        
+        if (chat.lastMessageText) {
+            setIsDecrypting(true);
+            SecureMessenger.decrypt(chat.lastMessageText, chatId).then(text => {
+                if (isMounted) {
+                    setDecryptedPreview(text);
+                    setIsDecrypting(false);
+                }
+            });
+        } else {
+            setDecryptedPreview('');
+            setIsDecrypting(false);
+        }
+        
+        return () => { isMounted = false; };
+    }, [chat.lastMessageText, chatId]);
+
+    const lastMsgContent = decryptedPreview ? decryptedPreview.split('\n')[0] : '';
+    let prefix = isMeSender && lastMsgContent ? 'Tú: ' : '';
 
     const renderPreview = (text?: string) => {
         if (!text) return null;
@@ -84,10 +108,16 @@ const ChatListItem: React.FC<ChatListItemProps> = ({ chat, darkMode, onlineStatu
     };
     
     const previewText = isPartnerTyping 
-        ? <span className="text-misionero-verde animate-pulse">Escribiendo...</span>
-        : (lastMsgContent 
-            ? <>{prefix}{renderPreview(lastMsgContent)}</>
-            : (isOnline ? 'En línea' : 'Desconectado'));
+        ? <span className="text-misionero-verde animate-pulse font-bold">Escribiendo...</span>
+        : isNewChat 
+            ? <span className="italic opacity-70">Toca para iniciar un chat</span>
+            : (lastMsgContent 
+                ? <>{prefix}{renderPreview(lastMsgContent)}</> 
+                : (isDecrypting 
+                    ? <span className="opacity-50 animate-pulse">...</span> 
+                    : (isOnline ? 'En línea' : 'Desconectado')
+                  )
+              );
 
     return (
         <div
@@ -112,18 +142,23 @@ const ChatListItem: React.FC<ChatListItemProps> = ({ chat, darkMode, onlineStatu
                 {cachedPhotoUrl ? (
                     <img src={cachedPhotoUrl} alt={chat.partnerUsername} className="w-12 h-12 rounded-full object-cover shadow-lg" />
                 ) : (
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-lg text-white bg-misionero-azul shadow-lg`}>
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-lg text-white ${isNewChat ? 'bg-slate-400' : 'bg-misionero-azul'} shadow-lg`}>
                         {chat.partnerUsername.charAt(0).toUpperCase()}
                     </div>
                 )}
                 <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 ${darkMode ? 'border-black' : 'border-slate-50'} ${isOnline ? 'bg-misionero-verde' : 'bg-slate-400'}`}></div>
             </div>
             <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1">
                     <h4 className={`font-black text-sm uppercase truncate ${darkMode ? 'text-white' : 'text-slate-800'} ${hasUnread ? 'font-extrabold' : ''}`}>
-                        {isMe ? <span className="text-slate-500 mr-1">(Tú)</span> : null}
+                        {isSelfChat ? <span className="text-slate-500 mr-1">(Tú)</span> : null}
                         {chat.partnerUsername}
                     </h4>
+                    {chat.partnerValidated && (
+                        <div className="text-blue-500 bg-blue-500/10 rounded-full p-0.5" title="Perfil Verificado">
+                            <VerifiedIcon />
+                        </div>
+                    )}
                 </div>
                 <p className={`text-xs truncate ${hasUnread ? `font-bold ${darkMode ? 'text-white' : 'text-slate-900'}` : `font-medium ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}`}>
                     {previewText}
@@ -146,7 +181,7 @@ const ChatListItem: React.FC<ChatListItemProps> = ({ chat, darkMode, onlineStatu
 };
 
 
-const ChatListView: React.FC<ChatListViewProps> = ({ userChats, onlineStatuses, onUserSelect, onViewProfile, darkMode, currentUser, db, typingStatuses }) => {
+const ChatListView: React.FC<ChatListViewProps> = ({ userChats, allValidatedUsers, onlineStatuses, onUserSelect, onViewProfile, darkMode, currentUser, db, typingStatuses }) => {
     const [filter, setFilter] = useState('');
     const [selectedChatForOptions, setSelectedChatForOptions] = useState<ChatInfo | null>(null);
     const longPressTimerRef = useRef<number | null>(null);
@@ -154,24 +189,52 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, onlineStatuses, 
     const isLongPress = useRef(false);
     const touchStartTargetRef = useRef<EventTarget | null>(null);
 
-    const filteredChats = userChats.filter(chat => 
-        chat.partnerUsername.toLowerCase().includes(filter.toLowerCase())
-    );
+    const combinedAndFilteredChats = useMemo(() => {
+        const existingPartnerIds = new Set(userChats.map(c => c.partnerId));
+
+        const newContactChats: ChatInfo[] = allValidatedUsers
+            .filter(user => !existingPartnerIds.has(user.id))
+            .map(user => ({
+                partnerId: user.id,
+                partnerUsername: user.username,
+                partnerPhotoURL: user.photoURL,
+                partnerValidated: user.profileValidated,
+                // No last message info for new contacts
+            }));
+        
+        // Combine existing chats with new contacts
+        const combined = [...userChats, ...newContactChats];
+
+        // Filter the combined list
+        const filtered = filter
+            ? combined.filter(chat => chat.partnerUsername.toLowerCase().includes(filter.toLowerCase()))
+            : combined;
+
+        // Sort: existing chats first by timestamp, then new contacts alphabetically
+        return filtered.sort((a, b) => {
+            const timeA = a.lastMessageTimestamp?.seconds || 0;
+            const timeB = b.lastMessageTimestamp?.seconds || 0;
+
+            if (timeA !== timeB) {
+                return timeB - timeA; // Most recent first
+            }
+            // If timestamps are the same (or both are 0 for new contacts), sort alphabetically
+            return a.partnerUsername.localeCompare(b.partnerUsername);
+        });
+
+    }, [userChats, allValidatedUsers, filter]);
 
     const handleTouchStart = (chat: ChatInfo, e: React.TouchEvent) => {
         isLongPress.current = false;
         touchStartCoords.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
         touchStartTargetRef.current = e.target;
 
-        if (longPressTimerRef.current) {
-            clearTimeout(longPressTimerRef.current);
-        }
+        if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
 
         longPressTimerRef.current = window.setTimeout(() => {
             isLongPress.current = true;
             triggerHapticFeedback('light');
             setSelectedChatForOptions(chat);
-            
             longPressTimerRef.current = null;
             touchStartCoords.current = null; 
         }, 500);
@@ -201,7 +264,6 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, onlineStatuses, 
                 onUserSelect({ id: chat.partnerId });
             }
         }
-        
         isLongPress.current = false;
         touchStartCoords.current = null;
         touchStartTargetRef.current = null;
@@ -239,20 +301,24 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, onlineStatuses, 
             <div className="px-4 py-2 shrink-0">
                 <input 
                     type="text" 
-                    placeholder="Buscar chats..." 
+                    placeholder="Buscar chats y personas..." 
                     value={filter}
                     onChange={(e) => setFilter(e.target.value)}
                     className={`w-full glass-ui rounded-xl px-4 py-3 text-xs font-bold outline-none transition-colors ${darkMode ? 'bg-slate-900 border-slate-800 text-white placeholder:text-slate-600' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
                 />
             </div>
+
+            <div className="px-4 pb-2 text-center">
+                <p className="flex items-center justify-center gap-1.5 text-[9px] font-bold text-amber-700/80 dark:text-amber-600/70">
+                    <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    </svg>
+                    <span>Todos los mensajes del chat estan cifrados de extremo a extremo. Ni ADJStudios ni nadie puede acceder a tu información</span>
+                </p>
+            </div>
             
             <div className="flex-1 overflow-y-auto custom-scroll px-4 pt-2 pb-48 space-y-2">
-                {filteredChats.length === 0 && (
-                    <div className="text-center py-10 opacity-50">
-                        <p className="text-[10px] font-black uppercase">No se encontraron chats</p>
-                    </div>
-                )}
-                {filteredChats.map((chat) => (
+                {combinedAndFilteredChats.map((chat) => (
                     <ChatListItem
                         key={chat.partnerId}
                         chat={chat}
@@ -267,6 +333,14 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, onlineStatuses, 
                         onUserSelect={onUserSelect}
                     />
                 ))}
+
+                {combinedAndFilteredChats.length === 0 && (
+                    <div className="text-center py-10 opacity-50">
+                        <p className="text-[10px] font-black uppercase">
+                            {filter ? "No se encontraron resultados" : "No hay usuarios validados para mostrar"}
+                        </p>
+                    </div>
+                )}
             </div>
 
             {selectedChatForOptions && (
@@ -282,21 +356,17 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, onlineStatuses, 
                         </div>
                         <div className="p-4 space-y-2">
                             {selectedChatForOptions.mutedUntil && selectedChatForOptions.mutedUntil > Date.now() ? (
-                                <button onClick={handleUnmute} className={`w-full py-4 rounded-2xl text-xs font-bold uppercase transition-colors ${darkMode ? 'bg-slate-800 text-white active:bg-slate-700' : 'bg-slate-100 text-slate-800 active:bg-slate-200'}`}>
-                                    Desactivar Silencio
-                                </button>
+                                <button onClick={handleUnmute} className={`w-full py-4 rounded-2xl text-xs font-bold uppercase transition-colors ${darkMode ? 'bg-slate-800 text-white active:bg-slate-700' : 'bg-slate-100 text-slate-700 active:bg-slate-200'}`}>Desactivar Silencio</button>
                             ) : (
-                                <div className="space-y-2">
-                                    <p className={`text-[10px] font-black uppercase ml-2 mb-1 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>Silenciar por</p>
-                                    <div className="grid grid-cols-3 gap-2">
-                                        <button onClick={() => handleMute(60)} className={`py-3 rounded-xl text-[10px] font-bold uppercase transition-colors ${darkMode ? 'bg-slate-800 text-white active:bg-slate-700' : 'bg-slate-100 text-slate-800 active:bg-slate-200'}`}>1 Hora</button>
-                                        <button onClick={() => handleMute(480)} className={`py-3 rounded-xl text-[10px] font-bold uppercase transition-colors ${darkMode ? 'bg-slate-800 text-white active:bg-slate-700' : 'bg-slate-100 text-slate-800 active:bg-slate-200'}`}>8 Horas</button>
-                                        <button onClick={() => handleMute(-1)} className={`py-3 rounded-xl text-[10px] font-bold uppercase transition-colors ${darkMode ? 'bg-slate-800 text-white active:bg-slate-700' : 'bg-slate-100 text-slate-800 active:bg-slate-200'}`}>Siempre</button>
-                                    </div>
-                                </div>
+                                <>
+                                    <button onClick={() => handleMute(60)} className={`w-full py-4 rounded-2xl text-xs font-bold uppercase transition-colors ${darkMode ? 'bg-slate-800 text-white active:bg-slate-700' : 'bg-slate-100 text-slate-700 active:bg-slate-200'}`}>Silenciar 1 hora</button>
+                                    <button onClick={() => handleMute(480)} className={`w-full py-4 rounded-2xl text-xs font-bold uppercase transition-colors ${darkMode ? 'bg-slate-800 text-white active:bg-slate-700' : 'bg-slate-100 text-slate-700 active:bg-slate-200'}`}>Silenciar 8 horas</button>
+                                    <button onClick={() => handleMute(-1)} className={`w-full py-4 rounded-2xl text-xs font-bold uppercase transition-colors ${darkMode ? 'bg-slate-800 text-white active:bg-slate-700' : 'bg-slate-100 text-slate-700 active:bg-slate-200'}`}>Silenciar Siempre</button>
+                                </>
                             )}
-                            <button onClick={handleToggleBlock} className={`w-full py-4 mt-2 rounded-2xl text-xs font-bold uppercase transition-colors ${selectedChatForOptions.isBlocked ? 'bg-misionero-verde/10 text-misionero-verde active:bg-misionero-verde/20' : 'bg-red-500/10 text-red-500 active:bg-red-500/20'}`}>
-                                {selectedChatForOptions.isBlocked ? 'Desbloquear' : 'Bloquear'}
+                            <div className={`h-px my-2 ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}></div>
+                             <button onClick={handleToggleBlock} className={`w-full py-4 rounded-2xl text-xs font-bold uppercase transition-colors text-red-500 ${darkMode ? 'bg-red-500/10 active:bg-red-500/20' : 'bg-red-500/5 active:bg-red-500/10'}`}>
+                                {selectedChatForOptions.isBlocked ? "Desbloquear Usuario" : "Bloquear Usuario"}
                             </button>
                         </div>
                     </div>

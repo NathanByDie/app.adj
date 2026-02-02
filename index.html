@@ -277,6 +277,15 @@
             animation: wave-typing 1.2s ease-in-out infinite;
         }
 
+        /* HIGHLIGHT FOR REPLY NAVIGATION */
+        @keyframes highlight-flash {
+          0% { background-color: rgba(59, 130, 246, 0.3); }
+          100% { background-color: transparent; }
+        }
+        .animate-highlight-flash {
+          animation: highlight-flash 1.5s ease-out;
+        }
+
     </style>
     <script>
       let lastTouchY = 0;

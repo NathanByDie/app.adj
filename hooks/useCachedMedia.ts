@@ -1,58 +1,72 @@
-
 import { useState, useEffect } from 'react';
 import { getMediaFromCache, saveMediaToCache } from '../services/cache';
+import { getFromMemoryCache, setToMemoryCache } from '../services/memoryCache';
+
+const getBaseUrl = (url?: string): string | undefined => {
+    return url?.split('?')[0];
+};
 
 const useCachedMedia = (remoteUrl?: string): string | undefined => {
-    const [localUrl, setLocalUrl] = useState<string | undefined>();
+    const baseUrl = getBaseUrl(remoteUrl);
+    const [resolvedUrl, setResolvedUrl] = useState<string | undefined>();
 
     useEffect(() => {
-        let objectUrl: string | undefined;
+        if (!baseUrl || !remoteUrl) {
+            setResolvedUrl(undefined);
+            return;
+        }
 
-        const loadMedia = async () => {
-            if (!remoteUrl) {
-                setLocalUrl(undefined);
-                return;
-            }
+        // 1. Check synchronous memory cache first.
+        const memUrl = getFromMemoryCache(baseUrl);
+        if (memUrl) {
+            setResolvedUrl(memUrl);
+            return;
+        }
 
+        // 2. Not in memory, show placeholder and start async loading.
+        setResolvedUrl(undefined);
+
+        let isMounted = true;
+        const loadMediaAsync = async () => {
             try {
-                // 1. Check cache first
-                const cachedBlob = await getMediaFromCache(remoteUrl);
+                // 2a. Check persistent cache (IndexedDB).
+                const cachedBlob = await getMediaFromCache(baseUrl);
                 if (cachedBlob) {
-                    objectUrl = URL.createObjectURL(cachedBlob);
-                    setLocalUrl(objectUrl);
+                    const objectUrl = URL.createObjectURL(cachedBlob);
+                    if (isMounted) {
+                        setToMemoryCache(baseUrl, objectUrl);
+                        setResolvedUrl(objectUrl);
+                    }
                     return;
                 }
 
-                // 2. Not in cache, fetch from network
+                // 2b. Fetch from network.
                 const response = await fetch(remoteUrl);
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
-                }
-                const newBlob = await response.blob();
+                if (!response.ok) throw new Error('Network response was not ok');
+                const blob = await response.blob();
                 
-                // 3. Save to cache and update state
-                await saveMediaToCache(remoteUrl, newBlob);
-                objectUrl = URL.createObjectURL(newBlob);
-                setLocalUrl(objectUrl);
-
+                await saveMediaToCache(baseUrl, blob);
+                const objectUrl = URL.createObjectURL(blob);
+                if (isMounted) {
+                    setToMemoryCache(baseUrl, objectUrl);
+                    setResolvedUrl(objectUrl);
+                }
             } catch (error) {
-                console.warn(`Failed to cache media from ${remoteUrl}:`, error);
-                // Fallback to remote URL on error
-                setLocalUrl(remoteUrl);
+                console.warn(`Failed to load and cache media from ${remoteUrl}:`, error);
+                if (isMounted) {
+                    setResolvedUrl(remoteUrl); // Fallback to remote url on error.
+                }
             }
         };
 
-        loadMedia();
+        loadMediaAsync();
 
         return () => {
-            // Cleanup: Revoke the object URL to prevent memory leaks
-            if (objectUrl) {
-                URL.revokeObjectURL(objectUrl);
-            }
+            isMounted = false;
         };
-    }, [remoteUrl]);
+    }, [baseUrl, remoteUrl]);
 
-    return localUrl;
+    return resolvedUrl;
 };
 
 export default useCachedMedia;

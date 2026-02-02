@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { User as AppUser, Song } from '../types';
 import { Firestore, doc, updateDoc } from 'firebase/firestore';
@@ -115,9 +114,13 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
             await uploadBytes(fileRef, file);
             const photoURL = await getDownloadURL(fileRef);
             await updateDoc(doc(db, 'users', currentUser.id), { photoURL });
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error al subir foto:", error);
-            alert("Error al subir la foto. Inténtalo de nuevo.");
+            if (error.code === 'storage/unauthorized') {
+                alert("Error de Permisos: No se pudo subir la foto. Por favor, contacta al administrador.");
+            } else {
+                alert("Error al subir la foto. Inténtalo de nuevo.");
+            }
         } finally {
             setIsUploadingPhoto(false);
         }

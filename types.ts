@@ -22,6 +22,7 @@ export interface Song {
   author: string;
   createdAt: number;
   audioUrl?: string; // URL to the voice note
+  source?: string; // Origin of the song (e.g., 'lacuerda')
 }
 
 export interface ChatMessage {
@@ -52,7 +53,12 @@ export interface DirectMessage {
     senderId: string;
     senderUsername: string;
     textSnippet: string;
+    imagePreviewUrl?: string;
   };
+  
+  // Optimistic UI & Security
+  pending?: boolean; // True si el mensaje se está enviando
+  encrypted?: boolean; // True si el contenido está cifrado con el protocolo personalizado
 }
 
 export interface Room {
@@ -83,6 +89,7 @@ export interface User {
   biography?: string;
   favorites?: string[];
   validated?: boolean;
+  profileValidated?: boolean; // Campo específico para el filtro de chat
 }
 
 export interface ChatInfo {
@@ -92,6 +99,7 @@ export interface ChatInfo {
     unreadCount?: number;
     partnerId: string;
     partnerPhotoURL?: string;
+    partnerValidated?: boolean; // Indica si el chat debe mostrarse en la lista
     lastMessageSenderId?: string;
     mutedUntil?: number; // Timestamp until which the chat is muted
     isBlocked?: boolean; // Whether the user blocked this chat

@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Room, Song, ChatMessage, User as AppUser } from '../types';
 import SongViewer from './SongViewer';
@@ -19,6 +18,7 @@ import {
 } from "firebase/database";
 import { transposeSong } from '../services/musicUtils';
 import { triggerHapticFeedback } from '../services/haptics';
+import { PlusIcon, UsersIcon } from '../constants';
 
 interface RoomViewProps {
   room: Room;
@@ -223,10 +223,10 @@ const RoomView: React.FC<RoomViewProps> = ({
 
   // --- NAVEGACIÓN Y GESTIÓN DE SUB-VISTAS ---
   const openSubView = (subview: 'chat' | 'participants' | 'song') => {
-      // Solo empujar estado si no estamos ya en ese subview para evitar duplicados en el historial
+      const newOverlay = `room-${subview}`;
       const currentState = window.history.state;
-      if (currentState?.subview !== subview) {
-          window.history.pushState({ overlay: 'room', subview }, '');
+      if (currentState?.overlay !== newOverlay) {
+          window.history.pushState({ overlay: newOverlay }, '');
       }
   };
 
@@ -241,12 +241,10 @@ const RoomView: React.FC<RoomViewProps> = ({
   };
 
   const handleCloseSubView = () => {
-      // Verificar si hay un estado para retroceder
       const currentState = window.history.state;
-      if (currentState?.subview) {
+      if (currentState?.overlay?.startsWith('room-')) {
           window.history.back();
       } else {
-          // Si no hay subview en el estado (edge case), forzamos el cierre localmente
           setIsChatOpen(false);
           setShowParticipants(false);
           setSelectedSongId(null);
@@ -255,16 +253,13 @@ const RoomView: React.FC<RoomViewProps> = ({
 
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
-        const state = event.state || {};
-        const currentOverlay = state.overlay;
-        const currentSubview = state.subview;
-
-        if (currentOverlay === 'room') {
-            // Si estamos en 'room', cerramos cualquier subview activa si el estado actual no la tiene
-            if (currentSubview !== 'chat') setIsChatOpen(false);
-            if (currentSubview !== 'participants') setShowParticipants(false);
-            if (currentSubview !== 'song') setSelectedSongId(null);
-        }
+        const overlay = event.state?.overlay;
+        
+        // When state changes, sync the UI.
+        // If the overlay is not a specific sub-view, close it.
+        if (overlay !== 'room-chat') setIsChatOpen(false);
+        if (overlay !== 'room-participants') setShowParticipants(false);
+        if (overlay !== 'room-song') setSelectedSongId(null);
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -281,778 +276,625 @@ const RoomView: React.FC<RoomViewProps> = ({
     prevSongsRef.current = songs;
   }, [songs]);
 
-  useEffect(() => {
-    if (!room.id || !rtdb) return;
-    
-    const typingRef = refRtdb(rtdb, `rooms/${room.id}/liveState/typing`);
-
-    const unsubscribe = onValueRtdb(typingRef, snapshot => {
-        const typingData = snapshot.val() || {};
-        setTypingUsers(Object.keys(typingData).filter(user => typingData[user] && user !== currentUser));
-    });
-
-    return () => {
-        unsubscribe();
-    };
-  }, [room.id, rtdb, currentUser]);
-
-  const repertoireSongsMap = useMemo(() => {
-    const map: Record<string, Song> = {};
-    const repertoire = isEditingRepertoire ? tempRepertoire : displayedRepertoire;
-    repertoire.forEach(id => {
-      const s = songs.find(song => song.id === id);
-      if (s) map[id] = s;
-    });
-    return map;
-  }, [displayedRepertoire, tempRepertoire, songs, isEditingRepertoire]);
-
-  useEffect(() => {
-    setDisplayedRepertoire(room.repertoire);
-  }, [room.repertoire]);
-
-  useEffect(() => {
-    if (isTheHost || !isFollowingHost) return;
-    const currentIndex = selectedSongId ? displayedRepertoire.indexOf(selectedSongId) : -1;
-    if (currentIndex === -1) return;
-    const idsToPreload = [displayedRepertoire[currentIndex - 1], displayedRepertoire[currentIndex + 1]].filter(Boolean);
-    idsToPreload.forEach(songId => {
-      const song = repertoireSongsMap[songId];
-      if (song) {
-        const transposeValue = room.globalTranspositions?.[song.id] || 0;
-        const cacheKey = `${song.id}-${transposeValue}`;
-        if (!transposedContentCache.current[cacheKey]) {
-          transposedContentCache.current[cacheKey] = transposeSong(song.content, transposeValue);
-        }
-      }
-    });
-  }, [selectedSongId, displayedRepertoire, repertoireSongsMap, room.globalTranspositions, isTheHost, isFollowingHost]);
-
-  useEffect(() => {
-    try {
-      notificationAudio.current = new Audio("https://firebasestorage.googleapis.com/v0/b/adjstudios.firebasestorage.app/o/notificacion-adj.mp3?alt=media&token=8e9b60b7-9571-460b-857c-658a0a8616a2");
-      notificationAudio.current.load();
-    } catch (e) { console.error("Audio init failed", e); }
-  }, []);
-
-  useEffect(() => {
-    if (!room.id || !rtdb || !currentUser) return;
-
-    const myPresenceRef = refRtdb(rtdb, `rooms/${room.id}/online/${currentUser}`);
-    const connectedRef = refRtdb(rtdb, '.info/connected');
-
-    const registerPresence = () => {
-        setRtdb(myPresenceRef, { isOnline: true, role: isAdmin ? 'admin' : 'member' });
-        onDisconnect(myPresenceRef).set(null, (error) => {
-            if (error) console.error("Failed to set onDisconnect.", error);
-        });
-    };
-
-    registerPresence();
-
-    const handleVisibilityChange = () => {
-        if (document.visibilityState === 'visible') {
-            registerPresence();
-        }
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    const connectedListener = onValueRtdb(connectedRef, (snap) => {
-        if (snap.val() === true) {
-            registerPresence();
-        }
-    });
-
-    const onlineUsersRef = refRtdb(rtdb, `rooms/${room.id}/online`);
-    const unsubscribe = onValueRtdb(onlineUsersRef, (snapshot) => {
-        const val = snapshot.val();
-        if (val) {
-            const users = typeof val === 'object' ? Object.keys(val) : [];
-            setOnlineParticipants(users);
-        } else {
-            setOnlineParticipants([]);
-        }
-    });
-
-    return () => {
-        removeRtdb(myPresenceRef);
-        document.removeEventListener("visibilitychange", handleVisibilityChange);
-        connectedListener();
-        unsubscribe();
-    };
-  }, [room.id, rtdb, currentUser, isAdmin]);
-
-  useEffect(() => {
-    const currentChat = room.chat || [];
-    if (currentChat.length > prevChatLength.current) {
-        const lastMsg = currentChat[currentChat.length - 1];
-        if (lastMsg.sender !== currentUser) {
-            triggerHapticFeedback('notification');
-            notificationAudio.current?.play().catch((_) => { /* ignore */ });
-            
-            if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-                 new Notification(`Nuevo mensaje en ${room.code}`, {
-                    body: `${lastMsg.sender}: ${lastMsg.text}`,
-                    icon: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='512' height='512' viewBox='0 0 512 512'><defs><linearGradient id='gold' x1='0' y1='0' x2='0' y2='1'><stop offset='0%25' stop-color='%23FFE89A'/><stop offset='50%25' stop-color='%23E2B84A'/><stop offset='100%25' stop-color='%23B8901E'/></linearGradient><radialGradient id='halo' cx='50%25' cy='45%25' r='45%25'><stop offset='0%25' stop-color='%23FFD966' stop-opacity='0.9'/><stop offset='60%25' stop-color='%23FFD966' stop-opacity='0.3'/><stop offset='100%25' stop-color='%23FFD966' stop-opacity='0'/></radialGradient><linearGradient id='pages' x1='0' y1='0' x2='0' y2='1'><stop offset='0%25' stop-color='%23FFFFFF'/><stop offset='100%25' stop-color='%23EFEFEF'/></linearGradient><linearGradient id='edge' x1='0' y1='0' x2='0' y2='1'><stop offset='0%25' stop-color='%231F6B3F'/><stop offset='100%25' stop-color='%230B3D25'/></linearGradient></defs><circle cx='256' cy='150' r='110' fill='url(%23halo)'/><path fill='url(%23gold)' d='M242 55 H270 V118 H328 V146 H270 V245 H242 V146 H184 V118 H242 Z'/><path fill='url(%23edge)' d='M60 260 C150 210, 240 215, 256 240 C272 215, 362 210, 452 260 V350 C362 310, 272 315, 256 340 C240 315, 150 310, 60 350 Z'/><path fill='url(%23pages)' d='M78 268 C150 230, 225 235, 252 258 V330 C225 315, 150 315, 78 338 Z'/><path fill='url(%23pages)' d='M434 268 C362 230, 287 235, 260 258 V330 C287 315, 362 315, 434 338 Z'/><g stroke='%233E8C5A' stroke-width='3' fill='none'><path d='M110 295 C160 275, 205 278, 235 292'/><path d='M110 315 C160 295, 205 298, 235 312'/><path d='M402 295 C352 275, 307 278, 277 292'/><path d='M402 315 C352 295, 307 298, 277 312'/></g><path d='M256 258 V338' stroke='%230B3D25' stroke-width='6'/><path fill='url(%23gold)' d='M246 338 L256 355 L266 338 Z'/></svg>",
-                    tag: `room-chat-${room.id}` 
-                 });
-            }
-
-            if (!isChatOpen) {
-                if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-                if (toastExitTimerRef.current) clearTimeout(toastExitTimerRef.current);
-                
-                setToastTranslateY(0);
-
-                const newToast = { sender: lastMsg.sender, text: lastMsg.text, id: Date.now() };
-                setChatToast(newToast);
-                requestAnimationFrame(() => setIsToastVisible(true));
-                
-                toastTimerRef.current = window.setTimeout(() => {
-                    setIsToastVisible(false);
-                    toastExitTimerRef.current = window.setTimeout(() => {
-                        setChatToast(prev => {
-                            if (prev?.id === newToast.id) {
-                                setToastTranslateY(0);
-                                return null;
-                            }
-                            return prev;
-                        });
-                    }, 500);
-                }, 4000);
-            }
-        }
-    }
-    prevChatLength.current = currentChat.length;
-  }, [room.chat, currentUser, isChatOpen, room.id, room.code]);
-
-  useEffect(() => { if (room.participants && !room.participants.includes(currentUser)) onExitRequest(); }, [room.participants, currentUser, onExitRequest]);
-
-  useEffect(() => {
-    if (!isTheHost && isFollowingHost) {
-        const targetSongId = room.currentSongId || null;
-        if (targetSongId && targetSongId !== lastSyncedHostSongId.current) {
-            lastSyncedHostSongId.current = targetSongId;
-            setSelectedSongId(targetSongId);
-            
-            // AUTOMÁTICAMENTE EMPUJAR EL ESTADO AL HISTORIAL SI AÚN NO ESTÁ
-            // Esto asegura que el botón "Atrás" funcione para cerrar la canción
-            const currentState = window.history.state;
-            if (targetSongId) {
-                // Si el host abre una canción y nosotros no estamos en una subvista, abrimos el subview
-                // Si ya estamos en una subvista (ej: chat), podríamos reemplazar o ignorar. 
-                // Priorizamos la canción del host.
-                if (currentState?.subview !== 'song') {
-                    openSubView('song');
-                }
-            } else {
-                // Si el host cierra la canción y nosotros estamos en subview 'song', simulamos un back
-                if (currentState?.subview === 'song') {
-                    // Evitamos loop infinito verificando el estado local
-                    if (selectedSongId) { 
-                        // Solo retrocedemos si realmente teníamos una canción abierta localmente
-                        // window.history.back() no es seguro en useEffect, mejor dejamos que el usuario salga o limpiamos el estado visual
-                        // setSelectedSongId(null) ya se hizo arriba
-                    }
-                }
-            }
-
-        } else if (!targetSongId && lastSyncedHostSongId.current) {
-            lastSyncedHostSongId.current = undefined;
-        }
-    }
-  }, [room.currentSongId, isFollowingHost, isTheHost, selectedSongId]);
-
-  useEffect(() => {
-    if (!db || onlineParticipants.length === 0) return;
-    const fetchParticipantDetails = async () => {
-        const usersRef = collection(db, "users");
-        const participantsToFetch = onlineParticipants.slice(0, 30);
-        if (participantsToFetch.length === 0) return;
-        
-        const q = query(usersRef, where("username", "in", participantsToFetch));
-        try {
-            const querySnapshot = await getDocs(q);
-            const details: Record<string, { isAdmin: boolean }> = {};
-            querySnapshot.forEach(doc => {
-                const userData = doc.data();
-                const userIsAdmin = userData.role === 'admin';
-                details[userData.username] = { isAdmin: userIsAdmin };
-            });
-            setParticipantDetails(details);
-        } catch (error) { console.error("Error fetching details:", error); }
-    };
-    fetchParticipantDetails();
-  }, [db, onlineParticipants]);
-
-  const handleCopyCode = () => { navigator.clipboard.writeText(room.code); setCopied(true); setTimeout(() => setCopied(false), 2000); };
-  
-  const navigateToSong = (songId: string | null) => {
-    if (isTheHost) {
-      lastSyncedHostSongId.current = songId || undefined;
-      onUpdateRoom(room.id, { currentSongId: songId || '' });
-    } else {
-      setIsFollowingHost(false);
-    }
-    
-    setSelectedSongId(songId);
-    if (songId) {
-        openSubView('song');
-    }
-  };
-  
-  const handleCloseSong = () => {
-      if (isTheHost) {
-        onUpdateRoom(room.id, { currentSongId: '' });
-      }
-      handleCloseSubView();
-  };
-
-  const handleEditSong = (songToEdit: Song) => {
-    if (!canModify || !songToEdit) return;
-    setSelectedSongId(null);
-    onEditSong(songToEdit);
-  };
-
-  const toggleFollowing = () => setIsFollowingHost(prev => !prev);
-
-  const handleMakeHost = (newHostUsername: string) => {
-    if (!isTheHost) return;
-    setConfirmModal({
-        title: 'Transferir Host', message: `¿Seguro de ceder el liderazgo a ${newHostUsername}?`, type: 'warning',
-        action: () => { onUpdateRoom(room.id, { host: newHostUsername }); setConfirmModal(null); }
-    });
-  };
-
-  const handleKickParticipant = (username: string) => {
-    if (!isTheHost) return;
-    setConfirmModal({
-        title: 'Expulsar Miembro', message: `¿Deseas sacar a ${username} de la sala?`, type: 'danger',
-        action: () => {
-            onUpdateRoom(room.id, { participants: arrayRemove(username) as any }); setConfirmModal(null);
-        }
-    });
-  };
-
-  const handleBanParticipant = (username: string) => {
-    if (!isTheHost) return;
-    setConfirmModal({
-        title: 'Bloquear Usuario', message: `¿Bloquear permanentemente a ${username}?`, type: 'danger',
-        action: () => {
-            const updatedBanned = [...(room.banned || []), username];
-            onUpdateRoom(room.id, { participants: arrayRemove(username) as any, banned: updatedBanned }); setConfirmModal(null);
-        }
-    });
-  };
-
   const updateTypingStatus = (isTyping: boolean) => {
-    if (!room.id || !rtdb || !currentUser) return;
-    const userTypingRef = refRtdb(rtdb, `rooms/${room.id}/liveState/typing/${currentUser}`);
-    if (isTyping) {
-        setRtdb(userTypingRef, true);
-        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-        typingTimeoutRef.current = window.setTimeout(() => updateTypingStatus(false), 3000);
-    } else {
-        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-        removeRtdb(userTypingRef);
-    }
-  };
-
-  const handleReply = (msg: ChatMessage) => { 
-      setReplyingTo({ sender: msg.sender, text: msg.text }); 
-      if (!isChatOpen) {
-          handleOpenChat();
+      const myTypingRef = refRtdb(rtdb, `typing/${room.id}/${currentUser}`);
+      if (isTyping) {
+          setRtdb(myTypingRef, true);
+          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+          typingTimeoutRef.current = window.setTimeout(() => updateTypingStatus(false), 3000);
+      } else {
+          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+          removeRtdb(myTypingRef);
       }
-      setTimeout(() => chatInputRef.current?.focus(), 100); 
-  };
-  
-  const handleSendMessage = () => {
-    if (chatMessage.trim() === '') return;
-    let textToSend = chatMessage;
-    if (replyingTo) {
-        const firstLine = replyingTo.text.split('\n')[0];
-        const snippet = firstLine.length > 40 ? `${firstLine.substring(0, 40)}...` : firstLine;
-        textToSend = `> @${replyingTo.sender}:${snippet}\n${chatMessage}`;
-    }
-    const newMessage: ChatMessage = { sender: currentUser, text: textToSend, timestamp: Date.now() };
-    onUpdateRoom(room.id, { chat: [...(room.chat || []), newMessage] });
-    setChatMessage(''); setReplyingTo(null);
-    updateTypingStatus(false);
   };
 
-  const handleGlobalTranspose = (songId: string, newSemiTones: number) => {
-    if (!canModify) return;
-    onUpdateRoom(room.id, { globalTranspositions: { ...(room.globalTranspositions || {}), [songId]: newSemiTones } });
-  };
-  
-  const handleDeleteFromRoom = useCallback((songToDelete: Song | null) => {
-    if (!songToDelete || !canModify) return;
-    setConfirmModal({
-        title: 'Eliminar Canción',
-        message: `¿Eliminar "${songToDelete.title}" PERMANENTEMENTE? Se quitará de este y todos los repertorios.`,
-        type: 'danger',
-        action: async () => {
-            setConfirmModal(null);
-            const updates: any = { repertoire: arrayRemove(songToDelete.id) };
-            if (room.currentSongId === songToDelete.id) {
-                updates.currentSongId = '';
-            }
-            await onUpdateRoom(room.id, updates);
-            await onDeleteSong(songToDelete.id); 
-            setSelectedSongId(null);
-        }
+  useEffect(() => {
+    const typingRef = refRtdb(rtdb, `typing/${room.id}`);
+    const unsubscribe = onValueRtdb(typingRef, (snapshot) => {
+        const typingData = snapshot.val() || {};
+        const currentTypingUsers = Object.keys(typingData).filter(user => user !== currentUser && typingData[user]);
+        setTypingUsers(currentTypingUsers);
     });
-  }, [canModify, room, onDeleteSong, onUpdateRoom]);
+    return () => {
+        unsubscribe();
+        updateTypingStatus(false);
+    };
+  }, [room.id, currentUser, rtdb]);
 
-  const songForViewer = useMemo(() => {
-    if (!selectedSongId) return null;
-    return repertoireSongsMap[selectedSongId] || songs.find(s => s.id === selectedSongId);
-  }, [selectedSongId, repertoireSongsMap, songs]);
+  useEffect(() => {
+    if (isChatOpen) {
+      chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: 'smooth' });
+    }
+  }, [isChatOpen, room.chat, typingUsers]);
 
-  const currentSongIndex = selectedSongId ? displayedRepertoire.indexOf(selectedSongId) : -1;
-  const hasPrevSong = currentSongIndex > 0;
-  const hasNextSong = currentSongIndex >= 0 && currentSongIndex < displayedRepertoire.length - 1;
-  const formatMessageTime = (timestamp: number) => new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
+  const handleSendChatMessage = () => {
+    if (!chatMessage.trim()) return;
+    updateTypingStatus(false);
+    
+    let messageText = chatMessage;
+    if (replyingTo) {
+      messageText = `> @${replyingTo.sender}:${replyingTo.text.split('\n')[0]}\n${chatMessage}`;
+    }
 
-  const chatInputArea = (
-    <div className={`px-3 pt-3 border-t shrink-0 ${darkMode ? 'border-white/5 bg-black' : 'border-slate-100 bg-white'} pb-[calc(0.25rem+env(safe-area-inset-bottom))]`}>
-        {replyingTo && (
-            <div className={`flex items-center justify-between px-4 py-2 mb-2 rounded-xl text-xs font-medium border-l-4 border-misionero-azul ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-50 text-slate-600'}`}>
-                <div className="flex flex-col max-w-[80%]">
-                    <span className="text-[8px] font-black uppercase text-misionero-azul">Respondiendo a {replyingTo.sender}</span>
-                    <span className="truncate">{replyingTo.text}</span>
-                </div>
-                <button type="button" onClick={() => setReplyingTo(null)} className="p-1"><svg className="w-4 h-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
-            </div>
-        )}
-        <div className="flex flex-col">
-            <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex gap-2 items-center w-full">
-                {!isChatOpen && (
-                    <button type="button" onClick={handleOpenChat} className={`w-12 h-12 flex items-center justify-center rounded-2xl border shrink-0 transition-colors ${darkMode ? 'bg-slate-900 border-white/5 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
-                    </button>
-                )}
-                <input ref={chatInputRef} type="text" value={chatMessage} onChange={e => { setChatMessage(e.target.value); updateTypingStatus(true); }} placeholder="Mensaje..." className={`flex-1 min-w-0 rounded-2xl px-4 py-3.5 text-sm font-bold outline-none border transition-all ${darkMode ? 'bg-black border-white/5 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} />
-                <button type="submit" disabled={!chatMessage.trim()} className="bg-misionero-verde text-white font-black w-12 h-12 rounded-2xl text-[10px] uppercase shadow-md active:scale-95 transition-transform disabled:opacity-30 flex items-center justify-center shrink-0">
-                    <svg className="w-5 h-5 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
-                </button>
-            </form>
-            {isChatOpen && typingUsers.length > 0 && (
-                <div className="h-5 px-2 text-xs font-bold text-slate-400 animate-in fade-in duration-300">
-                    {typingUsers.join(', ')} {typingUsers.length === 1 ? 'está' : 'están'} escribiendo...
-                </div>
-            )}
-        </div>
-    </div>
-  );
+    const chatRef = refRtdb(rtdb, `chats/${room.id}`);
+    pushRtdb(chatRef, {
+      sender: currentUser,
+      text: messageText,
+      timestamp: serverTimestampRtdb(),
+    });
 
-  const startEditingRepertoire = () => { setTempRepertoire(room.repertoire); setIsEditingRepertoire(true); };
+    setChatMessage('');
+    setReplyingTo(null);
+  };
   
-  const handleFinalizeEditing = async () => {
-    await onUpdateRoom(room.id, { repertoire: tempRepertoire });
+  useEffect(() => {
+    const participantsRef = refRtdb(rtdb, `rooms/${room.id}/participants`);
+    const myConnectionRef = refRtdb(rtdb, `rooms/${room.id}/participants/${currentUser}`);
+    
+    const unsubscribe = onValueRtdb(participantsRef, (snap) => {
+      const participantsData = snap.val() || {};
+      const online = Object.keys(participantsData).filter(p => participantsData[p] === true);
+      setOnlineParticipants(online);
+    });
+    
+    setRtdb(myConnectionRef, true);
+    const onDisconnectRef = onDisconnect(myConnectionRef);
+    onDisconnectRef.remove();
+    
+    return () => {
+      unsubscribe();
+      removeRtdb(myConnectionRef);
+    };
+  }, [room.id, currentUser, rtdb]);
+
+  const handleSongSelect = (songId: string) => {
+    setSelectedSongId(songId);
+    openSubView('song');
+    
+    if (isTheHost) {
+      onUpdateRoom(room.id, { currentSongId: songId });
+    }
+  };
+
+  const handleCloseSong = () => {
+    setSelectedSongId(null);
+    handleCloseSubView();
+    // Ya no se gestiona el estado de seguimiento aquí
+  };
+
+  const handleTransposeChange = (songId: string, value: number) => {
+    onUpdateRoom(room.id, {
+      globalTranspositions: {
+        ...room.globalTranspositions,
+        [songId]: value
+      }
+    });
+  };
+
+  const selectedSong = useMemo(() => {
+    return songs.find(s => s.id === selectedSongId);
+  }, [selectedSongId, songs]);
+
+  const repertoireSongs = useMemo(() => {
+    return displayedRepertoire.map(songId => songs.find(s => s.id === songId)).filter((s): s is Song => !!s);
+  }, [displayedRepertoire, songs]);
+  
+  const songsNotInRepertoire = useMemo(() => {
+    const repertoireIds = new Set(displayedRepertoire);
+    return songs.filter(s => !repertoireIds.has(s.id) && (addSongFilter === 'Todos' || s.category === addSongFilter));
+  }, [displayedRepertoire, songs, addSongFilter]);
+
+  const enterEditMode = () => {
+    setTempRepertoire(displayedRepertoire);
+    setIsEditingRepertoire(true);
+  };
+
+  const saveRepertoire = () => {
+    onUpdateRoom(room.id, { repertoire: tempRepertoire });
     setDisplayedRepertoire(tempRepertoire);
     setIsEditingRepertoire(false);
-    addNotification('Repertorio guardado', 'success');
   };
 
-  const handleCancelEditing = () => {
-      const hasChanges = room.repertoire.length !== tempRepertoire.length || room.repertoire.some((id, i) => id !== tempRepertoire[i]);
-      if (hasChanges) { setConfirmModal({ title: 'Descartar Cambios', message: '¿Seguro que quieres descartar los cambios?', type: 'warning', action: () => { setIsEditingRepertoire(false); setConfirmModal(null); } }); } 
-      else { setIsEditingRepertoire(false); }
+  const cancelEditMode = () => {
+    setTempRepertoire([]);
+    setIsEditingRepertoire(false);
   };
 
-  const stopAutoScroll = useCallback(() => {
-    if (scrollIntervalRef.current !== null) {
-      cancelAnimationFrame(scrollIntervalRef.current);
-      scrollIntervalRef.current = null;
-    }
-    scrollDirectionRef.current = null;
-  }, []);
+  const addSongToTemp = (songId: string) => {
+    setTempRepertoire(prev => [...prev, songId]);
+  };
+  
+  const removeSongFromTemp = (songId: string) => {
+    setTempRepertoire(prev => prev.filter(id => id !== songId));
+  };
+  
+  const handleDragStart = (index: number) => {
+    setDraggingIndex(index);
+  };
 
-  const autoScroll = useCallback((direction: 'up' | 'down') => {
-    const container = repertoireScrollContainerRef.current;
-    if (!container) return;
-    const scrollAmount = 8;
-    if (direction === 'up') {
-      container.scrollTop -= scrollAmount;
-    } else {
-      container.scrollTop += scrollAmount;
-    }
-    scrollIntervalRef.current = requestAnimationFrame(() => autoScroll(direction));
-  }, []);
-  
-  const handleDragStart = (e: React.DragEvent<HTMLDivElement>, index: number) => { e.dataTransfer.effectAllowed = 'move'; setDraggingIndex(index); };
-  
-  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>, index: number) => {
+  const handleDragOver = (e: React.DragEvent, index: number) => {
     e.preventDefault();
-    
-    const container = repertoireScrollContainerRef.current;
-    if (container) {
-        const containerRect = container.getBoundingClientRect();
-        const hotZoneSize = containerRect.height * 0.30;
-        const y = e.clientY;
-
-        if (y < containerRect.top + hotZoneSize) {
-            if (scrollDirectionRef.current !== 'up') {
-                stopAutoScroll();
-                scrollDirectionRef.current = 'up';
-                autoScroll('up');
-            }
-        } else if (y > containerRect.bottom - hotZoneSize) {
-            if (scrollDirectionRef.current !== 'down') {
-                stopAutoScroll();
-                scrollDirectionRef.current = 'down';
-                autoScroll('down');
-            }
-        } else {
-            stopAutoScroll();
-        }
+    if (draggingIndex === null || draggingIndex === index) {
+      setDropIndicator(null);
+      return;
     }
-    
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const position = e.clientY < midY ? 'before' : 'after';
+
+    if (dropIndicator?.index !== index || dropIndicator?.position !== position) {
+      setDropIndicator({ index, position });
+    }
+  };
+
+  const handleDrop = (index: number) => {
     if (draggingIndex === null) return;
 
-    if (draggingIndex === index) {
-        if (dropIndicator !== null) {
-            setDropIndicator(null);
-        }
-        return;
-    }
+    const draggedItem = tempRepertoire[draggingIndex];
+    const newRepertoire = [...tempRepertoire];
+    newRepertoire.splice(draggingIndex, 1);
     
-    const rect = e.currentTarget.getBoundingClientRect();
-    const halfway = rect.top + rect.height / 2;
-    const newPosition = e.clientY < halfway ? 'before' : 'after';
+    let dropIndex = index;
+    if (draggingIndex < index) dropIndex--;
+    if (dropIndicator?.position === 'after') dropIndex++;
 
-    if (!dropIndicator || dropIndicator.index !== index || dropIndicator.position !== newPosition) {
-        setDropIndicator({ index, position: newPosition });
-    }
-  }, [draggingIndex, dropIndicator, autoScroll, stopAutoScroll]);
+    newRepertoire.splice(dropIndex, 0, draggedItem);
 
-  const handleDragLeave = () => {
-    setDropIndicator(null);
-    stopAutoScroll();
-  };
-  const handleDrop = () => {
-    if (draggingIndex === null || dropIndicator === null) return;
-    const newRepertoire = [...tempRepertoire]; const [draggedItem] = newRepertoire.splice(draggingIndex, 1);
-    let insertAt = dropIndicator.index; if (dropIndicator.position === 'after') insertAt += 1;
-    if (draggingIndex < insertAt) insertAt -=1; newRepertoire.splice(insertAt, 0, draggedItem);
     setTempRepertoire(newRepertoire);
+    setDraggingIndex(null);
+    setDropIndicator(null);
   };
+  
   const handleDragEnd = () => {
     setDraggingIndex(null);
     setDropIndicator(null);
-    stopAutoScroll();
   };
-  
-  const handleRemoveFromRepertoire = (songIdToRemove: string) => {
-      const song = repertoireSongsMap[songIdToRemove];
-      setConfirmModal({
-          title: 'Quitar Canción', message: `¿Quitar "${song?.title}" del repertorio?`, type: 'danger',
-          action: () => { setTempRepertoire(prev => prev.filter(id => id !== songIdToRemove)); addNotification(`"${song?.title}" quitada`, 'info'); setConfirmModal(null); }
+
+  useEffect(() => {
+    if (room.repertoire !== displayedRepertoire) {
+      setDisplayedRepertoire(room.repertoire);
+    }
+  }, [room.repertoire]);
+
+  useEffect(() => {
+    // Sincronización automática para miembros que siguen al anfitrión
+    const hostSongId = room.currentSongId;
+    if (isFollowingHost && !isTheHost && hostSongId && hostSongId !== selectedSongId && hostSongId !== lastSyncedHostSongId.current) {
+        lastSyncedHostSongId.current = hostSongId;
+        setSelectedSongId(hostSongId);
+        openSubView('song');
+        addNotification(`El anfitrión abrió: ${songs.find(s => s.id === hostSongId)?.title || 'una canción'}`);
+    }
+  }, [room.currentSongId, isFollowingHost, isTheHost, songs, addNotification, selectedSongId]);
+
+  useEffect(() => {
+    const checkParticipantRoles = async () => {
+      const details: Record<string, { isAdmin: boolean }> = {};
+      const q = query(collection(db, 'users'), where('username', 'in', onlineParticipants));
+      const querySnapshot = await getDocs(q);
+      querySnapshot.forEach(doc => {
+        const userData = doc.data();
+        details[userData.username] = { isAdmin: userData.role === 'admin' };
       });
-  };
+      setParticipantDetails(details);
+    };
 
-  const handleAddToRepertoire = (songIdToAdd: string) => {
-      const song = songs.find(s => s.id === songIdToAdd); if (!song || tempRepertoire.includes(songIdToAdd)) return;
-      setTempRepertoire(prev => [...prev, songIdToAdd]); addNotification(`"${song.title}" añadida`, 'success');
-  };
-
-  const availableSongsToAdd = useMemo(() => {
-    return songs
-      .filter(s => {
-        const matchesSearch = s.title.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesFilter = addSongFilter === 'Todos' || s.category === addSongFilter;
-        return matchesSearch && matchesFilter;
-      })
-      .sort((a, b) => a.title.localeCompare(b.title));
-  }, [songs, searchQuery, addSongFilter]);
-
-  const handleToastClick = () => {
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    setIsToastVisible(false);
-    handleOpenChat();
-  };
+    if (onlineParticipants.length > 0) {
+      checkParticipantRoles();
+    }
+  }, [onlineParticipants, db]);
   
+  useEffect(() => {
+    if (!notificationAudio.current) {
+      notificationAudio.current = new Audio('https://firebasestorage.googleapis.com/v0/b/adjstudios.appspot.com/o/assets%2Fsoft_notification.mp3?alt=media&token=86720b08-9584-4809-9b58-4a94f0e5b9b8');
+    }
+
+    const sortedParticipants = onlineParticipants.sort();
+    const sortedPrevParticipants = [...(prevParticipants.current || [])].sort();
+
+    if (JSON.stringify(sortedParticipants) !== JSON.stringify(sortedPrevParticipants)) {
+      const joined = sortedParticipants.filter(p => !sortedPrevParticipants.includes(p));
+      const left = sortedPrevParticipants.filter(p => !sortedParticipants.includes(p));
+
+      if (joined.length > 0) {
+        addNotification(`${joined.join(', ')} se ha${joined.length > 1 ? 'n' : ''} unido.`);
+      }
+      if (left.length > 0) {
+        addNotification(`${left.join(', ')} ha salido.`, 'alert');
+      }
+
+      prevParticipants.current = onlineParticipants;
+    }
+  }, [onlineParticipants, addNotification]);
+  
+  useEffect(() => {
+    const chatRef = refRtdb(rtdb, `chats/${room.id}`);
+    const q = queryRtdb(chatRef, limitToLast(1));
+    const unsubscribe = onChildAdded(q, (snapshot) => {
+      const newMsg = snapshot.val();
+      if (newMsg && newMsg.timestamp > (room.chat?.[room.chat.length - 1]?.timestamp || 0)) {
+        if (!isChatOpen && newMsg.sender !== currentUser) {
+          if (notificationAudio.current) {
+            notificationAudio.current.play().catch(e => console.log("Audio play failed", e));
+          }
+          const toastId = Date.now();
+          setChatToast({ sender: newMsg.sender, text: newMsg.text, id: toastId });
+          setIsToastVisible(true);
+          setToastTranslateY(0);
+
+          if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+          if (toastExitTimerRef.current) clearTimeout(toastExitTimerRef.current);
+
+          toastTimerRef.current = window.setTimeout(() => {
+            setIsToastVisible(false);
+          }, 4000);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [isChatOpen, currentUser, rtdb, room.id, room.chat]);
+
   const handleToastTouchStart = (e: React.TouchEvent) => {
-      toastTouchStartY.current = e.targetTouches[0].clientY;
-      (e.currentTarget as HTMLDivElement).style.transition = 'none';
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    if (toastExitTimerRef.current) clearTimeout(toastExitTimerRef.current);
+    toastTouchStartY.current = e.targetTouches[0].clientY;
   };
   
   const handleToastTouchMove = (e: React.TouchEvent) => {
-      if (toastTouchStartY.current === null) return;
-      const deltaY = e.targetTouches[0].clientY - toastTouchStartY.current;
-      if (deltaY > 0) setToastTranslateY(deltaY);
+    if (toastTouchStartY.current === null) return;
+    const currentY = e.targetTouches[0].clientY;
+    const deltaY = currentY - toastTouchStartY.current;
+    if (deltaY < 0) { // Solo permitir swipe hacia arriba
+      setToastTranslateY(deltaY);
+    }
+  };
+
+  const handleToastTouchEnd = () => {
+    if (toastTranslateY < -50) { // Si se deslizó lo suficiente
+      setIsToastVisible(false);
+    } else { // Si no, animar de vuelta
+      setToastTranslateY(0);
+      toastExitTimerRef.current = window.setTimeout(() => setIsToastVisible(false), 2000);
+    }
+    toastTouchStartY.current = null;
   };
   
-  const handleToastTouchEnd = (e: React.TouchEvent) => {
-      if (toastTouchStartY.current === null) return;
-      (e.currentTarget as HTMLDivElement).style.transition = 'all 0.3s ease-out';
-      if (toastTranslateY > 60) {
-          if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-          setIsToastVisible(false);
-      } else {
-          setToastTranslateY(0);
-      }
-      toastTouchStartY.current = null;
+  const kickUser = (username: string) => {
+    const roomDocRef = doc(db, 'rooms', room.id);
+    updateDoc(roomDocRef, {
+      participants: arrayRemove(username)
+    });
+    
+    // Y en RTDB también
+    const participantRef = refRtdb(rtdb, `rooms/${room.id}/participants/${username}`);
+    removeRtdb(participantRef);
+    addNotification(`${username} ha sido expulsado.`, 'alert');
   };
 
-  const ParticipantItem: React.FC<{ username: string }> = ({ username }) => {
-    const user = allUsers.find(u => u.username === username);
-    const isHost = username === room.host;
-    const details = participantDetails[username];
-    const isAdminUser = details?.isAdmin;
-    const isOnline = true; 
+  const banUser = (username: string) => {
+    const roomDocRef = doc(db, 'rooms', room.id);
+    updateDoc(roomDocRef, {
+      participants: arrayRemove(username),
+      banned: arrayRemove(username) // Primero quitarlo por si acaso
+    }).then(() => {
+      updateDoc(roomDocRef, {
+        banned: [...(room.banned || []), username]
+      });
+    });
 
-    return (
-      <div className={`flex items-center justify-between p-4 rounded-3xl border transition-colors ${darkMode ? 'bg-slate-900 border-white/5' : 'bg-slate-50 border-slate-100'}`}>
-        <button onClick={() => user && onViewProfile(user.id)} disabled={!user} className="flex items-center gap-3 text-left">
-            <div className="relative">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm text-white ${isHost ? 'bg-misionero-amarillo shadow-lg' : 'bg-misionero-azul'}`}>{username.charAt(0).toUpperCase()}</div>
-                {isOnline && <div className={`absolute bottom-0 right-0 w-3 h-3 bg-misionero-verde rounded-full border-2 ${darkMode ? 'border-slate-900' : 'border-slate-50'}`}></div>}
-            </div>
-            <div>
-                <p className="text-sm font-black uppercase flex items-center gap-1.5">{username}{isHost && <CrownIcon className="w-3.5 h-3.5 text-misionero-amarillo" />}</p>
-                <div className="flex gap-1.5">{isHost && <span className="text-[7px] font-black uppercase bg-misionero-amarillo/20 text-misionero-amarillo px-1.5 py-0.5 rounded">HOST</span>}{isAdminUser && <span className="text-[7px] font-black uppercase bg-misionero-rojo/20 text-misionero-rojo px-1.5 py-0.5 rounded">ADMIN</span>}</div>
-            </div>
-        </button>
-        {isTheHost && username !== currentUser && (
-          <div className="flex items-center gap-1.5">
-            <button onClick={() => handleMakeHost(username)} title="Hacer Host" className="w-8 h-8 rounded-xl bg-misionero-amarillo/10 text-misionero-amarillo flex items-center justify-center active:scale-90"><CrownIcon /></button>
-            <button onClick={() => handleKickParticipant(username)} title="Expulsar" className="w-8 h-8 rounded-xl bg-misionero-rojo/10 text-misionero-rojo flex items-center justify-center active:scale-90"><DoorIcon /></button>
-            <button onClick={() => handleBanParticipant(username)} title="Bloquear" className="w-8 h-8 rounded-xl bg-slate-500/10 text-slate-500 flex items-center justify-center active:scale-90"><BanIcon /></button>
-          </div>
-        )}
-      </div>
-    );
+    const participantRef = refRtdb(rtdb, `rooms/${room.id}/participants/${username}`);
+    removeRtdb(participantRef);
+    addNotification(`${username} ha sido bloqueado de la sala.`, 'alert');
+  };
+  
+  const handleScrollRepertoire = (direction: 'up' | 'down') => {
+    if (repertoireScrollContainerRef.current) {
+        scrollDirectionRef.current = direction;
+        if (!scrollIntervalRef.current) {
+            scrollIntervalRef.current = window.setInterval(() => {
+                if (repertoireScrollContainerRef.current && scrollDirectionRef.current) {
+                    const scrollAmount = scrollDirectionRef.current === 'up' ? -20 : 20;
+                    repertoireScrollContainerRef.current.scrollBy({ top: scrollAmount, behavior: 'smooth' });
+                }
+            }, 50);
+        }
+    }
+  };
+
+  const stopScroll = () => {
+      if (scrollIntervalRef.current) {
+          clearInterval(scrollIntervalRef.current);
+          scrollIntervalRef.current = null;
+          scrollDirectionRef.current = null;
+      }
   };
 
   return (
-    <div className={`flex flex-col h-full transition-colors duration-500 ${darkMode ? 'bg-black text-white' : 'bg-white text-slate-900'} animate-in fade-in duration-300 overflow-hidden relative`}>
-      <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[220] w-full max-w-xs flex flex-col items-center gap-2 pointer-events-none px-4">
-        {notifications.map(n => (
-          <div key={n.id} className={`p-3 rounded-2xl shadow-2xl border flex items-center gap-3 animate-in slide-in-from-top-4 duration-300 pointer-events-auto ${n.type === 'success' ? 'bg-misionero-verde/90' : n.type === 'alert' ? 'bg-misionero-rojo/90' : 'bg-misionero-azul/90'}`}>
-            <p className="text-[10px] font-black uppercase text-white leading-tight">{n.message}</p>
-          </div>
-        ))}
-      </div>
-      
-      <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[220] w-full max-w-xs flex flex-col items-center gap-2 pointer-events-none px-4">
-        {chatToast && (
-          <div 
-            key={chatToast.id}
-            onTouchStart={handleToastTouchStart}
-            onTouchMove={handleToastTouchMove}
-            onTouchEnd={handleToastTouchEnd}
-            className={`pointer-events-auto transition-all duration-300 ease-out ${isToastVisible ? 'opacity-100' : 'opacity-0 translate-y-full'}`}
-            style={{ transform: `translateY(${toastTranslateY}px)` }}
-          >
-            <div onClick={handleToastClick} className={`rounded-2xl shadow-2xl border p-4 cursor-pointer active:scale-95 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-                <p className={`text-sm font-medium ${darkMode ? 'text-white' : 'text-slate-800'}`}><span className="font-black uppercase text-[10px] text-misionero-amarillo">{chatToast.sender}:</span><span className="ml-2">{chatToast.text}</span></p>
+    <div className={`fixed inset-0 z-[100] flex flex-col ${darkMode ? 'bg-black text-white' : 'bg-white text-slate-900'} transition-colors duration-500`}>
+        {/* Encabezado Principal */}
+        <header className={`px-4 pt-12 pb-3 border-b ${darkMode ? 'border-slate-800 bg-black' : 'border-slate-100 bg-white'} flex items-center justify-between shrink-0 z-20`}>
+          <button onClick={onExitRequest} className="p-2 rounded-full active:scale-90 text-slate-500 dark:text-slate-400">
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+          <div className="text-center">
+            <h2 className="text-sm font-black uppercase tracking-tight">Sala en Vivo</h2>
+            <div className="flex items-center justify-center gap-2">
+              <span className="text-[9px] font-bold text-slate-400">{room.code}</span>
+              <button onClick={() => { navigator.clipboard.writeText(room.code); setCopied(true); setTimeout(() => setCopied(false), 1500); }} className="text-slate-400 active:text-misionero-azul">
+                  {copied ? <svg className="w-3 h-3 text-misionero-verde" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"/></svg> : <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>}
+              </button>
             </div>
           </div>
-        )}
-      </div>
-
-      {!songForViewer && (
-        <header className={`pt-12 px-4 shrink-0 transition-colors duration-500 ${isEditingRepertoire ? `sticky top-0 z-30 ${darkMode ? 'bg-black border-b border-slate-800' : 'bg-misionero-azul text-white'}` : `relative border-b shadow-sm ${darkMode ? 'bg-black/95 border-slate-800' : 'bg-misionero-azul text-white border-transparent'}`}`}>
-          {isEditingRepertoire ? (
-            <div className="flex items-center justify-between pb-2">
-               <button onClick={handleCancelEditing} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg active:scale-95 transition-transform ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button>
-               <div>
-                  <h2 className="font-black text-lg text-center tracking-tighter uppercase italic">Organizando...</h2>
-                  <p className={`text-[9px] text-center font-black uppercase tracking-wider ${darkMode ? 'text-slate-400' : 'text-white/80'}`}>{tempRepertoire.length} canciones</p>
-               </div>
-               <button onClick={handleFinalizeEditing} className="bg-misionero-verde text-white px-5 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg active:scale-95 transition-transform">Finalizar</button>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between pb-3">
-                <div className="flex-1 min-w-0 cursor-pointer group" onClick={handleCopyCode}>
-                    <h2 className="font-black text-lg tracking-tighter uppercase italic truncate group-active:scale-95 transition-transform origin-left">GUION DE MISA</h2>
-                    <div className="flex items-center gap-1.5">
-                        <p className={`text-[8px] font-black uppercase tracking-wider transition-colors ${darkMode ? 'text-slate-400' : 'text-white/80'}`}>CÓDIGO: {room.code}</p>
-                        <svg className="w-3 h-3 opacity-50" fill="currentColor" viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
-                        {copied && <span className="text-[7px] font-black uppercase text-misionero-amarillo ml-1 animate-in fade-in duration-300">Copiado!</span>}
-                    </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0 pl-3">
-                    <button onClick={handleOpenParticipants} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-colors ${darkMode ? 'bg-black/40 border-white/5' : 'bg-black/20 border-white/10'}`}>
-                        <svg className={`w-3.5 h-3.5 ${darkMode ? 'text-misionero-amarillo' : 'text-white'}`} fill="currentColor" viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
-                        <span className={`text-[10px] font-black ${darkMode ? 'text-misionero-amarillo' : 'text-white'}`}>{onlineParticipants.length}</span>
-                    </button>
-                    <button onClick={onExitRequest} className="bg-misionero-rojo text-white px-5 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg active:scale-95 transition-transform">SALIR</button>
-                </div>
-            </div>
-          )}
+          <button onClick={handleOpenParticipants} className="relative p-2 rounded-full text-slate-500 dark:text-slate-400">
+            <UsersIcon />
+            <div className={`absolute top-1 right-1 w-3 h-3 rounded-full border-2 ${darkMode ? 'border-black' : 'border-white'} ${onlineParticipants.length > 0 ? 'bg-misionero-verde' : 'bg-slate-400'}`}></div>
+          </button>
         </header>
-      )}
 
-      <div ref={repertoireScrollContainerRef} className={`flex-1 overflow-y-auto custom-scroll ${isEditingRepertoire ? 'px-0 pt-4' : 'px-5 py-8 space-y-8'} relative z-20 pb-40 transition-colors duration-500 ${!songForViewer && !isEditingRepertoire ? `rounded-t-[2.5rem] ${darkMode ? 'bg-black' : 'bg-slate-50'}` : ''}`}>
-        {(!isEditingRepertoire || !canModify) && !songForViewer && (
-          <section className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="flex items-center justify-between mb-5 px-1">
-              <h3 className="text-[10px] font-black text-misionero-amarillo uppercase tracking-[0.2em]">Repertorio ({displayedRepertoire.length})</h3>
-              <div className="flex items-center gap-2">
-                {isTheHost ? (
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-misionero-rojo/10 text-misionero-rojo text-[9px] font-black">
-                     <div className="w-2 h-2 bg-misionero-rojo rounded-full animate-pulse"></div>
-                     <span>EN VIVO</span>
-                  </div>
-                ) : (
-                  <button onClick={toggleFollowing} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase transition-colors ${isFollowingHost ? 'bg-misionero-verde text-white' : (darkMode ? 'bg-black text-slate-400' : 'bg-slate-100 text-slate-500')}`}>
-                    <span>{isFollowingHost ? 'Siguiendo' : 'Libre'}</span>
-                  </button>
-                )}
-                {canModify && (
-                  <button onClick={startEditingRepertoire} className="text-[9px] font-black px-3 py-1 rounded-lg uppercase text-slate-500">ORGANIZAR</button>
-                )}
-              </div>
-            </div>
-            <div className="space-y-4">
-              {displayedRepertoire.map((songId, idx) => {
-                  const song = repertoireSongsMap[songId];
-                  const tValue = room.globalTranspositions?.[songId] || 0;
-                  const isHostHere = room.currentSongId === songId;
-                  return (
-                    <div key={songId} onClick={() => navigateToSong(songId)} className={`flex items-center justify-between p-5 border rounded-3xl active:scale-[0.98] transition-all duration-300 relative ${selectedSongId === songId ? 'border-misionero-amarillo shadow-lg' : (darkMode ? 'bg-slate-900 border-white/5 text-white' : 'bg-white border-slate-100 text-slate-900')} ${isHostHere ? `ring-2 ring-misionero-rojo ring-offset-4 ${darkMode ? 'ring-offset-black' : 'ring-offset-slate-50'}` : ''}`}>
-                      <div className="flex items-center gap-4 flex-1 truncate">
-                        <div className={`w-9 h-9 shrink-0 rounded-2xl flex items-center justify-center font-black text-xs text-white transition-colors ${isHostHere ? 'bg-misionero-rojo animate-pulse' : 'bg-misionero-verde'}`}>{idx + 1}</div>
-                        <div className="truncate">
-                          <h4 className="font-black text-sm uppercase truncate">{song?.title || 'Cargando...'}</h4>
-                          {tValue !== 0 && <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter ${darkMode ? 'bg-misionero-amarillo/20 text-misionero-amarillo' : 'bg-misionero-azul/20 text-misionero-azul'}`}>T {tValue > 0 ? `+${tValue}` : tValue}</span>}
-                        </div>
-                      </div>
-                      <div className="text-right shrink-0 ml-2">
-                        <span className={`text-[11px] font-black block uppercase ${darkMode ? 'text-misionero-amarillo' : 'text-misionero-rojo'}`}>{song?.key}</span>
-                        {isHostHere && <span className="text-[7px] font-bold text-misionero-rojo uppercase tracking-wider block mt-1">En Vivo</span>}
-                      </div>
-                    </div>
-                  );
-                })
-              }
-            </div>
-          </section>
-        )}
+        {/* Notificaciones */}
+        <div className="absolute top-28 left-1/2 -translate-x-1/2 w-full max-w-sm px-4 z-50 space-y-2">
+            {notifications.map(n => (
+                <div key={n.id} className={`p-3 rounded-2xl text-[10px] font-black uppercase text-center shadow-lg animate-in fade-in slide-in-from-top-4 duration-300 ${n.type === 'alert' ? 'bg-misionero-rojo text-white' : 'glass-ui text-slate-500 dark:text-slate-200'}`}>
+                    {n.message}
+                </div>
+            ))}
+        </div>
         
-        {isEditingRepertoire && canModify && !songForViewer && (
-          <React.Fragment>
-            <div className="px-5 pb-24 space-y-2" onDragLeave={handleDragLeave}>
-                {tempRepertoire.map((songId, idx) => {
-                    const song = repertoireSongsMap[songId];
-                    if (!song) return null;
-                    const isDragging = draggingIndex === idx;
-                    return (
-                        <React.Fragment key={songId}>
-                            {dropIndicator?.index === idx && dropIndicator.position === 'before' && <div className="h-1 bg-misionero-azul rounded-full my-1"></div>}
-                            <div
-                                draggable onDragStart={(e) => handleDragStart(e, idx)} onDragOver={(e) => handleDragOver(e, idx)} onDrop={handleDrop} onDragEnd={handleDragEnd}
-                                className={`flex items-center justify-between p-3 border rounded-2xl transition-all duration-200 ${isDragging ? 'opacity-30' : ''} ${darkMode ? 'bg-slate-900 border-white/5' : 'bg-white border-slate-100'}`}
-                            >
-                                <div className="flex items-center gap-4 flex-1 truncate">
-                                    <div className="cursor-move p-2" onTouchStart={(e) => e.stopPropagation()}><svg className={`w-5 h-5 ${darkMode ? 'text-slate-600' : 'text-slate-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6h16M4 12h16M4 18h16" /></svg></div>
-                                    <div className="truncate"><h4 className="font-black text-sm uppercase truncate">{song.title}</h4><span className={`text-[9px] font-bold ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{song.key}</span></div>
+        {/* Contenido Principal */}
+        <div ref={repertoireScrollContainerRef} className="flex-1 overflow-y-auto custom-scroll px-4 pt-4 pb-48">
+            {isEditingRepertoire ? (
+                <div className="space-y-3 animate-in fade-in duration-300">
+                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Editar Repertorio</h3>
+                    <div className={`min-h-[100px] rounded-2xl p-2 space-y-1 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-100 border-slate-200'} border`}>
+                        {tempRepertoire.map((songId, index) => {
+                            const song = songs.find(s => s.id === songId);
+                            if (!song) return null;
+                            return (
+                                <div
+                                    key={songId}
+                                    draggable
+                                    onDragStart={() => handleDragStart(index)}
+                                    onDragOver={(e) => handleDragOver(e, index)}
+                                    onDrop={() => handleDrop(index)}
+                                    onDragEnd={handleDragEnd}
+                                    className={`flex items-center justify-between p-3 rounded-lg transition-all duration-300 ${draggingIndex === index ? 'opacity-30 bg-misionero-azul/20' : darkMode ? 'bg-slate-800' : 'bg-white'}`}
+                                >
+                                    {dropIndicator?.index === index && dropIndicator.position === 'before' && <div className="absolute top-0 left-2 right-2 h-0.5 bg-misionero-azul"></div>}
+                                    <div className="flex items-center gap-3">
+                                        <svg className="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                                        <div className="min-w-0">
+                                            <p className="text-xs font-bold truncate">{song.title}</p>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => removeSongFromTemp(songId)} className="p-1 text-red-500 active:scale-90"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"/></svg></button>
+                                    {dropIndicator?.index === index && dropIndicator.position === 'after' && <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-misionero-azul"></div>}
                                 </div>
-                                <button onClick={() => handleRemoveFromRepertoire(songId)} className="w-10 h-10 flex items-center justify-center text-misionero-rojo/70 hover:text-misionero-rojo hover:bg-misionero-rojo/10 rounded-xl active:scale-90 transition-colors"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
-                            </div>
-                            {dropIndicator?.index === idx && dropIndicator.position === 'after' && <div className="h-1 bg-misionero-azul rounded-full my-1"></div>}
-                        </React.Fragment>
-                    );
-                })}
-                {tempRepertoire.length === 0 && (
-                    <div className={`text-center py-12 rounded-2xl border-2 border-dashed ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}>
-                        <p className="text-xs font-bold text-slate-400">El repertorio está vacío.</p>
+                            )
+                        })}
+                        {tempRepertoire.length === 0 && <p className="text-center text-xs text-slate-400 py-4">Arrastra o añade canciones aquí.</p>}
                     </div>
-                )}
-            </div>
-          </React.Fragment>
-        )}
-      </div>
-
-      <div className={`fixed bottom-0 left-0 right-0 z-[120] max-w-md mx-auto`}>
-        {isEditingRepertoire && canModify ? (
-          <div className={`p-4 border-t ${darkMode ? 'bg-black/80 backdrop-blur-md border-t-slate-800' : 'bg-white/80 backdrop-blur-md border-t-slate-100'} pb-[calc(1rem+env(safe-area-inset-bottom))]`}>
-            <button onClick={() => setIsAddSongDrawerOpen(true)} className={`w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-sm font-black uppercase transition-colors ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-100 border-slate-200'} border`}>
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-                Añadir Música
-            </button>
-          </div>
-        ) : (
-          !isChatOpen && !songForViewer && chatInputArea
-        )}
-      </div>
-
-      {showParticipants && (<div className={`fixed inset-0 z-[250] flex flex-col animate-in slide-in-from-right duration-300 ${darkMode ? 'bg-black' : 'bg-white'}`}>
-        <div className={`flex items-center justify-between px-4 pt-12 pb-4 border-b shrink-0 ${darkMode ? 'border-white/5 bg-slate-900' : 'border-slate-100 bg-white'}`}><div className="flex items-center gap-3"><button onClick={handleCloseSubView} className="p-2 rounded-full"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button><div><h3 className="font-black uppercase text-sm">Participantes</h3><p className="text-[10px] font-bold text-slate-400">{onlineParticipants.length} usuarios</p></div></div></div>
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {onlineParticipants.map((username) => <ParticipantItem key={username} username={username} />)}
-        </div>
-      </div>)}
-      {isChatOpen && (<div className={`fixed inset-0 z-[250] flex flex-col animate-in slide-in-from-bottom duration-300 ${darkMode ? 'bg-black' : 'bg-white'}`}><div className={`flex items-center justify-between px-4 pt-12 pb-4 border-b shrink-0 ${darkMode ? 'border-white/5 bg-slate-900' : 'border-slate-100 bg-white'}`}><div className="flex items-center gap-3"><button onClick={handleCloseSubView} className="p-2 rounded-full"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button><div><h3 className="font-black uppercase text-sm">Chat de Sala</h3><p className="text-[10px] font-bold text-slate-400">{onlineParticipants.length} conectados</p></div></div></div><div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">{(room.chat || []).map((msg, i) => <SwipeableMessage key={i} msg={msg} currentUser={currentUser} onReply={handleReply} darkMode={darkMode} formatTime={formatMessageTime} />)}</div>{chatInputArea}</div>)}
-      {confirmModal && (<div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmModal(null)}></div><div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{confirmModal.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{confirmModal.message}</p><div className="flex gap-3"><button onClick={() => setConfirmModal(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button><button onClick={confirmModal.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform ${confirmModal.type === 'danger' ? 'bg-misionero-rojo' : 'bg-misionero-azul'}`}>Confirmar</button></div></div></div>)}
-      {songForViewer && (<div className={`fixed inset-0 z-[210] ${darkMode ? 'bg-black' : 'bg-white'} flex flex-col animate-in slide-in-from-bottom-2`}>{(() => {
-          const transposeValue = room.globalTranspositions?.[songForViewer.id] || 0;
-          const cacheKey = `${songForViewer.id}-${transposeValue}`;
-          const cachedContent = transposedContentCache.current[cacheKey];
-          return (
-            <SongViewer 
-              song={songForViewer} 
-              onBack={handleCloseSong} 
-              externalTranspose={transposeValue} 
-              transposedContent={cachedContent} 
-              onTransposeChange={canModify ? (val) => handleGlobalTranspose(songForViewer.id, val) : undefined} 
-              darkMode={darkMode} 
-              onEdit={canModify ? () => handleEditSong(songForViewer) : undefined} 
-              onDelete={canModify ? () => handleDeleteFromRoom(songForViewer) : undefined}
-              onPrev={hasPrevSong ? () => navigateToSong(displayedRepertoire[currentSongIndex - 1]) : undefined} 
-              onNext={hasNextSong ? () => navigateToSong(displayedRepertoire[currentSongIndex + 1]) : undefined} 
-              hasPrev={hasPrevSong} 
-              hasNext={hasNextSong} 
-              isChatVisible={true} 
-              chatInputComponent={chatInputArea} 
-              rtdb={rtdb} 
-              roomId={room.id} 
-              isHost={isTheHost} 
-            />); 
-        })()}</div>)}
-      
-      {isEditingRepertoire && isAddSongDrawerOpen && (
-        <div className="fixed inset-0 z-[220] animate-in fade-in duration-300" onClick={() => setIsAddSongDrawerOpen(false)}>
-          <div 
-            className={`absolute bottom-0 left-0 right-0 h-[85vh] flex flex-col ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'} border-t rounded-t-[2.5rem] shadow-2xl animate-in slide-in-from-bottom-full duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]`}
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="p-4 shrink-0">
-              <div className={`w-10 h-1.5 ${darkMode ? 'bg-slate-700' : 'bg-slate-200'} rounded-full mx-auto`}></div>
-            </div>
-            <div className="flex items-center justify-between px-5 pb-3 shrink-0">
-              <h3 className="font-black text-lg">Añadir al Repertorio</h3>
-              <button onClick={() => setIsAddSongDrawerOpen(false)} className={`text-[10px] font-black uppercase px-4 py-2 rounded-xl ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-500'}`}>Listo</button>
-            </div>
-            <div className="px-5 pb-3 space-y-3 shrink-0">
-              <input type="text" placeholder="Buscar para añadir..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className={`w-full text-xs font-bold rounded-xl px-4 py-3 outline-none transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-100 border-slate-200 text-slate-900'}`} />
-              <div className="flex gap-2 overflow-x-auto pb-2 -mx-5 px-5 custom-scroll">
-                {['Todos', ...categories].map((f: string) => (
-                  <button key={f} onClick={() => setAddSongFilter(f)} className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase shrink-0 transition-all ${addSongFilter === f ? 'bg-misionero-azul text-white' : (darkMode ? 'bg-slate-800 text-slate-500' : 'bg-slate-100 text-slate-400')}`}>{f}</button>
-                ))}
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto custom-scroll px-5 space-y-2 pb-8">
-              {availableSongsToAdd.map(song => {
-                const isAdded = tempRepertoire.includes(song.id);
-                return (
-                  <div key={song.id} className={`flex items-center justify-between p-3 border rounded-2xl transition-colors ${darkMode ? 'bg-black border-white/5' : 'bg-white border-slate-100'}`}>
-                    <div className="truncate"><h4 className="font-black text-sm uppercase truncate">{song.title}</h4><span className={`text-[9px] font-bold ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{song.key} • {song.category}</span></div>
-                    <button onClick={() => !isAdded && handleAddToRepertoire(song.id)} disabled={isAdded} className={`w-10 h-10 flex items-center justify-center rounded-xl active:scale-90 transition-all ${isAdded ? 'bg-misionero-verde/20 text-misionero-verde' : 'bg-misionero-verde/10 text-misionero-verde/70 hover:bg-misionero-verde/20'}`}>
-                      {isAdded ? (<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>) : (<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>)}
+                     <button
+                        onClick={() => setIsAddSongDrawerOpen(true)}
+                        className={`w-full py-3 rounded-xl border-2 border-dashed flex items-center justify-center gap-2 ${darkMode ? 'border-slate-800 text-slate-500' : 'border-slate-200 text-slate-400'}`}
+                    >
+                        <PlusIcon />
+                        <span className="text-xs font-bold">Añadir del repertorio general</span>
                     </button>
-                  </div>
-                );
-              })}
-              {availableSongsToAdd.length === 0 && <p className="text-xs text-center font-bold text-slate-500 py-4">No hay canciones que coincidan.</p>}
-            </div>
-          </div>
+                    {isTheHost && repertoireSongs.length > 0 && (
+                        <div onMouseDown={() => handleScrollRepertoire('down')} onMouseUp={stopScroll} onMouseLeave={stopScroll} onTouchStart={() => handleScrollRepertoire('down')} onTouchEnd={stopScroll} className="w-full text-center py-2 text-xs font-bold text-slate-400">
+                          Mantén presionado para bajar
+                        </div>
+                    )}
+                </div>
+            ) : (
+                <div className="space-y-2">
+                    {repertoireSongs.length > 0 ? (
+                        repertoireSongs.map((song, index) => (
+                           <div key={song.id} onClick={() => handleSongSelect(song.id)} className={`relative p-4 rounded-2xl flex items-center justify-between gap-3 active:scale-[0.98] transition-transform cursor-pointer ${darkMode ? 'bg-slate-900 border-white/5' : 'bg-white border-slate-100 shadow-sm'} border`}>
+                               {room.currentSongId === song.id && <div className="absolute left-2 top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-misionero-verde rounded-full animate-pulse"></div>}
+                               <div className="min-w-0 flex-1">
+                                    <p className="text-[10px] font-black uppercase truncate">{song.title}</p>
+                                    <p className="text-[8px] text-slate-400 font-bold">{song.key} • {song.author}</p>
+                               </div>
+                               <span className="text-xl font-black text-slate-200 dark:text-slate-800">#{index+1}</span>
+                           </div>
+                        ))
+                    ) : (
+                        <div className={`text-center py-10 rounded-2xl border-2 border-dashed ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}>
+                            <p className="text-xs font-bold text-slate-400">No hay canciones en el repertorio.</p>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
-      )}
+
+        {/* Toast de Chat */}
+        {isToastVisible && chatToast && (
+            <div
+                onTouchStart={handleToastTouchStart}
+                onTouchMove={handleToastTouchMove}
+                onTouchEnd={handleToastTouchEnd}
+                onClick={() => {
+                    setIsToastVisible(false);
+                    handleOpenChat();
+                }}
+                className="fixed top-28 left-1/2 -translate-x-1/2 w-[90%] max-w-sm z-[150] glass-ui p-4 rounded-3xl shadow-2xl cursor-pointer active:scale-95"
+                style={{
+                    transition: 'transform 0.3s ease, opacity 0.3s ease',
+                    transform: `translateY(${toastTranslateY}px) translateX(-50%)`,
+                    opacity: isToastVisible ? 1 : 0,
+                }}
+            >
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-misionero-azul rounded-full flex items-center justify-center font-black text-white">{chatToast.sender.charAt(0)}</div>
+                    <div className="flex-1 min-w-0">
+                        <h5 className={`text-[10px] font-black uppercase ${darkMode ? 'text-white' : 'text-slate-900'}`}>{chatToast.sender}</h5>
+                        <p className={`text-xs truncate ${darkMode ? 'text-slate-300' : 'text-slate-600'}`}>{chatToast.text.split('\n').pop()}</p>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* Floating Action Buttons */}
+        <div className="fixed bottom-0 left-0 right-0 z-10 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] flex items-center justify-between gap-2 max-w-md mx-auto">
+            {!isTheHost && (
+                <button 
+                  onClick={() => setIsFollowingHost(!isFollowingHost)}
+                  className={`flex-1 flex items-center justify-center gap-2 font-black uppercase text-[10px] py-4 rounded-2xl transition-all shadow-lg ${isFollowingHost ? 'bg-misionero-verde text-white' : (darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-200 text-slate-600')}`}
+                >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d={isFollowingHost ? "M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" : "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"} /></svg>
+                    <span>{isFollowingHost ? 'Siguiendo' : 'Libre'}</span>
+                </button>
+            )}
+            {canModify && (
+                <button 
+                  onClick={isEditingRepertoire ? saveRepertoire : enterEditMode}
+                  className={`flex-1 flex items-center justify-center gap-2 font-black uppercase text-[10px] py-4 rounded-2xl transition-all shadow-lg ${isEditingRepertoire ? 'bg-misionero-verde text-white' : (darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-200 text-slate-600')}`}
+                >
+                   {isEditingRepertoire ? <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg> : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>}
+                   <span>{isEditingRepertoire ? 'Guardar' : 'Editar'}</span>
+                </button>
+            )}
+             {isEditingRepertoire && (
+                <button onClick={cancelEditMode} className={`px-4 py-4 rounded-2xl shadow-lg transition-all ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-200 text-slate-600'}`}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg></button>
+            )}
+            <button 
+              onClick={handleOpenChat} 
+              className={`flex-1 flex items-center justify-center gap-2 font-black uppercase text-[10px] py-4 rounded-2xl transition-all shadow-lg ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-200 text-slate-600'}`}
+            >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                <span>Chat</span>
+            </button>
+        </div>
+        
+        {/* Modals y Vistas Flotantes */}
+        {selectedSong && <SongViewer song={selectedSong} onBack={handleCloseSong} darkMode={darkMode} onNext={() => {}} onPrev={() => {}} hasNext={false} hasPrev={false} externalTranspose={room.globalTranspositions?.[selectedSong.id] || 0} onTransposeChange={isTheHost ? (val) => handleTransposeChange(selectedSong.id, val) : undefined} onEdit={onEditSong} onDelete={() => onDeleteSong(selectedSong.id)} />}
+        {showParticipants && <ParticipantsPanel room={room} onlineParticipants={onlineParticipants} currentUser={currentUser} participantDetails={participantDetails} canModify={canModify} kickUser={kickUser} banUser={banUser} onClose={handleCloseSubView} onViewProfile={onViewProfile} darkMode={darkMode} />}
+        {isChatOpen && <ChatPanel room={room} currentUser={currentUser} onClose={handleCloseSubView} chatMessage={chatMessage} setChatMessage={setChatMessage} handleSendChatMessage={handleSendChatMessage} chatScrollRef={chatScrollRef} chatInputRef={chatInputRef} replyingTo={replyingTo} setReplyingTo={setReplyingTo} darkMode={darkMode} typingUsers={typingUsers} updateTypingStatus={updateTypingStatus} />}
+        {isAddSongDrawerOpen && <AddSongDrawer allSongs={songsNotInRepertoire} onAdd={addSongToTemp} onClose={() => setIsAddSongDrawerOpen(false)} filter={addSongFilter} setFilter={setAddSongFilter} categories={categories} darkMode={darkMode} />}
+        {confirmModal && <ConfirmModal title={confirmModal.title} message={confirmModal.message} action={confirmModal.action} type={confirmModal.type} onClose={() => setConfirmModal(null)} darkMode={darkMode} />}
     </div>
   );
 };
+
+const ParticipantsPanel = ({ room, onlineParticipants, currentUser, participantDetails, canModify, kickUser, banUser, onClose, onViewProfile, darkMode }: any) => (
+    <div className="fixed inset-0 z-[150] flex items-end justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={onClose}>
+        <div className={`w-full max-h-[80%] rounded-t-[2.5rem] shadow-2xl animate-in slide-in-from-bottom duration-300 flex flex-col ${darkMode ? 'bg-slate-900 border-t border-slate-800' : 'bg-white border-t border-slate-200'}`} onClick={e => e.stopPropagation()}>
+            <div className="flex justify-center pt-4 pb-2 shrink-0"><div className={`w-12 h-1.5 rounded-full ${darkMode ? 'bg-slate-700' : 'bg-slate-200'}`}></div></div>
+            <h3 className={`text-center font-black text-sm uppercase mb-2 px-6 pb-2 border-b ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}>Participantes ({onlineParticipants.length})</h3>
+            <div className="flex-1 overflow-y-auto custom-scroll p-4 space-y-2">
+                {onlineParticipants.sort((a,b) => a.localeCompare(b)).map((p: string) => (
+                  <div key={p} className={`p-3 rounded-2xl flex items-center justify-between ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                    <div className="flex items-center gap-3">
+                       <CrownIcon className={`w-5 h-5 ${p === room.host ? 'text-misionero-amarillo' : 'text-transparent'}`} />
+                       <span className="font-bold text-sm">{p} {p === currentUser && <span className="text-xs text-slate-400">(Tú)</span>}</span>
+                       {participantDetails[p]?.isAdmin && <span className="text-[7px] font-black bg-misionero-rojo text-white px-1.5 py-0.5 rounded-full uppercase">Admin</span>}
+                    </div>
+                    {canModify && p !== room.host && (
+                        <div className="flex items-center gap-2">
+                           <button onClick={() => kickUser(p)} className="p-2 rounded-full text-misionero-amarillo/70 active:bg-misionero-amarillo/10"><DoorIcon /></button>
+                           <button onClick={() => banUser(p)} className="p-2 rounded-full text-misionero-rojo/70 active:bg-misionero-rojo/10"><BanIcon /></button>
+                        </div>
+                    )}
+                  </div>
+                ))}
+            </div>
+        </div>
+    </div>
+);
+
+const ChatPanel = ({ room, currentUser, onClose, chatMessage, setChatMessage, handleSendChatMessage, chatScrollRef, chatInputRef, replyingTo, setReplyingTo, darkMode, typingUsers, updateTypingStatus }: any) => {
+    const formatTime = (time: number) => new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    const handleReply = (msg: ChatMessage) => {
+        setReplyingTo({ sender: msg.sender, text: msg.text });
+        chatInputRef.current?.focus();
+    };
+    
+    return (
+    <div className="fixed inset-0 z-[150] flex flex-col bg-slate-50 dark:bg-black animate-in slide-in-from-right duration-300">
+        <header className={`px-4 pt-12 pb-3 border-b ${darkMode ? 'border-slate-800' : 'bg-black'} flex items-center justify-between shrink-0`}>
+          <button onClick={onClose} className="p-2 rounded-full active:scale-90 text-slate-500 dark:text-slate-400"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></button>
+          <h3 className="text-sm font-black uppercase tracking-tight">Chat de la Sala</h3>
+          <div className="w-10"></div>
+        </header>
+        <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 custom-scroll">
+            {(room.chat || []).map((msg: ChatMessage, index: number) => (
+                <SwipeableMessage key={index} msg={msg} currentUser={currentUser} onReply={handleReply} darkMode={darkMode} formatTime={formatTime} />
+            ))}
+             {typingUsers.length > 0 && (
+                <div className="flex items-end gap-2 flex-row animate-in fade-in duration-300">
+                    <div className="flex flex-col items-start max-w-[85%]">
+                        <div className={`p-3.5 rounded-2xl shadow-sm ${darkMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>
+                           <div className={`flex items-center justify-center h-5 gap-1 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}><span className="typing-dot"></span><span className="typing-dot" style={{animationDelay: '0.2s'}}></span><span className="typing-dot" style={{animationDelay: '0.4s'}}></span></div>
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-1 px-1">
+                            <span className={`text-[8px] font-black uppercase ${darkMode ? 'text-slate-600' : 'text-slate-400'}`}>{typingUsers.join(', ')}</span>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+        <div className={`p-3 border-t shrink-0 ${darkMode ? 'border-slate-800 bg-black' : 'border-slate-100 bg-slate-50'} pb-[calc(0.75rem+env(safe-area-inset-bottom))]`}>
+            {replyingTo && (
+                <div className={`flex items-center justify-between px-4 py-2 mb-2 rounded-xl text-xs font-medium border-l-4 border-misionero-azul ${darkMode ? 'bg-slate-900 text-slate-300' : 'bg-slate-50 text-slate-600'}`}>
+                    <div className="min-w-0">
+                        <span className="text-[8px] font-black uppercase text-misionero-azul">Respondiendo a {replyingTo.sender}</span>
+                        <p className="truncate">{replyingTo.text.split('\n').pop()}</p>
+                    </div>
+                    <button onClick={() => setReplyingTo(null)} className="p-1"><svg className="w-4 h-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+                </div>
+            )}
+            <div className="flex gap-2 items-end">
+                <input ref={chatInputRef} value={chatMessage} onChange={e => { setChatMessage(e.target.value); updateTypingStatus(true); }} placeholder="Escribe un mensaje..." className={`flex-1 min-w-0 rounded-2xl px-4 py-3 text-sm font-bold outline-none border transition-all ${darkMode ? 'bg-black border-white/5 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} onKeyDown={e => e.key === 'Enter' && handleSendChatMessage()}/>
+                <button onClick={handleSendChatMessage} className="bg-misionero-verde text-white font-black w-12 h-12 rounded-2xl shadow-md active:scale-95 transition-transform flex items-center justify-center shrink-0"><svg className="w-5 h-5 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg></button>
+            </div>
+        </div>
+    </div>
+)};
+
+const AddSongDrawer = ({ allSongs, onAdd, onClose, filter, setFilter, categories, darkMode }: any) => (
+  <div className="fixed inset-0 z-[160] flex items-end justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={onClose}>
+    <div className={`w-full max-h-[85%] rounded-t-[2.5rem] shadow-2xl animate-in slide-in-from-bottom duration-300 flex flex-col ${darkMode ? 'bg-black border-t border-slate-800' : 'bg-white border-t border-slate-200'}`} onClick={e => e.stopPropagation()}>
+      <div className="flex justify-center pt-4 pb-2 shrink-0"><div className={`w-12 h-1.5 rounded-full ${darkMode ? 'bg-slate-800' : 'bg-slate-700'}`}></div></div>
+      <h3 className={`text-center font-black text-sm uppercase mb-2 px-6 pb-2 border-b ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}>Añadir al Repertorio</h3>
+      <div className="p-4 shrink-0">
+          <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 custom-scroll">
+              {['Todos', ...categories].map((f: string) => (
+                <button key={f} onClick={() => setFilter(f)} className={`px-5 py-2 rounded-full text-[9px] font-black uppercase shrink-0 transition-all ${filter === f ? 'bg-misionero-azul text-white' : 'glass-ui text-slate-400'}`}>{f}</button>
+              ))}
+          </div>
+      </div>
+      <div className="flex-1 overflow-y-auto custom-scroll p-4 pt-0 space-y-2">
+        {allSongs.map((song: Song) => (
+          <div key={song.id} className={`flex items-center justify-between p-3 rounded-xl ${darkMode ? 'bg-slate-900' : 'bg-slate-100'}`}>
+            <div>
+              <p className="text-xs font-bold">{song.title}</p>
+              <p className="text-[9px] text-slate-400">{song.author}</p>
+            </div>
+            <button onClick={() => onAdd(song.id)} className="p-2 bg-misionero-verde text-white rounded-full active:scale-90 transition-transform"><PlusIcon /></button>
+          </div>
+        ))}
+        {allSongs.length === 0 && <p className="text-center text-xs text-slate-400 py-4">No hay más canciones para añadir.</p>}
+      </div>
+    </div>
+  </div>
+);
+
+const ConfirmModal = ({ title, message, action, type, onClose, darkMode }: any) => (
+    <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200">
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose}></div>
+        <div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}>
+            <h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{title}</h3>
+            <p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{message}</p>
+            <div className="flex gap-3">
+                <button onClick={onClose} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button>
+                <button onClick={action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform ${type === 'danger' ? 'bg-misionero-rojo' : 'bg-misionero-azul'}`}>Confirmar</button>
+            </div>
+        </div>
+    </div>
+);
 
 export default RoomView;

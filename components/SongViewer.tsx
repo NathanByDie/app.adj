@@ -1,9 +1,9 @@
-
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Song } from '../types';
 import { isChordLine, transposeSong, transposeRoot, findBestCapo } from '../services/musicUtils';
 import { set as setRtdb, ref as refRtdb } from "firebase/database";
 import useCachedMedia from '../hooks/useCachedMedia';
+import CustomAudioPlayer from './CustomAudioPlayer';
 
 interface SongViewerProps {
   song: Song;
@@ -56,7 +56,7 @@ const SongViewer: React.FC<SongViewerProps> = ({
   isHost,
 }) => {
   const [internalTranspose, setInternalTranspose] = useState(0);
-  const [fontSize, setFontSize] = useState(11);
+  const [fontSize, setFontSize] = useState(10);
   const [capo, setCapo] = useState(0);
   const [showOptions, setShowOptions] = useState(false);
   const [showShareToast, setShowShareToast] = useState(false);
@@ -377,6 +377,7 @@ const SongViewer: React.FC<SongViewerProps> = ({
               <div className="flex items-center justify-center gap-2 text-[7px] font-black uppercase">
                 <span className="text-misionero-rojo">Tono: {soundingKey}</span>
                 {capo > 0 && <span className={darkMode ? 'text-misionero-amarillo' : 'text-misionero-azul'}>Capo {capo}: {chordShapeKey}</span>}
+                {song.source === 'lacuerda' && <span className="text-orange-500 bg-orange-500/10 px-1.5 py-0.5 rounded-full border border-orange-500/20 normal-case">LaCuerda.net</span>}
               </div>
             </div>
 
@@ -450,9 +451,11 @@ const SongViewer: React.FC<SongViewerProps> = ({
       )}
 
       {song.audioUrl && (
-        <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 shrink-0">
-          <h4 className="text-[8px] font-black uppercase text-slate-400 mb-2 tracking-widest">Nota de Voz</h4>
-          <audio controls src={cachedAudioUrl || song.audioUrl} className="w-full h-10"></audio>
+        <div className="px-5 py-2 border-b border-slate-100 dark:border-slate-800 shrink-0 flex items-center gap-4">
+          <h4 className="text-[8px] font-black uppercase text-slate-400 tracking-widest shrink-0">VOZ</h4>
+          <div className="flex-1 min-w-0">
+            <CustomAudioPlayer src={cachedAudioUrl || song.audioUrl} darkMode={darkMode} compact={true} />
+          </div>
         </div>
       )}
 
@@ -515,7 +518,7 @@ const SongViewer: React.FC<SongViewerProps> = ({
           
           <div className="flex items-center justify-between px-1.5 pt-0.5">
             <span className="text-[8px] font-black uppercase text-slate-400">Zoom</span>
-            <button onClick={() => setFontSize(11)} disabled={fontSize === 11} className={`text-[7px] font-black uppercase px-1.5 py-0.5 rounded transition-all ${fontSize !== 11 ? 'bg-misionero-verde/20 text-misionero-verde' : 'text-slate-400/50'}`}>11</button>
+            <button onClick={() => setFontSize(10)} disabled={fontSize === 10} className={`text-[7px] font-black uppercase px-1.5 py-0.5 rounded transition-all ${fontSize !== 10 ? 'bg-misionero-verde/20 text-misionero-verde' : 'text-slate-400/50'}`}>10</button>
           </div>
           <div className="flex items-center justify-between p-1 rounded-lg">
             <button onClick={() => adjustFontSize(-1)} className={`w-9 h-9 flex items-center justify-center rounded-full text-base font-bold ${darkMode ? 'bg-slate-800 active:bg-slate-700' : 'bg-slate-100 active:bg-slate-200'}`}>-</button>

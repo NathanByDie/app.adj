@@ -1,12 +1,53 @@
-import React, { useState, useEffect, useRef } from 'react';
+
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { User as AppUser, DirectMessage } from '../types';
-import { Firestore, collection, query, orderBy, onSnapshot, serverTimestamp, writeBatch, doc, setDoc, increment, updateDoc, getDoc, runTransaction, deleteField } from 'firebase/firestore';
+import { Firestore, collection, query, orderBy, onSnapshot, serverTimestamp, writeBatch, doc, setDoc, increment, updateDoc, getDoc, runTransaction, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { FirebaseStorage, ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
-import { ref as refRtdb, onValue as onValueRtdb, set as setRtdb, remove as removeRtdb } from 'firebase/database';
+import { ref as refRtdb, onValue as onValueRtdb, set as setRtdb, remove as removeRtdb, onDisconnect } from 'firebase/database';
 import { triggerHapticFeedback } from '../services/haptics';
-import { getMessagesFromCache, saveMessagesToCache } from '../services/cache';
-import ImageViewer from './ImageViewer';
 import useCachedMedia from '../hooks/useCachedMedia';
+import CustomAudioPlayer from './CustomAudioPlayer';
+import ImageViewer from './ImageViewer';
+import { saveMessagesToCache, getMessagesFromCache } from '../services/cache';
+import { SecureMessenger } from '../services/security';
+
+// --- ICONOS ---
+const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+const PlusIcon = () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/></svg>;
+const MicIcon = () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>;
+const SendIcon = () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>;
+const XIcon = () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"/></svg>;
+const TrashIcon = ({ className }: { className?: string }) => (
+    <svg className={className || "w-6 h-6"} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
+);
+const CopyIcon = ({ className }: { className?: string }) => (
+    <svg className={className || "w-6 h-6"} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+    </svg>
+);
+const ReplyIcon = ({ className }: { className?: string }) => (
+    <svg className={className || "w-6 h-6"} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+    </svg>
+);
+const VerifiedIcon = ({ className }: { className?: string }) => (
+    <svg className={className || "w-3 h-3"} viewBox="0 0 24 24" fill="currentColor">
+        <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
+    </svg>
+);
+const ClockIcon = ({ className }: { className?: string }) => (
+    <svg className={className || "w-3 h-3"} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+);
+const LockIcon = ({ className }: { className?: string }) => (
+    <svg className={className || "w-3 h-3"} viewBox="0 0 24 24" fill="currentColor">
+        <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+    </svg>
+);
+
 
 interface DirectMessageViewProps {
     currentUser: AppUser;
@@ -20,281 +61,178 @@ interface DirectMessageViewProps {
     onViewProfile: (userId: string) => void;
 }
 
-const generateChatId = (uid1: string, uid2: string): string => {
-    return [uid1, uid2].sort().join('_');
+const generateChatId = (uid1: string, uid2: string): string => [uid1, uid2].sort().join('_');
+const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} Bytes`;
+    if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1048576).toFixed(1)} MB`;
 };
-
 const formatLastSeen = (timestamp: number) => {
     const now = new Date();
     const lastSeenDate = new Date(timestamp);
-    
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const startOfYesterday = new Date(startOfToday);
-    startOfYesterday.setDate(startOfYesterday.getDate() - 1);
-
-    const lastSeenTime = lastSeenDate.toLocaleTimeString('es-ES', { hour: 'numeric', minute: '2-digit', hour12: true });
-
-    if (lastSeenDate >= startOfToday) {
-        return `hoy a las ${lastSeenTime}`;
-    }
-    
-    if (lastSeenDate >= startOfYesterday) {
-        return `ayer a las ${lastSeenTime}`;
-    }
-
     const diffSeconds = Math.floor((now.getTime() - lastSeenDate.getTime()) / 1000);
     if (diffSeconds < 60) return "hace un momento";
-    if (diffSeconds < 3600) return `hace ${Math.floor(diffSeconds / 60)} min`;
-
-    return `el ${lastSeenDate.toLocaleDateString()}`;
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const lastSeenTime = lastSeenDate.toLocaleTimeString('es-ES', { hour: 'numeric', minute: '2-digit', hour12: true });
+    if (lastSeenDate >= startOfToday) return `hoy a las ${lastSeenTime}`;
+    const startOfYesterday = new Date(startOfToday);
+    startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+    if (lastSeenDate >= startOfYesterday) return `ayer a las ${lastSeenTime}`;
+    return `el ${lastSeenDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}`;
 };
 
-
-const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
-
-interface SwipeableDirectMessageProps {
-    msg: DirectMessage;
-    currentUser: AppUser;
-    darkMode: boolean;
-    isSelected: boolean;
-    selectedMessageForAction: { msg: DirectMessage, position: 'top' | 'bottom' } | null;
-    onLongPress: (msg: DirectMessage, target: HTMLDivElement) => void;
-    onReply: (msg: DirectMessage) => void;
-    onReaction: (emoji: string) => void | Promise<void>;
-    formatTime: (timestamp: any) => string;
-    onViewImage: (msg: DirectMessage) => void;
-}
-
-const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-
-const SwipeableDirectMessage: React.FC<SwipeableDirectMessageProps> = ({ 
-    msg, 
-    currentUser, 
-    darkMode, 
-    isSelected, 
-    selectedMessageForAction, 
-    onLongPress, 
-    onReply, 
-    onReaction, 
-    formatTime,
-    onViewImage
-}) => {
+const SwipeableDirectMessage: React.FC<{
+    msg: DirectMessage, currentUser: AppUser, darkMode: boolean, 
+    onReply: (msg: DirectMessage) => void, onLongPress: (msg: DirectMessage, target: HTMLDivElement) => void, 
+    onViewImage: (url: string) => void,
+    onImageLoad?: () => void
+}> = ({ msg, currentUser, darkMode, onReply, onLongPress, onViewImage, onImageLoad }) => {
     const isMe = msg.senderId === currentUser.id;
     const [translateX, setTranslateX] = useState(0);
     const touchStartCoords = useRef<{x: number, y: number} | null>(null);
     const longPressTimerRef = useRef<number | null>(null);
-    const isSwipingRef = useRef(false);
-    const longPressTriggered = useRef(false);
+    const msgRef = useRef<HTMLDivElement>(null);
     const cachedMediaUrl = useCachedMedia(msg.mediaUrl);
-
+    
     const onTouchStart = (e: React.TouchEvent) => {
-        if (isSelected) return;
         touchStartCoords.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-        isSwipingRef.current = false;
-        longPressTriggered.current = false;
-
-        const target = e.currentTarget as HTMLDivElement;
-
         longPressTimerRef.current = window.setTimeout(() => {
-            longPressTriggered.current = true;
-            triggerHapticFeedback('light');
-            onLongPress(msg, target);
+            if (msgRef.current) {
+                triggerHapticFeedback('light');
+                onLongPress(msg, msgRef.current);
+            }
             longPressTimerRef.current = null;
-            touchStartCoords.current = null;
-        }, 400);
+        }, 500);
     };
-
     const onTouchMove = (e: React.TouchEvent) => {
+        if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
         if (!touchStartCoords.current) return;
-        
-        const currentX = e.touches[0].clientX;
-        const currentY = e.touches[0].clientY;
-        const diffX = currentX - touchStartCoords.current.x;
-        const diffY = currentY - touchStartCoords.current.y;
-
-        if (Math.abs(diffY) > 10 && !isSwipingRef.current) {
-            if (longPressTimerRef.current) {
-                clearTimeout(longPressTimerRef.current);
-                longPressTimerRef.current = null;
-            }
-            touchStartCoords.current = null;
-            return;
-        }
-
-        if (Math.abs(diffX) > 10) {
-            if (longPressTimerRef.current) {
-                clearTimeout(longPressTimerRef.current);
-                longPressTimerRef.current = null;
-            }
-            isSwipingRef.current = true;
-            
-            if (isMe) { // My message, swipe left
-                if (diffX < 0) {
-                    setTranslateX(Math.max(diffX, -80));
-                }
-            } else { // Partner's message, swipe right
-                if (diffX > 0) {
-                    setTranslateX(Math.min(diffX, 80));
-                }
-            }
-        }
+        const diffX = e.touches[0].clientX - touchStartCoords.current.x;
+        // Solo permitir deslizamiento si no estamos en un estado de menú
+        if (diffX > 0 && !isMe) setTranslateX(Math.min(diffX, 80));
+        if (diffX < 0 && isMe) setTranslateX(Math.max(diffX, -80));
     };
-
-    const onTouchEnd = (e: React.TouchEvent) => {
-        if (longPressTimerRef.current) {
-            clearTimeout(longPressTimerRef.current);
-            longPressTimerRef.current = null;
-        }
-
-        if (longPressTriggered.current) {
-            e.preventDefault();
-        } else if (Math.abs(translateX) > 50) {
-            triggerHapticFeedback('light');
-            onReply(msg);
-        }
-
-        setTranslateX(0);
+    const onTouchEnd = () => {
+        if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+        if (Math.abs(translateX) > 50) onReply(msg);
+        setTranslateX(0); 
         touchStartCoords.current = null;
-        isSwipingRef.current = false;
-        longPressTriggered.current = false;
     };
+    const formatTime = (timestamp: any) => {
+        if (!timestamp) return '';
+        // Pending check: if currently sending, show current time
+        if (msg.pending) return 'Enviando...';
 
-    const MessageContent = () => {
-        if (msg.deleted) {
-            return <p className="text-sm font-medium leading-tight whitespace-pre-wrap italic">Este mensaje fue eliminado</p>;
+        // Handle Firestore Timestamp object (from live snapshot)
+        if (typeof timestamp.toDate === 'function') {
+            return timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         }
-        switch (msg.type) {
-            case 'image':
-                return <img src={cachedMediaUrl || msg.mediaUrl} alt="Imagen enviada" className="max-w-xs max-h-80 rounded-lg object-cover cursor-pointer active:scale-95 transition-transform" onClick={() => onViewImage(msg)} />;
-            case 'audio':
-                return <audio controls src={cachedMediaUrl || msg.mediaUrl} className="w-60 h-12" />;
-            case 'file':
-                return (
-                    <a href={msg.mediaUrl} download={msg.fileName} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-3 rounded-lg bg-black/10 dark:bg-white/10 hover:bg-black/20 dark:hover:bg-white/20">
-                        <svg className="w-6 h-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                        <div className="truncate">
-                            <p className="font-bold text-sm truncate">{msg.fileName}</p>
-                            <p className="text-xs opacity-70">{formatFileSize(msg.fileSize || 0)}</p>
-                        </div>
-                    </a>
-                );
-            case 'text':
-            default:
-                return <p className="text-sm font-medium leading-tight whitespace-pre-wrap">{msg.text}</p>;
+        // Handle plain object from IndexedDB cache or serialized
+        if (typeof timestamp.seconds === 'number') {
+            return new Date(timestamp.seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         }
+        // Fallback for just created date object
+        if (timestamp instanceof Date) {
+             return timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+        return ''; 
     };
     
-    return (
-        <div 
-            className={`relative flex flex-col ${isMe ? 'items-end' : 'items-start'} select-none w-full ${isSelected ? 'z-40' : ''}`}
-            onTouchStart={onTouchStart}
-            onTouchMove={onTouchMove}
-            onTouchEnd={onTouchEnd}
-        >
-             <div 
-                className="absolute top-1/2 -translate-y-1/2 text-slate-400 transition-opacity duration-300 flex items-center justify-center w-10"
-                style={{ 
-                    [isMe ? 'right' : 'left']: '0.5rem',
-                    opacity: Math.abs(translateX) > 10 ? Math.min(Math.abs(translateX) / 50, 1) : 0, 
-                }}
-            >
-                <svg className="w-5 h-5" style={{ transform: isMe ? 'scaleX(-1)' : 'scaleX(1)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg>
-            </div>
+    const renderContent = () => {
+        if (msg.deleted) return <p className="text-xs italic opacity-70">Mensaje eliminado</p>;
+        switch (msg.type) {
+            case 'image': return <img 
+                src={cachedMediaUrl || msg.mediaUrl} 
+                alt="Imagen adjunta" 
+                className={`rounded-lg max-w-[200px] sm:max-w-xs cursor-pointer min-h-[50px] bg-slate-100 dark:bg-slate-800 ${msg.pending ? 'opacity-50' : ''}`}
+                onClick={() => onViewImage(cachedMediaUrl || msg.mediaUrl || '')} 
+                onLoad={onImageLoad}
+            />;
+            case 'audio': return <CustomAudioPlayer src={cachedMediaUrl || msg.mediaUrl || ''} darkMode={darkMode} isSender={isMe} />;
+            case 'file': return <div className="flex items-center gap-2"><p className="font-bold">{msg.fileName}</p><span className="text-xs opacity-70">{formatFileSize(msg.fileSize || 0)}</span></div>
+            default: return <p className="text-sm font-medium leading-tight whitespace-pre-wrap">{msg.text}</p>;
+        }
+    };
 
-            <div 
-                className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-[85%] transition-transform duration-150 ease-out`}
-                style={{ transform: `translateX(${translateX}px)` }}
-            >
-                <div 
-                    className={`relative ${isSelected ? 'z-50' : ''}`} 
-                    onContextMenu={(e) => e.preventDefault()}
-                >
-                    {isSelected && !msg.deleted && (
-                        <div className={`absolute z-50 flex items-center gap-1 p-1.5 rounded-full shadow-xl animate-in zoom-in-75 duration-200 ${darkMode ? 'bg-slate-800' : 'bg-slate-900'} ${selectedMessageForAction?.position === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'} ${isMe ? 'right-0' : 'left-0'}`}>
-                            {REACTIONS.map(emoji => (
-                                <button key={emoji} onClick={() => onReaction(emoji)} className="text-2xl active:scale-125 transition-transform p-1 rounded-full">{emoji}</button>
-                            ))}
-                        </div>
-                    )}
-                    <div 
-                        className={`p-1.5 rounded-2xl shadow-sm transition-all duration-200 ${msg.deleted ? 'italic' : ''} ${isSelected ? (darkMode ? 'bg-slate-700' : 'bg-slate-200') : (isMe ? 'bg-misionero-azul text-white' : (darkMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'))}`}
-                    >
-                         {msg.replyTo && (
-                            <div className={`p-2 rounded-lg text-xs font-medium border-l-4 mb-1.5 ${isMe ? 'border-white bg-black/20' : `border-misionero-azul ${darkMode ? 'bg-slate-700' : 'bg-slate-200'}`}`}>
-                                <p className={`font-black ${isMe ? 'text-slate-300' : 'text-misionero-azul'}`}>{msg.replyTo.senderUsername}</p>
-                                <p className={`opacity-80 truncate ${isMe ? 'text-slate-200' : ''}`}>{msg.replyTo.textSnippet}</p>
+    return (
+        <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} w-full animate-in fade-in slide-in-from-bottom-2 duration-200`}>
+            <div className="relative w-full flex" style={{ justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
+                <div className={`absolute top-1/2 -translate-y-1/2 text-slate-400 transition-opacity duration-300 ${isMe ? 'right-full mr-4' : 'left-full ml-4'}`} style={{ opacity: Math.abs(translateX) > 10 ? Math.min(Math.abs(translateX) / 50, 1) : 0 }}><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg></div>
+                <div ref={msgRef} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} className="transition-transform duration-100 ease-out max-w-[85%] z-10" style={{ transform: `translateX(${translateX}px)` }}>
+                    <div className={`p-3 rounded-2xl shadow-sm relative ${isMe ? 'bg-misionero-azul text-white' : (darkMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700')}`}>
+                        {msg.replyTo && <div className={`p-2 rounded-lg text-xs font-medium border-l-4 mb-2 ${isMe ? 'border-white bg-white/20' : `border-misionero-azul bg-misionero-azul/10`}`}><p className="font-black">{msg.replyTo.senderUsername}</p><p className="opacity-80 truncate">{msg.replyTo.textSnippet}</p></div>}
+                        {renderContent()}
+                        {/* Indicador de Encriptación */}
+                        {msg.encrypted && !msg.pending && !msg.deleted && (
+                            <div className={`absolute -right-1 -top-1 p-0.5 rounded-full ${isMe ? 'bg-white text-misionero-azul' : 'bg-misionero-azul text-white'}`}>
+                                <LockIcon className="w-2 h-2" />
                             </div>
                         )}
-                        <div className={msg.type !== 'text' ? 'p-1.5' : 'px-2 py-1'}>
-                            <MessageContent />
-                        </div>
                     </div>
                 </div>
-                
-                <div className="flex items-center gap-2 mt-1 px-1">
-                    <span className={`text-[8px] font-black uppercase ${darkMode ? 'text-slate-600' : 'text-slate-400'}`}>{formatTime(msg.timestamp)}</span>
-                    {Object.entries(msg.reactions || {}).length > 0 && (
-                        <div className="flex gap-1">
-                            {Object.entries((msg.reactions || {}) as Record<string, string[]>).map(([emoji, uids]) => (
-                                uids.length > 0 && (
-                                    <div key={emoji} className={`text-xs px-1.5 py-0.5 rounded-full flex items-center gap-1 transition-colors ${(uids.includes(currentUser.id)) ? 'bg-misionero-azul/20 text-misionero-azul' : (darkMode ? 'bg-slate-700' : 'bg-slate-200')}`}>
-                                        <span>{emoji}</span>
-                                        {uids.length > 1 && <span className="text-[9px] font-bold">{uids.length}</span>}
-                                    </div>
-                                )
-                            ))}
-                        </div>
-                    )}
-                </div>
             </div>
+            <div className="flex items-center gap-1.5 mt-1 px-1">
+                <span className={`text-[9px] font-black uppercase flex items-center gap-1 ${darkMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                    {msg.pending && <ClockIcon className="animate-spin" />}
+                    {formatTime(msg.timestamp)}
+                </span>
+            </div>
+             {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                <div className={`flex gap-1 p-1 rounded-full -mt-2 shadow-sm ${darkMode ? 'bg-slate-700' : 'bg-white'}`}>
+                    {Object.entries(msg.reactions).map(([emoji, users]) => {
+                        const userList = users as string[];
+                        return userList.length > 0 && (
+                            <span key={emoji} className="text-xs">
+                                {emoji}
+                                {userList.length > 1 && <span className="text-[9px] font-bold">{userList.length}</span>}
+                            </span>
+                        );
+                    })}
+                </div>
+            )}
         </div>
     );
 };
 
+// ... (main component follows)
 const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, partner, onBack, db, rtdb, storage, darkMode, partnerStatus, onViewProfile }) => {
     const [messages, setMessages] = useState<DirectMessage[]>([]);
-    const [newMessage, setNewMessage] = useState('');
-    const [showOptions, setShowOptions] = useState(false);
-    const [isMuted, setIsMuted] = useState(false);
-    const [isBlocked, setIsBlocked] = useState(false);
-    const [isLoadingCache, setIsLoadingCache] = useState(true);
-    
-    const [selectedMessageForAction, setSelectedMessageForAction] = useState<{ msg: DirectMessage, position: 'top' | 'bottom' } | null>(null);
-    const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
+    const chatId = useMemo(() => generateChatId(currentUser.id, partner.id), [currentUser.id, partner.id]);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+    const partnerCachedPhotoUrl = useCachedMedia(partner.photoURL);
     const [replyingTo, setReplyingTo] = useState<DirectMessage | null>(null);
-    const [pinnedMessageId, setPinnedMessageId] = useState<string | null>(null);
-    const [isPartnerTyping, setIsPartnerTyping] = useState(false);
-    const [viewingImage, setViewingImage] = useState<DirectMessage | null>(null);
-    
-    // Audio Recording State
+    const [viewingImageUrl, setViewingImageUrl] = useState<string | null>(null);
+    const [selectedMessageForAction, setSelectedMessageForAction] = useState<{ msg: DirectMessage, position: DOMRect } | null>(null);
     const [isRecording, setIsRecording] = useState(false);
     const [recordingTime, setRecordingTime] = useState(0);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-    const audioChunksRef = useRef<Blob[]>([]);
     const recordingTimerRef = useRef<number | null>(null);
-    const isCancelledRef = useRef(false);
-
-    const scrollRef = useRef<HTMLDivElement>(null);
-    const inputRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const shouldSendAudio = useRef(false);
+    const [inputContent, setInputContent] = useState('');
     
+    // --- TYPING INDICATOR LOGIC ---
+    const [isPartnerTyping, setIsPartnerTyping] = useState(false);
     const typingTimeoutRef = useRef<number | null>(null);
-    const cachedPartnerPhoto = useCachedMedia(partner.photoURL);
 
-    const chatId = generateChatId(currentUser.id, partner.id);
+    // Effect for listening to partner's typing status
+    useEffect(() => {
+        const typingRef = refRtdb(rtdb, `typing/${chatId}/${partner.id}`);
+        const unsubscribe = onValueRtdb(typingRef, (snapshot) => {
+             setIsPartnerTyping(snapshot.val() === true);
+        });
+        return () => unsubscribe();
+    }, [chatId, partner.id, rtdb]);
 
+    // Update function for my own typing status
     const updateTypingStatus = (isTyping: boolean) => {
-        if (!rtdb) return;
         const myTypingRef = refRtdb(rtdb, `typing/${chatId}/${currentUser.id}`);
         if (isTyping) {
             setRtdb(myTypingRef, true);
+            const onDisc = onDisconnect(myTypingRef);
+            onDisc.remove(); // Remove on disconnect
+            
             if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
             typingTimeoutRef.current = window.setTimeout(() => updateTypingStatus(false), 3000);
         } else {
@@ -304,500 +242,446 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
     };
 
     useEffect(() => {
-        const textarea = inputRef.current;
-        if (textarea) {
-            textarea.style.height = 'auto';
-            textarea.style.height = `${textarea.scrollHeight}px`;
-        }
-    }, [newMessage]);
-    
+        if (isPartnerTyping) scrollToBottom(true);
+    }, [isPartnerTyping]);
+    // ----------------------------
+
     useEffect(() => {
-        if (!rtdb) return;
-        const partnerTypingRef = refRtdb(rtdb, `typing/${chatId}/${partner.id}`);
-        const unsubscribe = onValueRtdb(partnerTypingRef, (snapshot) => {
-            setIsPartnerTyping(snapshot.val() === true);
+        let isMounted = true;
+
+        // Load messages from cache first for offline support and faster initial load.
+        getMessagesFromCache(chatId).then(async (cachedMessages) => {
+            if (isMounted && cachedMessages.length > 0) {
+                // Decrypt cached messages if needed (though cache usually stores plain text if saved after decrypt)
+                const decrypted = await Promise.all(cachedMessages.map(async (m) => {
+                    if (m.encrypted && m.text) {
+                        return { ...m, text: await SecureMessenger.decrypt(m.text, chatId) };
+                    }
+                    return m;
+                }));
+                setMessages(decrypted);
+                setIsLoading(false);
+            }
         });
-        
+
+        const q = query(collection(db, 'chats', chatId, 'messages'), orderBy('timestamp', 'asc'));
+        const unsubscribe = onSnapshot(q, 
+            async (snap) => {
+                if (isMounted) {
+                    // Process messages: Decrypt if needed
+                    const processedMessages = await Promise.all(snap.docs.map(async (d) => {
+                        const data = d.data() as DirectMessage;
+                        let text = data.text;
+                        
+                        // Decrypt if it's marked as encrypted
+                        if (data.encrypted && text) {
+                            text = await SecureMessenger.decrypt(text, chatId);
+                        }
+                        
+                        return { id: d.id, ...data, text };
+                    }));
+
+                    // Fusionar con mensajes pendientes locales para evitar parpadeos
+                    setMessages(prev => {
+                        const existingPending = prev.filter(m => m.pending);
+                        // Filtramos los pendientes que ya existen en la snapshot (se confirmaron)
+                        const remainingPending = existingPending.filter(pm => !processedMessages.some(rm => rm.id === pm.id));
+                        return [...processedMessages, ...remainingPending];
+                    });
+                    
+                    setIsLoading(false);
+
+                    // Update the cache
+                    if (processedMessages.length > 0) {
+                        saveMessagesToCache(chatId, processedMessages);
+                    }
+                }
+            },
+            (error) => {
+                console.error("Permission error fetching chat messages:", error);
+                if (isMounted) {
+                    setIsLoading(false);
+                }
+            }
+        );
+
         return () => {
+            isMounted = false;
             unsubscribe();
-            updateTypingStatus(false);
         };
-    }, [rtdb, chatId, partner.id]);
+    }, [chatId, db]);
+
+    const scrollToBottom = useCallback((smooth = true) => {
+        if (messagesEndRef.current) {
+            messagesEndRef.current.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'end' });
+        }
+    }, []);
 
     useEffect(() => {
-        const chatInfoRef = doc(db, 'user_chats', currentUser.id, 'chats', chatId);
-        const unsubscribe = onSnapshot(chatInfoRef, (docSnap) => {
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                setIsBlocked(data.isBlocked === true);
-                setIsMuted(data.mutedUntil ? data.mutedUntil > Date.now() : false);
-            }
-        });
-        return () => unsubscribe();
-    }, [db, currentUser.id, chatId]);
+        // Scroll to bottom logic
+        scrollToBottom(false);
+        const scrollTimeout = setTimeout(() => {
+            scrollToBottom(true);
+        }, 100); // Faster scroll response
 
-    useEffect(() => {
-        const loadInitialMessages = async () => {
-            try {
-                const cachedMessages = await getMessagesFromCache(chatId);
-                if (cachedMessages.length > 0) {
-                    setMessages(cachedMessages);
-                }
-            } catch (error) {
-                console.error("Error al cargar mensajes de la caché:", error);
-            } finally {
-                setIsLoadingCache(false);
-            }
-        };
-
-        loadInitialMessages();
-
-        const messagesRef = collection(db, 'direct_messages', chatId, 'messages');
-        const q = query(messagesRef, orderBy('timestamp', 'asc'));
-
-        const unsubscribe = onSnapshot(q, async (snapshot) => {
-            const fetchedMessages: DirectMessage[] = [];
-            const unreadMessagesToUpdate: string[] = [];
-            let foundPinned = null;
-            
-            snapshot.forEach(doc => {
-                const msg = { id: doc.id, ...doc.data() } as DirectMessage;
-                if (!msg.deletedBy?.[currentUser.id]) {
-                    fetchedMessages.push(msg);
-                }
-                if (msg.senderId === partner.id && !msg.read) {
-                    unreadMessagesToUpdate.push(doc.id);
-                }
-                if (msg.pinned) {
-                    foundPinned = msg.id;
-                }
-            });
-            
-            setMessages(fetchedMessages);
-            setPinnedMessageId(foundPinned);
-            await saveMessagesToCache(chatId, fetchedMessages);
-
-            if (unreadMessagesToUpdate.length > 0 && document.visibilityState === 'visible') {
-                const batch = writeBatch(db);
-                unreadMessagesToUpdate.forEach(msgId => {
-                    batch.update(doc(db, 'direct_messages', chatId, 'messages', msgId), { read: true });
-                });
-                const myChatInfoRef = doc(db, 'user_chats', currentUser.id, 'chats', chatId);
-                batch.set(myChatInfoRef, { unreadCount: 0 }, { merge: true });
-                await batch.commit();
-            }
-        }, (error) => {
-            console.error("Error listening to messages:", error);
-            alert("Error al cargar mensajes. Verifica tu conexión o revisa la consola del navegador por si falta un índice de base de datos.");
-        });
-        
-        return () => unsubscribe();
-    }, [chatId, db, currentUser.id, partner.id]);
-
-    useEffect(() => {
-        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-    }, [messages, isPartnerTyping]);
-
-    const sendStructuredMessage = async (messagePayload: Partial<DirectMessage>) => {
-        if (isBlocked) return;
-        const timestamp = serverTimestamp();
-        const messagesRef = collection(db, 'direct_messages', chatId, 'messages');
+        // On entering the chat, simply reset the unread count.
         const myChatInfoRef = doc(db, 'user_chats', currentUser.id, 'chats', chatId);
-        const partnerChatInfoRef = doc(db, 'user_chats', partner.id, 'chats', chatId);
+        updateDoc(myChatInfoRef, { unreadCount: 0 }).catch(() => {});
+
+        return () => clearTimeout(scrollTimeout);
+    }, [messages.length, chatId, currentUser.id, db, scrollToBottom]); // Depend on length change
+    
+    const sendChatMessage = async (type: DirectMessage['type'], text?: string, mediaUrl?: string, mediaType?: string, fileName?: string, fileSize?: number) => {
+        // Reset typing status immediately
+        updateTypingStatus(false);
         
-        const batch = writeBatch(db);
-    
-        const newMsgData: Partial<DirectMessage> = {
+        // 1. Crear ID y Timestamp local
+        const newMsgRef = doc(collection(db, 'chats', chatId, 'messages'));
+        const tempId = newMsgRef.id;
+        const now = new Date();
+
+        // 2. Preparar objeto base. Usamos Partial para construirlo de forma segura.
+        const messageData: Partial<DirectMessage> = {
+            id: tempId,
             senderId: currentUser.id,
-            timestamp: timestamp,
+            timestamp: now,
             read: false,
-            ...messagePayload,
+            type,
+            text: text || '',
         };
-    
+
+        // Añadir campos opcionales solo si tienen valor para evitar 'undefined'
+        if (mediaUrl) messageData.mediaUrl = mediaUrl;
+        if (mediaType) messageData.mediaType = mediaType;
+        if (fileName) messageData.fileName = fileName;
+        if (fileSize) messageData.fileSize = fileSize;
+
         if (replyingTo) {
-            const snippetText = (replyingTo.text || '').split('\n\n').pop() || '';
-            newMsgData.replyTo = {
+            messageData.replyTo = {
                 messageId: replyingTo.id,
                 senderId: replyingTo.senderId,
                 senderUsername: replyingTo.senderId === currentUser.id ? currentUser.username : partner.username,
-                textSnippet: snippetText.substring(0, 50),
+                textSnippet: replyingTo.text?.substring(0, 50) || (replyingTo.type === 'image' ? 'Imagen' : 'Archivo'),
             };
+            if (replyingTo.mediaUrl) {
+                messageData.replyTo.imagePreviewUrl = replyingTo.mediaUrl;
+            }
         }
-    
-        batch.set(doc(messagesRef), newMsgData);
-    
-        let previewText = '';
-        switch (messagePayload.type) {
-            case 'image': previewText = '📷 Imagen'; break;
-            case 'audio': previewText = '🎤 Mensaje de voz'; break;
-            case 'file': previewText = `📄 ${messagePayload.fileName || 'Archivo'}`; break;
-            default: previewText = messagePayload.text || '';
-        }
-    
-        const commonChatInfo = {
-            lastMessageText: previewText,
-            lastMessageTimestamp: timestamp,
-            lastMessageSenderId: currentUser.id,
-            isReply: !!replyingTo,
+
+        // 3. UI Optimista: Añadir 'pending' flag solo para la UI
+        const optimisticMessage = { ...messageData, pending: true } as DirectMessage;
+        setMessages(prev => [...prev, optimisticMessage]);
+        setInputContent('');
+        setReplyingTo(null);
+        scrollToBottom(true);
+
+        // 4. Preparar datos finales para Firestore
+        const finalMessageData = {
+            ...messageData,
+            timestamp: serverTimestamp(),
         };
-    
-        batch.set(myChatInfoRef, { ...commonChatInfo, partnerId: partner.id, partnerUsername: partner.username, partnerPhotoURL: partner.photoURL || null }, { merge: true });
-        batch.set(partnerChatInfoRef, { ...commonChatInfo, partnerId: currentUser.id, partnerUsername: currentUser.username, partnerPhotoURL: currentUser.photoURL || null, unreadCount: increment(1) }, { merge: true });
-    
+
+        // --- ENCRIPCION ---
+        if (text) {
+            const encryptedText = await SecureMessenger.encrypt(text, chatId);
+            finalMessageData.text = encryptedText;
+            finalMessageData.encrypted = true;
+        }
+
+        let lastMessageText = text ? '🔒 Texto cifrado' : '';
+        if (type === 'image') lastMessageText = '📷 Imagen';
+        else if (type === 'audio') lastMessageText = '🎤 Audio';
+        else if (type === 'file') lastMessageText = `📄 Archivo`;
+
+        const commonChatInfo = { lastMessageText, lastMessageTimestamp: serverTimestamp(), lastMessageSenderId: String(currentUser.id) };
+
         try {
+            const batch = writeBatch(db);
+            
+            // `finalMessageData` ya no contiene campos 'undefined'
+            // Guardar el mensaje en la colección compartida
+            batch.set(newMsgRef, finalMessageData as Omit<DirectMessage, 'pending' | 'id'>);
+            
+            // Actualizar SOLO la lista de chats del usuario actual (remitente) en esta transacción
+            // Esto garantiza que el usuario vea su propio mensaje y estado actualizado sin depender de permisos en el otro usuario.
+            batch.set(doc(db, 'user_chats', currentUser.id, 'chats', chatId), { ...commonChatInfo, partnerId: partner.id, partnerUsername: partner.username, partnerPhotoURL: partner.photoURL || null, unreadCount: 0 }, { merge: true });
+            
             await batch.commit();
-            setReplyingTo(null);
-        } catch (error) {
-            console.error("Error sending message:", error);
-            alert("No se pudo enviar el mensaje. Por favor, intenta de nuevo.");
+
+            // Intentar actualizar la lista del otro usuario en una operación separada "Best Effort"
+            // Si esto falla por permisos (lo cual es probable según reglas estrictas), no importa.
+            // El ChatSyncManager del otro usuario se encargará de actualizar su lista al detectar el nuevo mensaje.
+            try {
+                await setDoc(doc(db, 'user_chats', partner.id, 'chats', chatId), { 
+                    ...commonChatInfo, 
+                    partnerId: currentUser.id, 
+                    partnerUsername: currentUser.username, 
+                    partnerPhotoURL: currentUser.photoURL || null, 
+                    unreadCount: increment(1) 
+                }, { merge: true });
+            } catch (partnerUpdateError) {
+                console.warn("No se pudo actualizar la lista de chats del destinatario (probablemente por permisos). La sincronización automática lo resolverá.", partnerUpdateError);
+            }
+
+        } catch (error: any) {
+            console.error("Error envío:", error);
+            setMessages(prev => prev.map(m => m.id === tempId ? { ...m, text: 'Error al enviar', pending: false } : m));
+            alert("Fallo al enviar mensaje.");
         }
     };
 
-    const handleSendText = async (e?: React.FormEvent) => {
-        e?.preventDefault();
-        if (newMessage.trim() === '') return;
-        updateTypingStatus(false);
-        const textToSend = newMessage;
-        setNewMessage('');
-        await sendStructuredMessage({ type: 'text', text: textToSend });
-    };
-
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
+    const handleSendFile = async (file: File) => {
+        const fileId = doc(collection(db, 'chats')).id;
+        // Use user-scoped path to avoid 'Missing or insufficient permissions' on shared paths
+        const filePath = `chat_media/${currentUser.id}/${chatId}/${fileId}_${file.name}`;
+        
+        const fileRef = storageRef(storage, filePath);
         try {
-            const fileRef = storageRef(storage, `chat_media/${chatId}/${Date.now()}_${file.name}`);
             await uploadBytes(fileRef, file);
-            const mediaUrl = await getDownloadURL(fileRef);
-
-            let type: 'image' | 'file' = 'file';
-            if (file.type.startsWith('image/')) type = 'image';
-            
-            await sendStructuredMessage({
-                type,
-                mediaUrl,
-                fileName: file.name,
-                fileSize: file.size,
-                mediaType: file.type,
-            });
-
-        } catch (error) {
-            console.error("Error al subir archivo:", error);
+            const url = await getDownloadURL(fileRef);
+            await sendChatMessage(file.type.startsWith('image/') ? 'image' : 'file', undefined, url, file.type, file.name, file.size);
+        } catch (error: any) {
+            console.error("Error uploading file:", error);
             alert("No se pudo enviar el archivo.");
         }
-        e.target.value = ''; // Reset input
     };
     
     const startRecording = async () => {
         if (isRecording) return;
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-            audioChunksRef.current = [];
-            
-            mediaRecorderRef.current.ondataavailable = e => audioChunksRef.current.push(e.data);
-            mediaRecorderRef.current.onstop = async () => {
-                stream.getTracks().forEach(track => track.stop());
-                
-                if (isCancelledRef.current) {
-                    isCancelledRef.current = false;
-                    return; 
-                }
+            const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+            mediaRecorderRef.current = recorder;
+            const audioChunks: Blob[] = [];
 
-                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+            recorder.ondataavailable = e => audioChunks.push(e.data);
+
+            recorder.onstop = async () => {
+                stream.getTracks().forEach(track => track.stop());
+                if (!shouldSendAudio.current) {
+                    return; // Recording was cancelled
+                }
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                if (audioBlob.size === 0) return;
+
+                const fileId = doc(collection(db, 'chats')).id;
+                const fileName = `nota_de_voz_${fileId}.webm`;
+                const filePath = `chat_media/${currentUser.id}/${chatId}/${fileName}`;
+                
+                const fileRef = storageRef(storage, filePath);
                 
                 try {
-                    const audioFileRef = storageRef(storage, `chat_media/${chatId}/${Date.now()}.webm`);
-                    await uploadBytes(audioFileRef, audioBlob);
-                    const mediaUrl = await getDownloadURL(audioFileRef);
-                    await sendStructuredMessage({ type: 'audio', mediaUrl, fileName: 'Mensaje de voz', mediaType: 'audio/webm' });
-                } catch (e) { console.error("Error al subir archivo:", e); }
+                    await uploadBytes(fileRef, audioBlob);
+                    const url = await getDownloadURL(fileRef);
+                    await sendChatMessage('audio', undefined, url, audioBlob.type, fileName, audioBlob.size);
+                } catch (error: any) {
+                    console.error("Error uploading audio:", error);
+                    alert("Error enviando audio.");
+                }
             };
 
-            mediaRecorderRef.current.start();
+            recorder.start();
             setIsRecording(true);
+            setRecordingTime(0); // Reset time
+            setInputContent(''); // Clear text input
             recordingTimerRef.current = window.setInterval(() => setRecordingTime(t => t + 1), 1000);
         } catch (err) {
-            alert("Necesitas permiso para usar el micrófono.");
+            console.error(err);
+            alert("Necesitas permiso para usar el micrófono para grabar notas de voz.");
         }
     };
-    
-    const stopRecording = () => {
+
+    const stopRecording = (send: boolean) => {
         if (mediaRecorderRef.current?.state === 'recording') {
+            shouldSendAudio.current = send;
             mediaRecorderRef.current.stop();
         }
-        if (recordingTimerRef.current) {
-            clearInterval(recordingTimerRef.current);
-        }
+        if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
         setIsRecording(false);
         setRecordingTime(0);
     };
 
-    const stopRecordingAndSend = () => {
-        isCancelledRef.current = false;
-        stopRecording();
-    };
-
-    const cancelRecording = () => {
-        isCancelledRef.current = true;
-        stopRecording();
-    };
-
-
-    const handleMute = async (duration: number) => {
-        const mutedUntil = duration === -1 ? 9999999999999 : Date.now() + (duration * 60 * 1000);
-        const myChatInfoRef = doc(db, 'user_chats', currentUser.id, 'chats', chatId);
-        await setDoc(myChatInfoRef, { mutedUntil }, { merge: true });
-        setShowOptions(false);
-    };
-
-    const handleUnmute = async () => {
-        const myChatInfoRef = doc(db, 'user_chats', currentUser.id, 'chats', chatId);
-        await updateDoc(myChatInfoRef, { mutedUntil: 0 });
-        setShowOptions(false);
-    };
-
-    const handleToggleBlock = async () => {
-        const myChatInfoRef = doc(db, 'user_chats', currentUser.id, 'chats', chatId);
-        await setDoc(myChatInfoRef, { isBlocked: !isBlocked }, { merge: true });
-        setShowOptions(false);
-    };
-    
-    const handleLongPress = (msg: DirectMessage, target: HTMLDivElement) => {
-        if (target) {
-            const rect = target.getBoundingClientRect();
-            const isTopHalf = rect.top < window.innerHeight / 2;
-            setSelectedMessageForAction({ msg, position: isTopHalf ? 'bottom' : 'top' });
-        }
-    };
-
-    const handleReplyAction = (msg: DirectMessage) => {
-        setReplyingTo(msg);
-        setSelectedMessageForAction(null);
-        setTimeout(() => inputRef.current?.focus(), 100);
-    };
-
-    const handleCopyMessage = async () => {
-        if (!selectedMessageForAction) return;
-        try {
-            await navigator.clipboard.writeText(selectedMessageForAction.msg.text || '');
-            setSelectedMessageForAction(null);
-        } catch (err) { console.error('Failed to copy!', err); }
-    };
-    
     const handleReaction = async (emoji: string) => {
         if (!selectedMessageForAction) return;
-        const msgRef = doc(db, 'direct_messages', chatId, 'messages', selectedMessageForAction.msg.id);
-        try {
-            await runTransaction(db, async (t) => {
-                const msgDoc = await t.get(msgRef);
-                if (!msgDoc.exists()) throw "Message does not exist!";
-                const data = msgDoc.data();
-                const newReactions = { ...(data.reactions || {}) };
-                let userPreviousReaction: string | null = null;
-                for (const key in newReactions) {
-                    const index = (newReactions[key] || []).indexOf(currentUser.id);
-                    if (index > -1) {
-                        userPreviousReaction = key;
-                        newReactions[key].splice(index, 1);
-                        if (newReactions[key].length === 0) delete newReactions[key];
-                        break;
-                    }
-                }
-                if (userPreviousReaction !== emoji) {
-                    if (!newReactions[emoji]) newReactions[emoji] = [];
-                    newReactions[emoji].push(currentUser.id);
-                }
-                t.update(msgRef, { reactions: newReactions });
-            });
-        } catch (e) { console.error("Transaction failed: ", e); }
-        setSelectedMessageForAction(null);
-    };
-
-    const handleDeleteFromImageViewer = (msg: DirectMessage) => {
-        setViewingImage(null);
-        setTimeout(() => {
-            setSelectedMessageForAction({ msg, position: 'top' });
-            setDeleteModalVisible(true);
-        }, 200);
-    };
-    
-    const handleDeleteForMe = async () => {
-        if (!selectedMessageForAction) return;
-        const msgRef = doc(db, 'direct_messages', chatId, 'messages', selectedMessageForAction.msg.id);
-        await updateDoc(msgRef, { [`deletedBy.${currentUser.id}`]: true });
-        setDeleteModalVisible(false);
-        setSelectedMessageForAction(null);
-    };
-
-    const handleDeleteForEveryone = async () => {
-        if (!selectedMessageForAction) return;
-        const isLastMessage = messages.length > 0 && selectedMessageForAction.msg.id === messages[messages.length - 1].id;
-        const msgRef = doc(db, 'direct_messages', chatId, 'messages', selectedMessageForAction.msg.id);
-        const batch = writeBatch(db);
-
-        batch.update(msgRef, {
-            deleted: true,
-            text: deleteField(),
-            mediaUrl: deleteField(),
-            mediaType: deleteField(),
-            fileName: deleteField(),
-            fileSize: deleteField(),
-            reactions: deleteField(),
-            pinned: deleteField(),
-            replyTo: deleteField()
-        });
+        const { msg } = selectedMessageForAction;
+        const msgRef = doc(db, 'chats', chatId, 'messages', msg.id);
         
-        if (isLastMessage) {
-            const newLastMessage = messages.length > 1 ? messages[messages.length - 2] : null;
-            const myChatInfoRef = doc(db, 'user_chats', currentUser.id, 'chats', chatId);
-            const partnerChatInfoRef = doc(db, 'user_chats', partner.id, 'chats', chatId);
-            const updatedInfo = { lastMessageText: 'Mensaje eliminado', lastMessageTimestamp: newLastMessage?.timestamp || serverTimestamp(), lastMessageSenderId: newLastMessage?.senderId || currentUser.id, isReply: !!newLastMessage?.replyTo };
-            batch.set(myChatInfoRef, updatedInfo, { merge: true });
-            batch.set(partnerChatInfoRef, updatedInfo, { merge: true });
+        const currentUsers = msg.reactions?.[emoji] || [];
+        const isRemoving = currentUsers.includes(currentUser.id);
+
+        // Optimistic Reaction Update (Local)
+        setMessages(prev => prev.map(m => {
+            if (m.id === msg.id) {
+                const updatedReactions = { ...(m.reactions || {}) };
+                if (isRemoving) {
+                    updatedReactions[emoji] = (updatedReactions[emoji] || []).filter(uid => uid !== currentUser.id);
+                } else {
+                    updatedReactions[emoji] = [...(updatedReactions[emoji] || []), currentUser.id];
+                }
+                return { ...m, reactions: updatedReactions };
+            }
+            return m;
+        }));
+
+        try {
+            await updateDoc(msgRef, {
+                [`reactions.${emoji}`]: isRemoving ? arrayRemove(currentUser.id) : arrayUnion(currentUser.id)
+            });
+        } catch (e) {
+            console.error("Error reacting:", e);
         }
-        await batch.commit();
-        setDeleteModalVisible(false);
         setSelectedMessageForAction(null);
     };
 
-    const formatTime = (timestamp: any): string => {
-        if (timestamp && typeof timestamp.seconds === 'number') {
-            return new Date(timestamp.seconds * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
-        }
-        return '...';
+    const handleDelete = async () => {
+         if (!selectedMessageForAction) return;
+         const { msg } = selectedMessageForAction;
+         if (msg.senderId !== currentUser.id) return;
+         
+         // Optimistic Delete
+         setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, deleted: true } : m));
+
+         try {
+             const msgRef = doc(db, 'chats', chatId, 'messages', msg.id);
+             await updateDoc(msgRef, { deleted: true });
+         } catch (e) {
+             console.error("Error deleting:", e);
+         }
+         setSelectedMessageForAction(null);
     };
 
-    const myLastMessage = [...messages].reverse().find(m => m.senderId === currentUser.id);
+    const handleCopy = () => {
+        if (!selectedMessageForAction) return;
+        navigator.clipboard.writeText(selectedMessageForAction.msg.text || '');
+        triggerHapticFeedback('light');
+        setSelectedMessageForAction(null);
+    };
     
-    const getMessageAge = (msg: DirectMessage) => {
-        if (!msg.timestamp) return 0;
-        if (typeof msg.timestamp.toMillis === 'function') return Date.now() - msg.timestamp.toMillis();
-        return 999999999;
-    };
-
-    const canDeleteForEveryone = selectedMessageForAction && selectedMessageForAction.msg.senderId === currentUser.id && getMessageAge(selectedMessageForAction.msg) < 3 * 60 * 1000;
+    const partnerStatusText = partnerStatus?.state === 'online' ? 'En línea' : partnerStatus?.last_changed ? `Últ. vez ${formatLastSeen(partnerStatus.last_changed)}` : 'Desconectado';
 
     return (
-        <div className={`fixed inset-0 z-[150] flex flex-col animate-in slide-in-from-right duration-300 ${darkMode ? 'bg-black text-white' : 'bg-white text-slate-900'}`}>
-            {selectedMessageForAction && (<div className="fixed inset-0 z-40" onClick={() => setSelectedMessageForAction(null)}></div>)}
-            {viewingImage && (
-                <ImageViewer
-                    imageUrl={viewingImage.mediaUrl!}
-                    onClose={() => setViewingImage(null)}
-                    onDelete={() => handleDeleteFromImageViewer(viewingImage)}
-                    fileName={viewingImage.fileName}
-                    darkMode={darkMode}
-                />
-            )}
-            <header className={`px-4 pt-12 pb-3 border-b ${darkMode ? 'border-slate-800 bg-black' : 'border-slate-100 bg-white'} flex flex-col shrink-0 ${selectedMessageForAction ? 'z-50' : 'z-20'}`}>
-                {selectedMessageForAction ? (
-                     <div className="flex items-center justify-between w-full h-[52px]">
-                        <button onClick={() => setSelectedMessageForAction(null)} className="p-2 rounded-full active:scale-90 text-slate-500 dark:text-slate-400">
-                            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
-                        </button>
-                        <div className="flex items-center gap-2">
-                             <button onClick={() => handleReplyAction(selectedMessageForAction.msg)} className="p-2 rounded-full active:scale-90 text-misionero-azul">
-                                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg>
-                            </button>
-                            {selectedMessageForAction.msg.type === 'text' && (
-                                <button onClick={handleCopyMessage} className={`p-2 rounded-full active:scale-90 ${darkMode ? 'text-slate-300' : 'text-slate-600'}`}>
-                                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
-                                </button>
+        <div className={`fixed inset-0 z-[200] flex flex-col animate-in slide-in-from-right duration-300 ${darkMode ? 'bg-black' : 'bg-slate-50'}`}>
+            <header className={`px-4 pt-12 pb-3 border-b ${darkMode ? 'border-slate-800 bg-black/80' : 'border-slate-100 bg-white/80'} backdrop-blur-sm flex items-center gap-3 shrink-0 z-20`}>
+                <button onClick={onBack} className="p-2 rounded-full active:scale-90 text-slate-500 dark:text-slate-400"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7"/></svg></button>
+                <button onClick={() => onViewProfile(partner.id)} className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className="relative shrink-0">{partnerCachedPhotoUrl ? <img src={partnerCachedPhotoUrl} alt={partner.username} className="w-10 h-10 rounded-full object-cover"/> : <div className="w-10 h-10 rounded-full bg-misionero-azul flex items-center justify-center font-black text-white">{partner.username.charAt(0).toUpperCase()}</div>} {partnerStatus?.state === 'online' && <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 ${darkMode ? 'border-black' : 'border-slate-50'} bg-misionero-verde`}></div>}</div>
+                    <div className="text-left min-w-0">
+                        <div className="flex items-center gap-1.5">
+                            <h3 className={`font-black text-sm uppercase truncate ${darkMode ? 'text-white' : 'text-slate-900'}`}>{partner.username}</h3>
+                            {partner.profileValidated && (
+                                <div className="text-blue-500 bg-blue-500/10 rounded-full p-0.5">
+                                    <VerifiedIcon />
+                                </div>
                             )}
-                            <button onClick={() => setDeleteModalVisible(true)} className="p-2 rounded-full active:scale-90 text-misionero-rojo">
-                                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                            </button>
                         </div>
+                        <p className="text-[10px] font-bold text-slate-400">{partnerStatusText}</p>
                     </div>
-                ) : (
-                    <div className="flex items-center justify-between w-full h-[52px]">
-                        <div className="flex items-center gap-3">
-                            <button onClick={onBack} className="p-2 rounded-full active:scale-90 text-slate-500 dark:text-slate-400">
-                                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg>
-                            </button>
-                            <button onClick={() => onViewProfile(partner.id)} className="flex items-center gap-3 text-left">
-                                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-md text-white bg-misionero-azul overflow-hidden`}>
-                                    {cachedPartnerPhoto ? <img src={cachedPartnerPhoto} alt={partner.username} className="w-full h-full object-cover" /> : partner.username.charAt(0).toUpperCase()}
-                                </div>
-                                <div>
-                                    <h3 className="font-black uppercase text-sm flex items-center gap-2">
-                                        {partner.username}
-                                    </h3>
-                                    <p className={`text-xs font-bold ${isPartnerTyping ? 'text-misionero-amarillo animate-pulse' : partnerStatus?.state === 'online' ? 'text-misionero-verde' : 'text-slate-400'}`}>
-                                        {isPartnerTyping ? 'Escribiendo...' : (partnerStatus?.state === 'online' ? 'En línea' : (partnerStatus ? `Últ. vez ${formatLastSeen(partnerStatus.last_changed)}` : 'Desconectado'))}
-                                    </p>
-                                </div>
-                            </button>
-                        </div>
-                        <div className="relative">
-                            <button onClick={() => setShowOptions(true)} className={`p-2 rounded-full active:bg-slate-100 dark:active:bg-slate-800 transition-colors text-slate-500 dark:text-slate-400`}>
-                                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" /></svg>
-                            </button>
-                        </div>
-                    </div>
-                )}
+                </button>
+                <div className="w-10"></div>
             </header>
-
-            <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 custom-scroll">
-                {isLoadingCache && messages.length === 0 && (
-                    <div className="flex justify-center items-center h-full"><div className="w-6 h-6 border-2 border-slate-200 dark:border-slate-700 border-t-slate-500 dark:border-t-slate-400 rounded-full animate-spin"></div></div>
-                )}
-                {messages.map(msg => (
-                    <SwipeableDirectMessage key={msg.id} msg={msg} currentUser={currentUser} darkMode={darkMode} isSelected={selectedMessageForAction?.msg.id === msg.id} selectedMessageForAction={selectedMessageForAction} onLongPress={handleLongPress} onReply={handleReplyAction} onReaction={handleReaction} formatTime={formatTime} onViewImage={setViewingImage} />
-                ))}
+            
+            <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4 custom-scroll">
+                {isLoading ? <div className="flex justify-center items-center h-full"><div className="w-6 h-6 border-2 border-misionero-azul/30 border-t-misionero-azul rounded-full animate-spin"></div></div> : messages.map(msg => <SwipeableDirectMessage key={msg.id} msg={msg} currentUser={currentUser} darkMode={darkMode} onReply={setReplyingTo} onLongPress={(msg, target) => setSelectedMessageForAction({ msg, position: target.getBoundingClientRect() })} onViewImage={setViewingImageUrl} onImageLoad={() => scrollToBottom(true)} />)}
+                
+                {/* Indicador de "Escribiendo..." con efecto de ola */}
                 {isPartnerTyping && (
-                    <div className="flex items-end gap-2 flex-row animate-in fade-in duration-300">
-                        <div className="flex flex-col items-start max-w-[85%]">
-                            <div className={`p-3.5 rounded-2xl shadow-sm ${darkMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>
-                                <div className={`flex items-center justify-center h-5 gap-1 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}><span className="typing-dot"></span><span className="typing-dot" style={{ animationDelay: '0.2s' }}></span><span className="typing-dot" style={{ animationDelay: '0.4s' }}></span></div>
+                    <div className="w-full flex justify-start animate-in fade-in slide-in-from-bottom-2 duration-200 mb-2">
+                        <div className={`p-3.5 rounded-2xl shadow-sm ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                            <div className={`flex gap-1 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                                <span className="typing-dot"></span>
+                                <span className="typing-dot" style={{animationDelay: '0.2s'}}></span>
+                                <span className="typing-dot" style={{animationDelay: '0.4s'}}></span>
                             </div>
                         </div>
                     </div>
                 )}
-                 {myLastMessage && (
-                    <div className="w-full flex justify-end">
-                        <span className={`text-[9px] font-bold mt-1 px-1 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{myLastMessage.read ? 'Visto' : 'Enviado'}</span>
-                    </div>
-                 )}
+                
+                <div ref={messagesEndRef} />
             </div>
 
-            <form onSubmit={handleSendText} className={`p-3 border-t shrink-0 ${darkMode ? 'border-white/5 bg-black' : 'border-slate-100 bg-white'} pb-[calc(0.75rem+env(safe-area-inset-bottom))]`}>
-                {replyingTo && ( <div className={`flex items-center justify-between px-4 py-2 mb-2 rounded-xl text-xs font-medium border-l-4 border-misionero-azul ${darkMode ? 'bg-slate-900 text-slate-300' : 'bg-slate-50 text-slate-600'}`}> <div className="flex flex-col max-w-[80%]"> <span className="text-[8px] font-black uppercase text-misionero-azul">Respondiendo a {replyingTo.senderId === currentUser.id ? currentUser.username : partner.username}</span> <span className="truncate">{replyingTo.text}</span> </div> <button type="button" onClick={() => setReplyingTo(null)} className="p-1"><svg className="w-4 h-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg></button> </div> )}
+            <div className={`p-3 border-t shrink-0 ${darkMode ? 'border-slate-800 bg-black' : 'border-slate-100 bg-slate-50'} pb-[calc(0.75rem+env(safe-area-inset-bottom))]`}>
+                {replyingTo && <div className={`flex items-center justify-between px-4 py-2 mb-2 rounded-xl text-xs font-medium border-l-4 border-misionero-azul ${darkMode ? 'bg-slate-900 text-slate-300' : 'bg-slate-50 text-slate-600'}`}><div className="min-w-0"><span className="text-[8px] font-black uppercase text-misionero-azul">Respondiendo a {replyingTo.senderId === currentUser.id ? "ti mismo" : partner.username}</span><p className="truncate">{replyingTo.text}</p></div><button onClick={() => setReplyingTo(null)} className="p-1"><XIcon/></button></div>}
                 
-                <div className="flex gap-2 items-center w-full h-[52px]">
-                    {isBlocked ? (<div className="w-full text-center p-3 text-xs font-bold text-red-500 bg-red-500/10 rounded-2xl">Has bloqueado este chat.</div>) 
-                    : isRecording ? (
-                        <div className={`flex items-center justify-between px-2 py-1.5 w-full rounded-2xl text-sm font-bold ${darkMode ? 'bg-black border-white/5' : 'bg-slate-50 border-slate-200'} border`}>
-                            <button type="button" onClick={cancelRecording} className={`w-10 h-10 flex items-center justify-center rounded-full shrink-0 transition-colors active:scale-90 text-misionero-rojo ${darkMode ? 'bg-slate-800' : 'bg-slate-200'}`}>
-                                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
-                            </button>
-                            <div className="flex items-center gap-2 text-misionero-rojo flex-1 justify-center">
-                                <div className="w-3 h-3 bg-misionero-rojo rounded-full animate-pulse"></div>
-                                <span>{Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}</span>
+                <div className="flex gap-2 items-end">
+                    {isRecording ? (
+                        <>
+                            <div className="flex-1 flex items-center justify-between rounded-2xl px-4 py-3 bg-red-500/10 text-red-500 animate-pulse">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-2.5 h-2.5 bg-red-500 rounded-full"></div>
+                                    <span className="font-bold text-sm">Grabando...</span>
+                                </div>
+                                <span className="font-mono text-sm">{Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}</span>
                             </div>
-                            <button type="button" onClick={stopRecordingAndSend} className="bg-misionero-verde text-white font-black w-10 h-10 rounded-full shadow-md active:scale-95 transition-transform flex items-center justify-center shrink-0">
-                                <svg className="w-5 h-5 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                            <button
+                                onClick={() => stopRecording(false)}
+                                className="p-3.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 shadow-md active:scale-95"
+                            >
+                                <TrashIcon className="w-6 h-6 text-red-500" />
                             </button>
-                        </div>
+                            <button
+                                onClick={() => stopRecording(true)}
+                                className="bg-misionero-verde text-white font-black w-12 h-12 rounded-2xl shadow-md active:scale-95 transition-transform flex items-center justify-center shrink-0"
+                            >
+                                <SendIcon />
+                            </button>
+                        </>
                     ) : (
                         <>
-                            <input type="file" ref={fileInputRef} onChange={handleFileChange} hidden accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx" />
-                            <button type="button" onClick={() => fileInputRef.current?.click()} className={`w-12 h-12 flex items-center justify-center rounded-2xl shrink-0 transition-colors ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}> <svg className="w-6 h-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg> </button>
-                            <textarea ref={inputRef} value={newMessage} onChange={e => { setNewMessage(e.target.value); updateTypingStatus(true); }} placeholder="Escribe un mensaje..." rows={1} className={`flex-1 min-w-0 rounded-2xl px-4 py-3.5 text-sm font-bold outline-none border transition-all resize-none max-h-32 ${darkMode ? 'bg-black border-white/5 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} />
-                            {newMessage.trim() ? (
-                                <button type="submit" className="bg-misionero-verde text-white font-black w-12 h-12 rounded-2xl shadow-md active:scale-95 transition-transform flex items-center justify-center shrink-0"> <svg className="w-5 h-5 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg> </button>
+                            <button className={`p-3 rounded-full active:scale-90 transition-colors ${darkMode ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100'}`} onClick={() => fileInputRef.current?.click()}>
+                                <PlusIcon/>
+                            </button>
+                            <input type="file" ref={fileInputRef} hidden onChange={(e) => e.target.files?.[0] && handleSendFile(e.target.files[0])} />
+                            <textarea 
+                                value={inputContent} 
+                                onChange={e => {
+                                    setInputContent(e.target.value);
+                                    updateTypingStatus(true);
+                                }} 
+                                placeholder="Escribe un mensaje..." 
+                                className={`flex-1 min-w-0 rounded-2xl px-4 py-3 text-sm font-bold outline-none border transition-all resize-none max-h-32 ${darkMode ? 'bg-black border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`} 
+                                rows={1} 
+                                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage('text', inputContent); } }}
+                            />
+                            {inputContent ? (
+                                <button onClick={() => sendChatMessage('text', inputContent)} className="bg-misionero-verde text-white font-black w-12 h-12 rounded-2xl shadow-md active:scale-95 transition-transform flex items-center justify-center shrink-0">
+                                    <SendIcon/>
+                                </button>
                             ) : (
-                                <button type="button" onClick={startRecording} className={`font-black w-12 h-12 rounded-2xl shadow-md active:scale-95 transition-colors flex items-center justify-center shrink-0 bg-misionero-azul text-white`}> <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg> </button>
+                                <button onClick={startRecording} className="p-3.5 rounded-full bg-misionero-rojo text-white shadow-md active:scale-95">
+                                    <MicIcon/>
+                                </button>
                             )}
                         </>
                     )}
                 </div>
-            </form>
-
-            {showOptions && (<div className="fixed inset-0 z-[200] flex items-end justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setShowOptions(false)}><div className={`w-full rounded-t-[2.5rem] shadow-2xl animate-in slide-in-from-bottom duration-300 pb-10 ${darkMode ? 'bg-slate-900 border-t border-slate-800' : 'bg-white border-t border-slate-200'}`} onClick={e => e.stopPropagation()}><div className="flex justify-center pt-4 pb-2"><div className={`w-12 h-1.5 rounded-full ${darkMode ? 'bg-slate-700' : 'bg-slate-200'}`}></div></div><div className="px-6 pb-2 text-center border-b border-slate-100 dark:border-slate-800"><h3 className={`text-sm font-black uppercase ${darkMode ? 'text-white' : 'text-slate-900'}`}>Ajustes del Chat</h3></div><div className="p-4 space-y-2">{isMuted ? (<button onClick={handleUnmute} className={`w-full py-4 rounded-2xl text-xs font-bold uppercase transition-colors ${darkMode ? 'bg-slate-800 text-white active:bg-slate-700' : 'bg-slate-100 text-slate-800 active:bg-slate-200'}`}>Desactivar Silencio</button>) : (<div className="space-y-2"><p className={`text-[10px] font-black uppercase ml-2 mb-1 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>Silenciar por</p><div className="grid grid-cols-3 gap-2"><button onClick={() => handleMute(60)} className={`py-3 rounded-xl text-[10px] font-bold uppercase transition-colors ${darkMode ? 'bg-slate-800 text-white active:bg-slate-700' : 'bg-slate-100 text-slate-800 active:bg-slate-200'}`}>1 Hora</button><button onClick={() => handleMute(480)} className={`py-3 rounded-xl text-[10px] font-bold uppercase transition-colors ${darkMode ? 'bg-slate-800 text-white active:bg-slate-700' : 'bg-slate-100 text-slate-800 active:bg-slate-200'}`}>8 Horas</button><button onClick={() => handleMute(-1)} className={`py-3 rounded-xl text-[10px] font-bold uppercase transition-colors ${darkMode ? 'bg-slate-800 text-white active:bg-slate-700' : 'bg-slate-100 text-slate-800 active:bg-slate-200'}`}>Siempre</button></div></div>)}<button onClick={handleToggleBlock} className={`w-full py-4 mt-2 rounded-2xl text-xs font-bold uppercase transition-colors ${isBlocked ? 'bg-misionero-verde/10 text-misionero-verde active:bg-misionero-verde/20' : 'bg-red-500/10 text-red-500 active:bg-red-500/20'}`}>{isBlocked ? 'Desbloquear' : 'Bloquear'}</button></div></div></div>)}
-            {deleteModalVisible && (<div className="fixed inset-0 z-[200] flex items-center justify-center p-6 animate-in fade-in duration-200" onClick={() => setDeleteModalVisible(false)}><div className="absolute inset-0 bg-black/60 backdrop-blur-sm"></div><div className={`relative w-full max-w-sm rounded-[2.5rem] shadow-2xl p-6 animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-slate-900 border border-slate-800' : 'bg-white border border-slate-100'}`} onClick={e => e.stopPropagation()}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Eliminar Mensaje</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{canDeleteForEveryone ? "¿Cómo deseas eliminar este mensaje?" : "Este mensaje solo se eliminará para ti."}</p><div className="space-y-3">{canDeleteForEveryone && (<button onClick={handleDeleteForEveryone} className={`w-full py-4 rounded-2xl text-xs font-bold uppercase transition-colors ${darkMode ? 'bg-slate-800 text-misionero-rojo active:bg-slate-700' : 'bg-slate-100 text-misionero-rojo active:bg-slate-200'}`}>Eliminar para Todos</button>)}<button onClick={handleDeleteForMe} className={`w-full py-4 rounded-2xl text-xs font-bold uppercase transition-colors ${darkMode ? 'bg-slate-800 text-misionero-rojo active:bg-slate-700' : 'bg-slate-100 text-misionero-rojo active:bg-slate-200'}`}>Eliminar para Mí</button><button onClick={() => setDeleteModalVisible(false)} className={`w-full py-4 rounded-2xl text-xs font-bold uppercase transition-colors ${darkMode ? 'bg-black text-white active:bg-slate-900' : 'bg-slate-200 text-slate-800 active:bg-slate-300'}`}>Cancelar</button></div></div></div>)}
+            </div>
+            
+            {selectedMessageForAction && (
+                <div className="fixed inset-0 z-[250] flex flex-col justify-end bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setSelectedMessageForAction(null)}>
+                    <div className={`w-full p-6 rounded-t-[2.5rem] shadow-2xl animate-in slide-in-from-bottom duration-300 ${darkMode ? 'bg-slate-900 border-t border-slate-800' : 'bg-white border-t border-slate-200'}`} onClick={e => e.stopPropagation()}>
+                        <div className="flex justify-between mb-6 px-2">
+                            {REACTIONS.map(emoji => (
+                                <button key={emoji} onClick={() => handleReaction(emoji)} className="text-3xl hover:scale-125 transition-transform active:scale-90">{emoji}</button>
+                            ))}
+                        </div>
+                        <div className="space-y-2">
+                            <button onClick={() => { setReplyingTo(selectedMessageForAction.msg); setSelectedMessageForAction(null); }} className={`w-full py-4 rounded-2xl text-xs font-bold uppercase flex items-center justify-center gap-2 ${darkMode ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-700'}`}>
+                                <ReplyIcon /> Responder
+                            </button>
+                             <button onClick={handleCopy} className={`w-full py-4 rounded-2xl text-xs font-bold uppercase flex items-center justify-center gap-2 ${darkMode ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-700'}`}>
+                                <CopyIcon /> Copiar
+                            </button>
+                            {selectedMessageForAction.msg.senderId === currentUser.id && (
+                                 <button onClick={handleDelete} className={`w-full py-4 rounded-2xl text-xs font-bold uppercase flex items-center justify-center gap-2 text-red-500 ${darkMode ? 'bg-red-500/10' : 'bg-red-500/5'}`}>
+                                    <TrashIcon /> Eliminar
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+            
+            {viewingImageUrl && <ImageViewer imageUrl={viewingImageUrl} onClose={() => setViewingImageUrl(null)} onDelete={()=>{}} darkMode={darkMode} />}
         </div>
     );
 };
