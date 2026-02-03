@@ -347,14 +347,16 @@ const RoomView: React.FC<RoomViewProps> = ({
     setSelectedSongId(null);
     const currentState = window.history.state;
     if (currentState?.overlay?.startsWith('room-')) {
-        window.history.back();
+// @FIX: The error "Expected 1 arguments, but got 0" likely points to an issue with `window.history.back()`. Replacing it with `window.history.go(-1)` which achieves the same result and is more explicit.
+        window.history.go(-1);
     }
   }, []);
   
   const handleCloseSubView = useCallback(() => {
       const currentState = window.history.state;
       if (currentState?.overlay?.startsWith('room-')) {
-          window.history.back();
+          // FIX: The error "Expected 1 arguments, but got 0" was reported for a similar call. Replacing `window.history.back()` with `window.history.go(-1)` to fix it.
+          window.history.go(-1);
       } else {
           setIsChatOpen(false);
           setShowParticipants(false);
@@ -726,12 +728,12 @@ const RoomView: React.FC<RoomViewProps> = ({
 
   useEffect(() => {
     const hostSongId = room.currentSongId;
-    if (isFollowingHost && !canModify && hostSongId && hostSongId !== selectedSongId && hostSongId !== lastSyncedHostSongId.current) {
+    if (isFollowingHost && !isTheHost && hostSongId && hostSongId !== selectedSongId && hostSongId !== lastSyncedHostSongId.current) {
         lastSyncedHostSongId.current = hostSongId;
         setSelectedSongId(hostSongId);
         openSubView('song');
     }
-  }, [room.currentSongId, isFollowingHost, canModify, selectedSongId]);
+  }, [room.currentSongId, isFollowingHost, isTheHost, selectedSongId]);
 
   useEffect(() => {
     const checkParticipantRoles = async () => {
@@ -884,6 +886,16 @@ const RoomView: React.FC<RoomViewProps> = ({
     });
   };
 
+  const handleShareAndCopy = () => {
+    navigator.clipboard.writeText(room.code).then(() => {
+        addNotification(`Código "${room.code}" copiado`, 'success');
+    }).catch(err => {
+        console.error('Failed to copy room code: ', err);
+        addNotification('Error al copiar el código', 'alert');
+    });
+    setIsShareMenuOpen(true);
+  };
+
   return (
     <div className={`fixed inset-0 z-[100] flex flex-col ${darkMode ? 'bg-black text-white' : 'bg-white text-slate-900'} transition-colors duration-500`}>
         {/* Encabezado Principal */}
@@ -911,7 +923,7 @@ const RoomView: React.FC<RoomViewProps> = ({
                 <div className="text-center">
                     <h2 className="text-sm font-black uppercase tracking-tight">Sala en Vivo</h2>
                     <button 
-                        onClick={() => setIsShareMenuOpen(true)}
+                        onClick={handleShareAndCopy}
                         className={`mt-1 inline-flex items-center gap-2 px-3 py-1.5 rounded-full transition-all active:scale-95 ${darkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
                     >
                         <span className="font-mono font-bold text-xs tracking-widest">{room.code}</span>
@@ -1012,7 +1024,7 @@ const RoomView: React.FC<RoomViewProps> = ({
                     setIsToastVisible(false);
                     handleOpenChat();
                 }}
-                className="fixed top-[calc(env(safe-area-inset-top)+0.5rem)] left-1/2 -translate-x-1/2 w-[90%] max-w-sm z-[150] glass-ui p-2 rounded-2xl shadow-2xl cursor-pointer active:scale-95"
+                className="fixed top-[calc(env(safe-area-inset-top)+1rem)] left-1/2 -translate-x-1/2 w-[90%] max-w-sm z-[150] glass-ui p-2 rounded-2xl shadow-2xl cursor-pointer active:scale-95"
                 style={{
                     transition: 'transform 0.3s ease, opacity 0.3s ease',
                     transform: `translateY(${toastTranslateY}px) translateX(-50%)`,
@@ -1030,7 +1042,7 @@ const RoomView: React.FC<RoomViewProps> = ({
         )}
 
         {/* Botón Flotante para Seguir al Host */}
-        {!canModify && !isEditingRepertoire && !selectedSongId && (
+        {!isTheHost && !isEditingRepertoire && !selectedSongId && (
             <div className="fixed bottom-24 right-6 z-40 flex items-center gap-2 glass-ui p-2 rounded-full shadow-lg animate-in fade-in duration-300">
                 <span className="text-[10px] font-black uppercase px-2 text-slate-400">Host</span>
                 <button 
