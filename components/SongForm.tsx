@@ -174,6 +174,7 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
             
             setAudioBlob(newAudioBlob);
             setAudioPreviewUrl(URL.createObjectURL(newAudioBlob));
+            setDeleteExistingAudio(false); // A new recording overrides deletion intent
         };
 
         // start(1000) asegura que se generen chunks cada segundo, reduciendo riesgo de perder datos

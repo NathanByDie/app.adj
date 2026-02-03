@@ -38,10 +38,13 @@ import {
   arrayUnion,
   arrayRemove,
   writeBatch,
-  deleteField
+  deleteField,
+  Unsubscribe
 } from "firebase/firestore";
 import { getDatabase, ref, onValue, set, onDisconnect, serverTimestamp, update as updateRtdb, remove as removeRtdb } from "firebase/database";
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+import { Capacitor } from '@capacitor/core';
+import { App as CapacitorApp } from '@capacitor/app';
 
 import { User as AppUser, Song, LiturgicalTime, Room, UserRole, ChatInfo } from './types';
 import { PlusIcon, UsersIcon } from './constants';
@@ -55,6 +58,7 @@ import ChatSyncManager from './components/ChatSyncManager';
 import { triggerHapticFeedback } from './services/haptics';
 import useCachedMedia from './hooks/useCachedMedia';
 import { AudioPlayerProvider } from './contexts/AudioPlayerContext';
+import { initializePushNotifications } from './services/notifications';
 
 // --- CONFIGURACIÓN DE FIREBASE ---
 const firebaseConfig = {
@@ -393,7 +397,7 @@ const RoomLobbyView = ({ roomCodeInput, setRoomCodeInput, handleJoinRoom, handle
         <div className="w-20 h-20 bg-misionero-azul/10 rounded-[2rem] flex items-center justify-center text-misionero-azul"><UsersIcon /></div>
         <div><h3 className="text-xl font-black uppercase mb-2">Sincronización</h3><p className="text-[10px] font-bold text-slate-400 uppercase leading-relaxed">Únete a una sala para ver los acordes en tiempo real.</p></div>
         <input type="text" placeholder="CÓDIGO" className="w-full glass-ui rounded-2xl px-6 py-4 text-center font-black text-lg uppercase outline-none" value={roomCodeInput} onChange={e => setRoomCodeInput(e.target.value)} />
-        <button onClick={handleJoinRoom} className="w-full glass-ui glass-interactive bg-misionero-azul/70 text-white font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest active:scale-95 transition-all">UNIRME</button>
+        <button onClick={() => handleJoinRoom()} className="w-full glass-ui glass-interactive bg-misionero-azul/70 text-white font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest active:scale-95 transition-all">UNIRME</button>
         {isAdmin && <button onClick={handleCreateRoom} className="w-full glass-ui glass-interactive bg-misionero-verde/30 text-misionero-verde font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest active:scale-95 transition-all">CREAR SALA</button>}
     </div>
 );
@@ -772,6 +776,7 @@ const App = () => {
   const [roomCodeInput, setRoomCodeInput] = useState('');
   const [isJoiningRoom, setIsJoiningRoom] = useState(false);
   const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
+  const roomSubscription = useRef<Unsubscribe | null>(null);
 
   // Chat
   const [userChats, setUserChats] = useState<ChatInfo[]>([]);
@@ -799,6 +804,118 @@ const App = () => {
 
   // Import State from Share Plugin
   const [sharedImportUrl, setSharedImportUrl] = useState<string | null>(null);
+
+  // Helper for generating chat ID (needed for self-healing logic)
+  const generateChatId = (uid1: string, uid2: string): string => {
+      return [uid1, uid2].sort().join('_');
+  };
+
+  const handleOpenDirectMessage = (partnerId: string) => {
+    getDoc(doc(db, 'users', partnerId)).then(snap => {
+         if (snap.exists()) setDirectMessagePartner({id: partnerId, ...snap.data()} as AppUser);
+    });
+  };
+
+  const handleExitRoom = useCallback(async () => {
+    if (!currentRoom || !user) return;
+    const roomToExit = currentRoom;
+    if (roomSubscription.current) {
+        roomSubscription.current();
+        roomSubscription.current = null;
+    }
+    setCurrentRoom(null);
+    try {
+        await updateDoc(doc(db, 'rooms', roomToExit.id), { participants: arrayRemove(user.username) });
+        const partRef = ref(rtdb, `rooms/${roomToExit.id}/participants/${user.username}`);
+        await removeRtdb(partRef);
+    } catch (error) {
+        console.error("Failed to cleanly exit room from database:", error);
+    }
+  }, [currentRoom, user, db, rtdb]);
+
+  useEffect(() => {
+    if (Capacitor.isNativePlatform()) {
+        const listener = CapacitorApp.addListener('backButton', () => {
+            if (categoryConfirmModal) {
+                setCategoryConfirmModal(null);
+                return;
+            }
+            if (profileUserId) {
+                setProfileUserId(null);
+                return;
+            }
+            if (directMessagePartner) {
+                setDirectMessagePartner(null);
+                return;
+            }
+            if (isSongEditorOpen || editorSong) {
+                setIsSongEditorOpen(false);
+                setEditorSong(null);
+                return;
+            }
+            if (viewerSong) {
+                setViewerSong(null);
+                return;
+            }
+            if (currentRoom) {
+                // En una sala, el listener interno de RoomView se encargará primero.
+                // Si este listener global se dispara, significa que RoomView no pudo manejarlo
+                // o que es hora de salir. Por seguridad, lo dejamos en manos de RoomView.
+                return;
+            }
+            CapacitorApp.exitApp();
+        });
+
+        return () => {
+            listener.remove();
+        };
+    }
+  }, [
+      categoryConfirmModal,
+      profileUserId,
+      directMessagePartner,
+      isSongEditorOpen,
+      editorSong,
+      viewerSong,
+      currentRoom
+  ]);
+
+
+  // --- Push Notifications Effect ---
+  useEffect(() => {
+    if (user?.id) {
+        initializePushNotifications(app, db, user.id, (chatId) => {
+            // This callback handles notification taps
+            const partnerId = chatId.replace(user.id, '').replace('_', '');
+            if (partnerId) {
+              navigateTo('chat');
+              handleOpenDirectMessage(partnerId);
+            }
+        });
+    }
+  }, [user?.id]);
+  // ---------------------------------
+
+  // Self-Healing Effect: Sync user names/photos in chat list with validated users list
+  useEffect(() => {
+      if (!user || userChats.length === 0 || allValidatedUsers.length === 0) return;
+
+      userChats.forEach(chat => {
+          const liveUser = allValidatedUsers.find(u => u.id === chat.partnerId);
+          if (liveUser) {
+              const nameMismatch = liveUser.username !== chat.partnerUsername;
+              const photoMismatch = liveUser.photoURL !== chat.partnerPhotoURL;
+              
+              if (nameMismatch || photoMismatch) {
+                  const chatId = generateChatId(user.id, chat.partnerId);
+                  updateDoc(doc(db, 'user_chats', user.id, 'chats', chatId), {
+                      partnerUsername: liveUser.username,
+                      partnerPhotoURL: liveUser.photoURL || null
+                  }).catch(e => console.warn("Self-healing update failed", e));
+              }
+          }
+      });
+  }, [userChats, allValidatedUsers, user, db]);
 
   // Handle Share Plugin
   useEffect(() => {
@@ -870,31 +987,13 @@ const App = () => {
         setSongs(snap.docs.map(d => ({ id: d.id, ...d.data() } as Song)));
     }, (error) => console.error("Error fetching songs:", error));
 
-    const fetchCategories = async () => {
-        try {
-            const categoriesSnapshot = await getDocs(collection(db, 'categories'));
-            const dbCategories = categoriesSnapshot.docs.map(d => ({ id: d.id, name: d.data().name }));
-            
-            if (dbCategories.length > 0) {
-                setCategories(dbCategories.sort((a, b) => a.name.localeCompare(b.name)));
-            } else {
-                // Fallback: Si no hay categorías en DB, usar las por defecto (LiturgicalTime)
-                const defaultCats = Object.values(LiturgicalTime).map(name => ({ id: name, name }));
-                setCategories(defaultCats);
-            }
-        } catch (error: any) {
-            // Manejo silencioso de errores de permisos
-            if (error.code === 'permission-denied') {
-                console.warn("Acceso a categorías dinámicas restringido. Se cargarán las categorías predeterminadas.");
-            } else {
-                console.error("Error fetching categories:", error);
-            }
-            // Fallback en caso de error (permisos, red, etc.)
-            const defaultCats = Object.values(LiturgicalTime).map(name => ({ id: name, name }));
-            setCategories(defaultCats);
-        }
-    };
-    fetchCategories();
+    const unsubCats = onSnapshot(collection(db, 'song_categories'), (snap) => {
+      setCategories(snap.docs.map(d => ({ id: d.id, name: d.data().name })));
+    }, (error) => {
+        console.warn("Could not load dynamic categories, falling back to default.", error);
+        const defaultCats = Object.values(LiturgicalTime).map(name => ({ id: name, name }));
+        setCategories(defaultCats);
+    });
 
     const unsubUser = onSnapshot(doc(db, 'users', user.id), (snap) => {
         if (snap.exists()) {
@@ -991,7 +1090,7 @@ const App = () => {
         }, (error) => console.error("Error fetching admins:", error));
     }
 
-    return () => { unsubSongs(); unsubUser(); unsubChats(); unsubAllUsers(); unsubOnline(); unsubTyping(); unsubAdmins(); };
+    return () => { unsubSongs(); unsubUser(); unsubChats(); unsubAllUsers(); unsubOnline(); unsubTyping(); unsubAdmins(); unsubCats(); };
   }, [user?.id]);
 
   // Profile Viewer Effect
@@ -1012,6 +1111,49 @@ const App = () => {
   const navigateTo = (newView: AppView, direction: AnimationDirection = 'fade') => {
     setAnimationDirection(direction);
     setView(newView);
+  };
+
+  const handleJoinRoom = async (code?: string) => {
+      const codeToJoin = code || roomCodeInput;
+      if (!codeToJoin) return;
+      setIsJoiningRoom(true);
+      try {
+          const q = query(collection(db, 'rooms'), where('code', '==', codeToJoin.toUpperCase()));
+          const snap = await getDocs(q);
+          if (snap.empty) throw new Error("Sala no encontrada");
+          
+          const roomDoc = snap.docs[0];
+          let roomData = { id: roomDoc.id, ...roomDoc.data() } as Room;
+          
+          if (roomData.banned?.includes(user!.username)) throw new Error("Estás baneado de esta sala");
+
+          // Unsubscribe from any previous room listener
+          if (roomSubscription.current) {
+              roomSubscription.current();
+          }
+
+          // Subscribe to real-time updates for the new room
+          roomSubscription.current = onSnapshot(doc(db, 'rooms', roomData.id), (doc) => {
+              if (doc.exists()) {
+                  setCurrentRoom({ id: doc.id, ...doc.data() } as Room);
+              } else {
+                  // The room was deleted, clean up
+                  setCurrentRoom(null);
+                  if (roomSubscription.current) {
+                      roomSubscription.current();
+                      roomSubscription.current = null;
+                  }
+              }
+          });
+
+          // Join Logic
+          await updateDoc(doc(db, 'rooms', roomData.id), { participants: arrayUnion(user!.username) });
+
+      } catch (e: any) {
+          alert(e.message);
+      } finally {
+          setIsJoiningRoom(false);
+      }
   };
   
   if (authLoading) return <div className="fixed inset-0 flex items-center justify-center bg-black"><div className="w-10 h-10 border-4 border-white/30 border-t-white rounded-full animate-spin"></div></div>;
@@ -1089,32 +1231,11 @@ const App = () => {
                   activeFilter={activeFilter} setActiveFilter={setActiveFilter}
                   categories={categories}
                   userChats={userChats} allValidatedUsers={allValidatedUsers} onlineStatuses={onlineStatuses} typingStatuses={typingStatuses}
-                  openDirectMessage={(partner) => {
-                      getDoc(doc(db, 'users', partner.id)).then(snap => {
-                           if (snap.exists()) setDirectMessagePartner({id: partner.id, ...snap.data()} as AppUser);
-                      });
-                  }}
+                  openDirectMessage={handleOpenDirectMessage}
                   onViewProfile={setProfileUserId}
                   roomCodeInput={roomCodeInput} setRoomCodeInput={setRoomCodeInput}
                   isJoiningRoom={isJoiningRoom}
-                  handleJoinRoom={async () => {
-                      if (!roomCodeInput) return;
-                      setIsJoiningRoom(true);
-                      try {
-                          const q = query(collection(db, 'rooms'), where('code', '==', roomCodeInput.toUpperCase()));
-                          const snap = await getDocs(q);
-                          if (snap.empty) throw new Error("Sala no encontrada");
-                          const roomData = { id: snap.docs[0].id, ...snap.docs[0].data() } as Room;
-                          if (roomData.banned?.includes(user.username)) throw new Error("Estás baneado de esta sala");
-                          
-                          await updateDoc(doc(db, 'rooms', roomData.id), { participants: arrayUnion(user.username) });
-                          setCurrentRoom(roomData);
-                      } catch (e: any) {
-                          alert(e.message);
-                      } finally {
-                          setIsJoiningRoom(false);
-                      }
-                  }}
+                  handleJoinRoom={handleJoinRoom}
                   handleCreateRoom={async () => {
                       if (user.role !== 'admin') return;
                       setIsJoiningRoom(true);
@@ -1127,7 +1248,7 @@ const App = () => {
                               participants: [user.username],
                               createdAt: Date.now()
                           });
-                          setCurrentRoom({ id: roomRef.id, code, host: user.username, repertoire: [], participants: [user.username] });
+                          handleJoinRoom(code);
                       } catch (e) {
                           alert("Error creando sala");
                       } finally {
@@ -1137,18 +1258,18 @@ const App = () => {
                   newCategoryName={newCategoryName} setNewCategoryName={setNewCategoryName}
                   onAddCategory={async () => {
                       if (!newCategoryName.trim()) return;
-                      await addDoc(collection(db, 'categories'), { name: newCategoryName.trim() });
+                      await addDoc(collection(db, 'song_categories'), { name: newCategoryName.trim() });
                       setNewCategoryName('');
                   }}
                   editingCategory={editingCategory} setEditingCategory={setEditingCategory}
                   onSaveEditCategory={async () => {
                       if (editingCategory) {
-                          await updateDoc(doc(db, 'categories', editingCategory.id), { name: editingCategory.name });
+                          await updateDoc(doc(db, 'song_categories', editingCategory.id), { name: editingCategory.name });
                           setEditingCategory(null);
                       }
                   }}
                   handleDeleteCategory={async (id: string) => {
-                      await deleteDoc(doc(db, 'categories', id));
+                      await deleteDoc(doc(db, 'song_categories', id));
                   }}
                   setCategoryConfirmModal={setCategoryConfirmModal}
                   passwordChangeData={passwordChangeData} setPasswordChangeData={setPasswordChangeData}
@@ -1226,21 +1347,16 @@ const App = () => {
               <RoomView 
                   room={currentRoom}
                   songs={songs}
-                  currentUser={user.username}
+                  currentUser={user}
                   isAdmin={user.role === 'admin'}
-                  onExitRequest={async () => {
-                      await updateDoc(doc(db, 'rooms', currentRoom.id), { participants: arrayRemove(user.username) });
-                      const partRef = ref(rtdb, `rooms/${currentRoom.id}/participants/${user.username}`);
-                      await removeRtdb(partRef);
-                      setCurrentRoom(null);
-                  }}
+                  onExitRequest={handleExitRoom}
                   onUpdateRoom={(roomId: string, updates: Partial<Room>) => updateDoc(doc(db, 'rooms', roomId), updates)}
                   darkMode={darkMode}
                   db={db} rtdb={rtdb}
                   onEditSong={(s: Song) => { setEditorSong(s); setIsSongEditorOpen(true); }}
                   onDeleteSong={async (sid: string) => { await deleteDoc(doc(db, 'songs', sid)); }}
                   categories={categories.map(c => c.name)}
-                  allUsers={[]}
+                  allUsers={allValidatedUsers}
                   onViewProfile={(uid: string) => setProfileUserId(uid)}
               />
           )}
@@ -1275,6 +1391,14 @@ const App = () => {
                 onSave={async (songData: any, audioAction: any) => {
                     let audioUrl = editorSong?.audioUrl;
                     if (audioAction.shouldDelete) {
+                        if (editorSong?.audioUrl) {
+                            try {
+                                const oldAudioRef = storageRef(storage, editorSong.audioUrl);
+                                await deleteObject(oldAudioRef);
+                            } catch (error) {
+                                console.warn("Old audio file could not be deleted, it might already be gone:", error);
+                            }
+                        }
                         audioUrl = undefined;
                     }
                     if (audioAction.blob) {
@@ -1285,7 +1409,7 @@ const App = () => {
                     }
                     
                     if (editorSong) {
-                        await updateDoc(doc(db, 'songs', editorSong.id), { ...songData, audioUrl: audioUrl || null });
+                        await updateDoc(doc(db, 'songs', editorSong.id), { ...songData, audioUrl: audioUrl === undefined ? deleteField() : audioUrl });
                     } else {
                         await addDoc(collection(db, 'songs'), { ...songData, audioUrl: audioUrl || null, createdAt: Date.now() });
                     }
@@ -1305,6 +1429,11 @@ const App = () => {
                   darkMode={darkMode}
                   partnerStatus={onlineStatuses[directMessagePartner.id]}
                   onViewProfile={setProfileUserId}
+                  onJoinRoom={async (code: string) => {
+                      setDirectMessagePartner(null);
+                      navigateTo('room');
+                      await handleJoinRoom(code);
+                  }}
               />
           )}
 

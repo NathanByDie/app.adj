@@ -1,10 +1,11 @@
+
 /**
  * Provides different haptic feedback patterns.
  * Ensures vibration is only triggered if the API is available.
  */
 
 // A short, crisp vibration for successful actions or UI feedback.
-export const triggerHapticFeedback = (pattern: 'light' | 'success' | 'notification' | 'error' = 'light') => {
+export const triggerHapticFeedback = (pattern: 'light' | 'success' | 'notification' | 'error' | 'unread_message' = 'light') => {
   if (typeof window !== 'undefined' && window.navigator && window.navigator.vibrate) {
     try {
       switch (pattern) {
@@ -23,6 +24,10 @@ export const triggerHapticFeedback = (pattern: 'light' | 'success' | 'notificati
         case 'error':
             // A distinct double-buzz to indicate an error.
             window.navigator.vibrate([75, 50, 75, 50, 75]);
+            break;
+        case 'unread_message':
+            // Specific pattern for unread messages: 500ms, pause 100ms, 500ms
+            window.navigator.vibrate([500, 100, 500]);
             break;
         default:
           window.navigator.vibrate(50);

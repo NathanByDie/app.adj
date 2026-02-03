@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Song } from '../types';
 import { isChordLine, transposeSong, transposeRoot, findBestCapo } from '../services/musicUtils';
@@ -355,44 +356,22 @@ const SongViewer: React.FC<SongViewerProps> = ({
       onTouchEnd={onTouchEnd}
     >
       <header className={`px-4 pt-12 pb-2 flex items-center justify-between sticky top-0 z-30 glass-ui`}>
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1 shrink-0 w-20 justify-start">
           <button onClick={onBack} className={`w-10 h-10 flex items-center justify-center ${darkMode ? 'text-slate-400' : 'text-slate-500'} active:scale-90`}>
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7"/></svg>
           </button>
         </div>
 
-        <div className="flex-1 flex items-center justify-center min-w-0 px-2 gap-2">
-            {onPrev && (
-                <button 
-                  onClick={onPrev} 
-                  disabled={!hasPrev} 
-                  className={`w-8 h-8 flex items-center justify-center rounded-full shrink-0 transition-colors ${darkMode ? 'text-slate-400 disabled:text-slate-800 hover:bg-slate-800' : 'text-slate-500 disabled:text-slate-200 hover:bg-slate-100'} disabled:cursor-not-allowed`}
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M18 17l-5-5 5-5m-7 10l-5-5 5-5" /></svg>
-                </button>
-            )}
-
-            <div className="text-center truncate flex-1 min-w-0">
-              <h1 className={`text-[11px] font-black uppercase truncate transition-colors duration-500 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{song.title}</h1>
-              <div className="flex items-center justify-center gap-2 text-[7px] font-black uppercase">
-                <span className="text-misionero-rojo">Tono: {soundingKey}</span>
-                {capo > 0 && <span className={darkMode ? 'text-misionero-amarillo' : 'text-misionero-azul'}>Capo {capo}: {chordShapeKey}</span>}
-                {song.source === 'lacuerda' && <span className="text-orange-500 bg-orange-500/10 px-1.5 py-0.5 rounded-full border border-orange-500/20 normal-case">LaCuerda.net</span>}
-              </div>
-            </div>
-
-            {onNext && (
-                <button 
-                  onClick={onNext} 
-                  disabled={!hasNext} 
-                  className={`w-8 h-8 flex items-center justify-center rounded-full shrink-0 transition-colors ${darkMode ? 'text-slate-400 disabled:text-slate-800 hover:bg-slate-800' : 'text-slate-500 disabled:text-slate-200 hover:bg-slate-100'} disabled:cursor-not-allowed`}
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 7l5 5-5 5M6 7l5 5-5 5" /></svg>
-                </button>
-            )}
+        <div className="text-center truncate flex-1 min-w-0 px-4">
+          <h1 className={`text-[11px] font-black uppercase truncate transition-colors duration-500 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{song.title}</h1>
+          <div className="flex items-center justify-center gap-2 text-[7px] font-black uppercase">
+            <span className="text-misionero-rojo">Tono: {soundingKey}</span>
+            {capo > 0 && <span className={darkMode ? 'text-misionero-amarillo' : 'text-misionero-azul'}>Capo {capo}: {chordShapeKey}</span>}
+            {song.source === 'lacuerda' && <span className="text-orange-500 bg-orange-500/10 px-1.5 py-0.5 rounded-full border border-orange-500/20 normal-case">LaCuerda.net</span>}
+          </div>
         </div>
         
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1 shrink-0 w-20 justify-end">
           <button onClick={handleShare} className="w-10 h-10 flex items-center justify-center text-misionero-verde active:scale-90">
              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
           </button>
@@ -459,13 +438,15 @@ const SongViewer: React.FC<SongViewerProps> = ({
         </div>
       )}
 
-      <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto p-5 custom-scroll no-pull relative`}>
-        {showShareToast && (
-          <div className="fixed top-20 left-1/2 -translate-x-1/2 glass-ui bg-misionero-verde/70 text-white px-6 py-2 rounded-full text-[10px] font-black uppercase shadow-2xl z-[100] animate-in fade-in slide-in-from-top-4 duration-300">
-            ¡Enlace copiado!
-          </div>
-        )}
-        <div className={`leading-relaxed ${isChatVisible ? 'pb-40' : 'pb-24'}`}>{processedContent}</div>
+      <div className="flex-1 relative min-h-0">
+        <div ref={scrollContainerRef} className={`absolute inset-0 overflow-y-auto p-5 custom-scroll no-pull`}>
+          {showShareToast && (
+            <div className="fixed top-20 left-1/2 -translate-x-1/2 glass-ui bg-misionero-verde/70 text-white px-6 py-2 rounded-full text-[10px] font-black uppercase shadow-2xl z-[100] animate-in fade-in slide-in-from-top-4 duration-300">
+              ¡Enlace copiado!
+            </div>
+          )}
+          <div className={`leading-relaxed ${isChatVisible ? 'pb-40' : 'pb-24'}`}>{processedContent}</div>
+        </div>
       </div>
       
       {isChatVisible && chatInputComponent && (

@@ -10,8 +10,8 @@ interface ChatListViewProps {
     userChats: ChatInfo[];
     allValidatedUsers: AppUser[];
     onlineStatuses: Record<string, { state: 'online' } | { state: 'offline', last_changed: number }>;
-    typingStatuses: Record<string, any>; // Changed from string[] to any to reflect RTDB object structure
-    onUserSelect: (partner: { id: string; }) => void;
+    typingStatuses: Record<string, any>;
+    onUserSelect: (partnerId: string) => void;
     onViewProfile: (userId: string) => void;
     darkMode: boolean;
     currentUser: AppUser;
@@ -53,7 +53,8 @@ const ChatListItem: React.FC<{
     handleTouchMove: any, onViewProfile: any, onUserSelect: any 
 }> = ({ chat, darkMode, onlineStatuses, currentUser, typingStatuses, handleTouchStart, handleTouchEnd, handleTouchMove, onViewProfile, onUserSelect }) => {
     
-    // Check both timestamp and text to prevent "New Chat" state when timestamp is pending (null) but text exists
+    // Si no hay timestamp NI texto, es un chat nuevo sin uso.
+    // Si hay texto pero no timestamp (null), es un mensaje enviándose ahora mismo (pending).
     const isNewChat = !chat.lastMessageTimestamp && !chat.lastMessageText;
     const cachedPhotoUrl = useCachedMedia(chat.partnerPhotoURL);
 
@@ -69,7 +70,6 @@ const ChatListItem: React.FC<{
 
     const chatId = generateChatId(currentUser.id, chat.partnerId);
     
-    // Fix: Access property by key instead of using .includes on an object
     const isPartnerTyping = typingStatuses[chatId] && typingStatuses[chatId][chat.partnerId];
 
     // Estado para almacenar el texto descifrado
@@ -126,7 +126,7 @@ const ChatListItem: React.FC<{
             onTouchMove={handleTouchMove}
             onClick={(e) => {
                 if (!(e.target as HTMLElement).closest('[data-avatar-button="true"]')) {
-                    onUserSelect({ id: chat.partnerId });
+                    onUserSelect(chat.partnerId);
                 }
             }}
             className={`relative glass-ui rounded-2xl p-4 flex items-center gap-4 active:scale-[0.98] transition-transform animate-stagger-in cursor-pointer ${isBlocked ? 'opacity-60 grayscale' : ''}`}
@@ -184,6 +184,7 @@ const ChatListItem: React.FC<{
 const ChatListView: React.FC<ChatListViewProps> = ({ userChats, allValidatedUsers, onlineStatuses, onUserSelect, onViewProfile, darkMode, currentUser, db, typingStatuses }) => {
     const [filter, setFilter] = useState('');
     const [selectedChatForOptions, setSelectedChatForOptions] = useState<ChatInfo | null>(null);
+    const [showSecurityInfo, setShowSecurityInfo] = useState(false); // Estado para el modal de seguridad
     const longPressTimerRef = useRef<number | null>(null);
     const touchStartCoords = useRef<{x: number, y: number} | null>(null);
     const isLongPress = useRef(false);
@@ -212,13 +213,23 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, allValidatedUser
 
         // Sort: existing chats first by timestamp, then new contacts alphabetically
         return filtered.sort((a, b) => {
-            const timeA = a.lastMessageTimestamp?.seconds || 0;
-            const timeB = b.lastMessageTimestamp?.seconds || 0;
+            // Helper para obtener el valor del tiempo
+            // Si el timestamp es null (escritura pendiente) pero hay texto, se considera "Ahora" (prioridad máxima)
+            const getTimestamp = (c: ChatInfo) => {
+                if (c.lastMessageTimestamp?.seconds) return c.lastMessageTimestamp.seconds;
+                // Si no hay timestamp pero hay texto, está enviándose ahora mismo.
+                // Retornamos un número muy grande para que quede arriba.
+                if (c.lastMessageText) return Number.MAX_SAFE_INTEGER;
+                return 0; // Chat vacío/nuevo real
+            };
+
+            const timeA = getTimestamp(a);
+            const timeB = getTimestamp(b);
 
             if (timeA !== timeB) {
-                return timeB - timeA; // Most recent first
+                return timeB - timeA; // Más reciente primero
             }
-            // If timestamps are the same (or both are 0 for new contacts), sort alphabetically
+            // Si los timestamps son iguales (o ambos son 0 para nuevos contactos), ordenar alfabéticamente
             return a.partnerUsername.localeCompare(b.partnerUsername);
         });
 
@@ -261,7 +272,7 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, allValidatedUser
             if ((touchStartTargetRef.current as HTMLElement)?.closest('[data-avatar-button="true"]')) {
                 onViewProfile(chat.partnerId);
             } else {
-                onUserSelect({ id: chat.partnerId });
+                onUserSelect(chat.partnerId);
             }
         }
         isLongPress.current = false;
@@ -309,12 +320,15 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, allValidatedUser
             </div>
 
             <div className="px-4 pb-2 text-center">
-                <p className="flex items-center justify-center gap-1.5 text-[9px] font-bold text-amber-700/80 dark:text-amber-600/70">
+                <button 
+                    onClick={() => setShowSecurityInfo(true)}
+                    className="flex items-center justify-center gap-1.5 text-[9px] font-bold text-amber-700/80 dark:text-amber-600/70 hover:underline active:scale-95 transition-transform mx-auto w-full"
+                >
                     <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                     </svg>
                     <span>Todos los mensajes del chat estan cifrados de extremo a extremo. Ni ADJStudios ni nadie puede acceder a tu información</span>
-                </p>
+                </button>
             </div>
             
             <div className="flex-1 overflow-y-auto custom-scroll px-4 pt-2 pb-48 space-y-2">
@@ -367,6 +381,84 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, allValidatedUser
                             <div className={`h-px my-2 ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}></div>
                              <button onClick={handleToggleBlock} className={`w-full py-4 rounded-2xl text-xs font-bold uppercase transition-colors text-red-500 ${darkMode ? 'bg-red-500/10 active:bg-red-500/20' : 'bg-red-500/5 active:bg-red-500/10'}`}>
                                 {selectedChatForOptions.isBlocked ? "Desbloquear Usuario" : "Bloquear Usuario"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal de Información de Seguridad */}
+            {showSecurityInfo && (
+                <div className="fixed inset-0 z-[300] flex flex-col items-center justify-center bg-black/80 backdrop-blur-md animate-in fade-in duration-300 p-4">
+                    <div className={`w-full max-w-lg rounded-3xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden border ${darkMode ? 'bg-slate-900 border-white/10' : 'bg-white border-slate-200'}`}>
+                        {/* Header del Modal */}
+                        <div className={`p-6 border-b shrink-0 flex items-center justify-between ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-500">
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                                </div>
+                                <h3 className={`text-lg font-black uppercase leading-none ${darkMode ? 'text-white' : 'text-slate-900'}`}>Protocolo de Seguridad <span className="text-amber-500 block text-xs mt-1">ASMP v1.0</span></h3>
+                            </div>
+                            <button onClick={() => setShowSecurityInfo(false)} className={`p-2 rounded-full transition-colors ${darkMode ? 'bg-slate-800 text-slate-400 active:bg-slate-700' : 'bg-slate-100 text-slate-500 active:bg-slate-200'}`}>
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+
+                        {/* Contenido Scrollable */}
+                        <div className="flex-1 overflow-y-auto custom-scroll p-6 space-y-6">
+                            <section>
+                                <h4 className={`text-xs font-black uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Cifrado de Extremo a Extremo (E2EE)</h4>
+                                <p className={`text-xs leading-relaxed ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                                    Tus conversaciones están protegidas por el <strong>ADJStudios Secure Mobile Protocol (ASMP)</strong>. Esto significa que los mensajes se cifran en tu dispositivo antes de salir y solo se descifran en el dispositivo del destinatario.
+                                </p>
+                            </section>
+
+                            <div className={`h-px ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}></div>
+
+                            <section>
+                                <h4 className={`text-xs font-black uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Detalles Técnicos</h4>
+                                <ul className={`space-y-3 text-xs ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                                    <li className="flex gap-3">
+                                        <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-amber-500 mt-1.5"></span>
+                                        <span>
+                                            <strong>AES-GCM 256-bit:</strong> Utilizamos el estándar de cifrado avanzado (AES) en modo Galois/Counter Mode (GCM), que garantiza tanto la confidencialidad como la integridad de los datos.
+                                        </span>
+                                    </li>
+                                    <li className="flex gap-3">
+                                        <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-amber-500 mt-1.5"></span>
+                                        <span>
+                                            <strong>Derivación de Claves (PBKDF2):</strong> Las llaves de cifrado no viajan por la red. Se generan matemáticamente en cada dispositivo (cliente) utilizando identificadores únicos de la sesión y una "salt" criptográfica, procesadas mediante 100,000 iteraciones del algoritmo SHA-256.
+                                        </span>
+                                    </li>
+                                    <li className="flex gap-3">
+                                        <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-amber-500 mt-1.5"></span>
+                                        <span>
+                                            <strong>Vector de Inicialización (IV) Único:</strong> Cada mensaje individual tiene su propio código aleatorio de 12 bytes (IV), asegurando que incluso si envías el mismo texto dos veces, el código cifrado resultante será completamente diferente.
+                                        </span>
+                                    </li>
+                                </ul>
+                            </section>
+
+                            <div className={`h-px ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}></div>
+
+                            <section>
+                                <h4 className={`text-xs font-black uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Privacidad y Servidores</h4>
+                                <p className={`text-xs leading-relaxed ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                                    Nuestros servidores (Google Cloud Firestore) actúan meramente como un canal de transporte ciego. Almacenan cadenas de texto aleatorias (ej: <code>7ilDfWoYmDx42...</code>) que son matemáticamente imposibles de leer sin las llaves que residen exclusivamente en los teléfonos de los participantes.
+                                </p>
+                                <div className={`mt-3 p-3 rounded-xl border border-amber-500/20 bg-amber-500/5 text-[10px] font-bold ${darkMode ? 'text-amber-500' : 'text-amber-700'}`}>
+                                    NI LOS ADMINISTRADORES DE ADJSTUDIOS, NI GOOGLE, NI TERCEROS PUEDEN LEER TUS MENSAJES PRIVADOS.
+                                </div>
+                            </section>
+                        </div>
+
+                        {/* Footer */}
+                        <div className={`p-4 border-t ${darkMode ? 'border-slate-800 bg-slate-900' : 'border-slate-100 bg-slate-50'}`}>
+                            <button 
+                                onClick={() => setShowSecurityInfo(false)}
+                                className={`w-full py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg active:scale-95 transition-all ${darkMode ? 'bg-white text-black' : 'bg-slate-900 text-white'}`}
+                            >
+                                Entendido
                             </button>
                         </div>
                     </div>

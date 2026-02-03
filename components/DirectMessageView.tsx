@@ -10,6 +10,7 @@ import CustomAudioPlayer from './CustomAudioPlayer';
 import ImageViewer from './ImageViewer';
 import { saveMessagesToCache, getMessagesFromCache } from '../services/cache';
 import { SecureMessenger } from '../services/security';
+import { UsersIcon } from '../constants';
 
 // --- ICONOS ---
 const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
@@ -59,6 +60,7 @@ interface DirectMessageViewProps {
     darkMode: boolean;
     partnerStatus: { state: 'online' } | { state: 'offline', last_changed: number } | undefined;
     onViewProfile: (userId: string) => void;
+    onJoinRoom: (code: string) => void;
 }
 
 const generateChatId = (uid1: string, uid2: string): string => [uid1, uid2].sort().join('_');
@@ -82,11 +84,12 @@ const formatLastSeen = (timestamp: number) => {
 };
 
 const SwipeableDirectMessage: React.FC<{
-    msg: DirectMessage, currentUser: AppUser, darkMode: boolean, 
+    msg: DirectMessage, currentUser: AppUser, partner: AppUser, darkMode: boolean, 
     onReply: (msg: DirectMessage) => void, onLongPress: (msg: DirectMessage, target: HTMLDivElement) => void, 
     onViewImage: (url: string) => void,
-    onImageLoad?: () => void
-}> = ({ msg, currentUser, darkMode, onReply, onLongPress, onViewImage, onImageLoad }) => {
+    onImageLoad?: () => void,
+    onJoinRoom: (code: string) => void
+}> = ({ msg, currentUser, partner, darkMode, onReply, onLongPress, onViewImage, onImageLoad, onJoinRoom }) => {
     const isMe = msg.senderId === currentUser.id;
     const [translateX, setTranslateX] = useState(0);
     const touchStartCoords = useRef<{x: number, y: number} | null>(null);
@@ -108,7 +111,6 @@ const SwipeableDirectMessage: React.FC<{
         if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
         if (!touchStartCoords.current) return;
         const diffX = e.touches[0].clientX - touchStartCoords.current.x;
-        // Solo permitir deslizamiento si no estamos en un estado de menú
         if (diffX > 0 && !isMe) setTranslateX(Math.min(diffX, 80));
         if (diffX < 0 && isMe) setTranslateX(Math.max(diffX, -80));
     };
@@ -120,26 +122,38 @@ const SwipeableDirectMessage: React.FC<{
     };
     const formatTime = (timestamp: any) => {
         if (!timestamp) return '';
-        // Pending check: if currently sending, show current time
         if (msg.pending) return 'Enviando...';
-
-        // Handle Firestore Timestamp object (from live snapshot)
-        if (typeof timestamp.toDate === 'function') {
-            return timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        }
-        // Handle plain object from IndexedDB cache or serialized
-        if (typeof timestamp.seconds === 'number') {
-            return new Date(timestamp.seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        }
-        // Fallback for just created date object
-        if (timestamp instanceof Date) {
-             return timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        }
+        if (typeof timestamp.toDate === 'function') return timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        if (typeof timestamp.seconds === 'number') return new Date(timestamp.seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        if (timestamp instanceof Date) return timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         return ''; 
     };
     
+    const inviteMatch = msg.text?.match(/^\[INVITE_SALA\]([A-Z0-9]{4,8})/);
+    
     const renderContent = () => {
         if (msg.deleted) return <p className="text-xs italic opacity-70">Mensaje eliminado</p>;
+        if (inviteMatch) {
+            const code = inviteMatch[1];
+            return (
+                <div className="w-full">
+                    <div className="flex items-center gap-3 p-3">
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${darkMode ? 'bg-slate-700' : 'bg-slate-200'}`}><UsersIcon /></div>
+                        <div>
+                            <p className="font-bold text-sm">Invitación a Sala</p>
+                            <p className="text-xs opacity-80">{isMe ? 'Invitaste a' : ''} {partner.username} a unirse</p>
+                        </div>
+                    </div>
+                    <div className={`border-t ${darkMode ? 'border-white/10' : 'border-black/10'}`}>
+                        {!isMe && (
+                             <button onClick={() => onJoinRoom(code)} className="w-full text-center py-3 font-bold text-misionero-azul text-sm">
+                                Unirme a la Sala
+                            </button>
+                        )}
+                    </div>
+                </div>
+            );
+        }
         switch (msg.type) {
             case 'image': return <img 
                 src={cachedMediaUrl || msg.mediaUrl} 
@@ -159,10 +173,9 @@ const SwipeableDirectMessage: React.FC<{
             <div className="relative w-full flex" style={{ justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
                 <div className={`absolute top-1/2 -translate-y-1/2 text-slate-400 transition-opacity duration-300 ${isMe ? 'right-full mr-4' : 'left-full ml-4'}`} style={{ opacity: Math.abs(translateX) > 10 ? Math.min(Math.abs(translateX) / 50, 1) : 0 }}><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg></div>
                 <div ref={msgRef} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} className="transition-transform duration-100 ease-out max-w-[85%] z-10" style={{ transform: `translateX(${translateX}px)` }}>
-                    <div className={`p-3 rounded-2xl shadow-sm relative ${isMe ? 'bg-misionero-azul text-white' : (darkMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700')}`}>
-                        {msg.replyTo && <div className={`p-2 rounded-lg text-xs font-medium border-l-4 mb-2 ${isMe ? 'border-white bg-white/20' : `border-misionero-azul bg-misionero-azul/10`}`}><p className="font-black">{msg.replyTo.senderUsername}</p><p className="opacity-80 truncate">{msg.replyTo.textSnippet}</p></div>}
+                    <div className={`rounded-2xl shadow-sm relative overflow-hidden ${isMe ? 'bg-misionero-azul text-white' : (darkMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700')} ${inviteMatch ? 'p-0' : 'p-3'}`}>
+                        {msg.replyTo && !inviteMatch && <div className={`p-2 rounded-lg text-xs font-medium border-l-4 mb-2 ${isMe ? 'border-white bg-white/20' : `border-misionero-azul bg-misionero-azul/10`}`}><p className="font-black">{msg.replyTo.senderUsername}</p><p className="opacity-80 truncate">{msg.replyTo.textSnippet}</p></div>}
                         {renderContent()}
-                        {/* Indicador de Encriptación */}
                         {msg.encrypted && !msg.pending && !msg.deleted && (
                             <div className={`absolute -right-1 -top-1 p-0.5 rounded-full ${isMe ? 'bg-white text-misionero-azul' : 'bg-misionero-azul text-white'}`}>
                                 <LockIcon className="w-2 h-2" />
@@ -194,8 +207,7 @@ const SwipeableDirectMessage: React.FC<{
     );
 };
 
-// ... (main component follows)
-const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, partner, onBack, db, rtdb, storage, darkMode, partnerStatus, onViewProfile }) => {
+const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, partner, onBack, db, rtdb, storage, darkMode, partnerStatus, onViewProfile, onJoinRoom }) => {
     const [messages, setMessages] = useState<DirectMessage[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const chatId = useMemo(() => generateChatId(currentUser.id, partner.id), [currentUser.id, partner.id]);
@@ -212,11 +224,9 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
     const shouldSendAudio = useRef(false);
     const [inputContent, setInputContent] = useState('');
     
-    // --- TYPING INDICATOR LOGIC ---
     const [isPartnerTyping, setIsPartnerTyping] = useState(false);
     const typingTimeoutRef = useRef<number | null>(null);
 
-    // Effect for listening to partner's typing status
     useEffect(() => {
         const typingRef = refRtdb(rtdb, `typing/${chatId}/${partner.id}`);
         const unsubscribe = onValueRtdb(typingRef, (snapshot) => {
@@ -225,13 +235,12 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
         return () => unsubscribe();
     }, [chatId, partner.id, rtdb]);
 
-    // Update function for my own typing status
     const updateTypingStatus = (isTyping: boolean) => {
         const myTypingRef = refRtdb(rtdb, `typing/${chatId}/${currentUser.id}`);
         if (isTyping) {
             setRtdb(myTypingRef, true);
             const onDisc = onDisconnect(myTypingRef);
-            onDisc.remove(); // Remove on disconnect
+            onDisc.remove();
             
             if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
             typingTimeoutRef.current = window.setTimeout(() => updateTypingStatus(false), 3000);
@@ -244,15 +253,11 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
     useEffect(() => {
         if (isPartnerTyping) scrollToBottom(true);
     }, [isPartnerTyping]);
-    // ----------------------------
 
     useEffect(() => {
         let isMounted = true;
-
-        // Load messages from cache first for offline support and faster initial load.
         getMessagesFromCache(chatId).then(async (cachedMessages) => {
             if (isMounted && cachedMessages.length > 0) {
-                // Decrypt cached messages if needed (though cache usually stores plain text if saved after decrypt)
                 const decrypted = await Promise.all(cachedMessages.map(async (m) => {
                     if (m.encrypted && m.text) {
                         return { ...m, text: await SecureMessenger.decrypt(m.text, chatId) };
@@ -268,30 +273,20 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
         const unsubscribe = onSnapshot(q, 
             async (snap) => {
                 if (isMounted) {
-                    // Process messages: Decrypt if needed
                     const processedMessages = await Promise.all(snap.docs.map(async (d) => {
                         const data = d.data() as DirectMessage;
                         let text = data.text;
-                        
-                        // Decrypt if it's marked as encrypted
                         if (data.encrypted && text) {
                             text = await SecureMessenger.decrypt(text, chatId);
                         }
-                        
                         return { id: d.id, ...data, text };
                     }));
-
-                    // Fusionar con mensajes pendientes locales para evitar parpadeos
                     setMessages(prev => {
                         const existingPending = prev.filter(m => m.pending);
-                        // Filtramos los pendientes que ya existen en la snapshot (se confirmaron)
                         const remainingPending = existingPending.filter(pm => !processedMessages.some(rm => rm.id === pm.id));
                         return [...processedMessages, ...remainingPending];
                     });
-                    
                     setIsLoading(false);
-
-                    // Update the cache
                     if (processedMessages.length > 0) {
                         saveMessagesToCache(chatId, processedMessages);
                     }
@@ -299,16 +294,10 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
             },
             (error) => {
                 console.error("Permission error fetching chat messages:", error);
-                if (isMounted) {
-                    setIsLoading(false);
-                }
+                if (isMounted) setIsLoading(false);
             }
         );
-
-        return () => {
-            isMounted = false;
-            unsubscribe();
-        };
+        return () => { isMounted = false; unsubscribe(); };
     }, [chatId, db]);
 
     const scrollToBottom = useCallback((smooth = true) => {
@@ -318,39 +307,22 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
     }, []);
 
     useEffect(() => {
-        // Scroll to bottom logic
         scrollToBottom(false);
-        const scrollTimeout = setTimeout(() => {
-            scrollToBottom(true);
-        }, 100); // Faster scroll response
-
-        // On entering the chat, simply reset the unread count.
+        const scrollTimeout = setTimeout(() => scrollToBottom(true), 100);
         const myChatInfoRef = doc(db, 'user_chats', currentUser.id, 'chats', chatId);
         updateDoc(myChatInfoRef, { unreadCount: 0 }).catch(() => {});
-
         return () => clearTimeout(scrollTimeout);
-    }, [messages.length, chatId, currentUser.id, db, scrollToBottom]); // Depend on length change
+    }, [messages.length, chatId, currentUser.id, db, scrollToBottom]);
     
     const sendChatMessage = async (type: DirectMessage['type'], text?: string, mediaUrl?: string, mediaType?: string, fileName?: string, fileSize?: number) => {
-        // Reset typing status immediately
         updateTypingStatus(false);
-        
-        // 1. Crear ID y Timestamp local
         const newMsgRef = doc(collection(db, 'chats', chatId, 'messages'));
         const tempId = newMsgRef.id;
         const now = new Date();
 
-        // 2. Preparar objeto base. Usamos Partial para construirlo de forma segura.
         const messageData: Partial<DirectMessage> = {
-            id: tempId,
-            senderId: currentUser.id,
-            timestamp: now,
-            read: false,
-            type,
-            text: text || '',
+            id: tempId, senderId: currentUser.id, timestamp: now, read: false, type, text: text || '',
         };
-
-        // Añadir campos opcionales solo si tienen valor para evitar 'undefined'
         if (mediaUrl) messageData.mediaUrl = mediaUrl;
         if (mediaType) messageData.mediaType = mediaType;
         if (fileName) messageData.fileName = fileName;
@@ -363,25 +335,17 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
                 senderUsername: replyingTo.senderId === currentUser.id ? currentUser.username : partner.username,
                 textSnippet: replyingTo.text?.substring(0, 50) || (replyingTo.type === 'image' ? 'Imagen' : 'Archivo'),
             };
-            if (replyingTo.mediaUrl) {
-                messageData.replyTo.imagePreviewUrl = replyingTo.mediaUrl;
-            }
+            if (replyingTo.mediaUrl) messageData.replyTo.imagePreviewUrl = replyingTo.mediaUrl;
         }
 
-        // 3. UI Optimista: Añadir 'pending' flag solo para la UI
         const optimisticMessage = { ...messageData, pending: true } as DirectMessage;
         setMessages(prev => [...prev, optimisticMessage]);
         setInputContent('');
         setReplyingTo(null);
         scrollToBottom(true);
 
-        // 4. Preparar datos finales para Firestore
-        const finalMessageData = {
-            ...messageData,
-            timestamp: serverTimestamp(),
-        };
+        const finalMessageData = { ...messageData, timestamp: serverTimestamp() };
 
-        // --- ENCRIPCION ---
         if (text) {
             const encryptedText = await SecureMessenger.encrypt(text, chatId);
             finalMessageData.text = encryptedText;
@@ -392,39 +356,23 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
         if (type === 'image') lastMessageText = '📷 Imagen';
         else if (type === 'audio') lastMessageText = '🎤 Audio';
         else if (type === 'file') lastMessageText = `📄 Archivo`;
+        else if (text?.startsWith('[INVITE_SALA]')) lastMessageText = 'Te ha invitado a una sala';
 
         const commonChatInfo = { lastMessageText, lastMessageTimestamp: serverTimestamp(), lastMessageSenderId: String(currentUser.id) };
 
         try {
             const batch = writeBatch(db);
-            
-            // `finalMessageData` ya no contiene campos 'undefined'
-            // Guardar el mensaje en la colección compartida
             batch.set(newMsgRef, finalMessageData as Omit<DirectMessage, 'pending' | 'id'>);
-            
-            // Actualizar SOLO la lista de chats del usuario actual (remitente) en esta transacción
-            // Esto garantiza que el usuario vea su propio mensaje y estado actualizado sin depender de permisos en el otro usuario.
             batch.set(doc(db, 'user_chats', currentUser.id, 'chats', chatId), { ...commonChatInfo, partnerId: partner.id, partnerUsername: partner.username, partnerPhotoURL: partner.photoURL || null, unreadCount: 0 }, { merge: true });
-            
             await batch.commit();
 
-            // Intentar actualizar la lista del otro usuario en una operación separada "Best Effort"
-            // Si esto falla por permisos (lo cual es probable según reglas estrictas), no importa.
-            // El ChatSyncManager del otro usuario se encargará de actualizar su lista al detectar el nuevo mensaje.
             try {
-                await setDoc(doc(db, 'user_chats', partner.id, 'chats', chatId), { 
-                    ...commonChatInfo, 
-                    partnerId: currentUser.id, 
-                    partnerUsername: currentUser.username, 
-                    partnerPhotoURL: currentUser.photoURL || null, 
-                    unreadCount: increment(1) 
-                }, { merge: true });
+                await setDoc(doc(db, 'user_chats', partner.id, 'chats', chatId), { ...commonChatInfo, partnerId: currentUser.id, partnerUsername: currentUser.username, partnerPhotoURL: currentUser.photoURL || null, unreadCount: increment(1) }, { merge: true });
             } catch (partnerUpdateError) {
-                console.warn("No se pudo actualizar la lista de chats del destinatario (probablemente por permisos). La sincronización automática lo resolverá.", partnerUpdateError);
+                console.warn("Could not update recipient's chat list. Sync will handle it.", partnerUpdateError);
             }
-
         } catch (error: any) {
-            console.error("Error envío:", error);
+            console.error("Error sending message:", error);
             setMessages(prev => prev.map(m => m.id === tempId ? { ...m, text: 'Error al enviar', pending: false } : m));
             alert("Fallo al enviar mensaje.");
         }
@@ -432,7 +380,6 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
 
     const handleSendFile = async (file: File) => {
         const fileId = doc(collection(db, 'chats')).id;
-        // Use user-scoped path to avoid 'Missing or insufficient permissions' on shared paths
         const filePath = `chat_media/${currentUser.id}/${chatId}/${fileId}_${file.name}`;
         
         const fileRef = storageRef(storage, filePath);
@@ -453,23 +400,16 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
             const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
             mediaRecorderRef.current = recorder;
             const audioChunks: Blob[] = [];
-
             recorder.ondataavailable = e => audioChunks.push(e.data);
-
             recorder.onstop = async () => {
                 stream.getTracks().forEach(track => track.stop());
-                if (!shouldSendAudio.current) {
-                    return; // Recording was cancelled
-                }
+                if (!shouldSendAudio.current) return;
                 const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
                 if (audioBlob.size === 0) return;
-
                 const fileId = doc(collection(db, 'chats')).id;
                 const fileName = `nota_de_voz_${fileId}.webm`;
                 const filePath = `chat_media/${currentUser.id}/${chatId}/${fileName}`;
-                
                 const fileRef = storageRef(storage, filePath);
-                
                 try {
                     await uploadBytes(fileRef, audioBlob);
                     const url = await getDownloadURL(fileRef);
@@ -479,11 +419,10 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
                     alert("Error enviando audio.");
                 }
             };
-
             recorder.start();
             setIsRecording(true);
-            setRecordingTime(0); // Reset time
-            setInputContent(''); // Clear text input
+            setRecordingTime(0);
+            setInputContent('');
             recordingTimerRef.current = window.setInterval(() => setRecordingTime(t => t + 1), 1000);
         } catch (err) {
             console.error(err);
@@ -505,28 +444,19 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
         if (!selectedMessageForAction) return;
         const { msg } = selectedMessageForAction;
         const msgRef = doc(db, 'chats', chatId, 'messages', msg.id);
-        
         const currentUsers = msg.reactions?.[emoji] || [];
         const isRemoving = currentUsers.includes(currentUser.id);
-
-        // Optimistic Reaction Update (Local)
         setMessages(prev => prev.map(m => {
             if (m.id === msg.id) {
                 const updatedReactions = { ...(m.reactions || {}) };
-                if (isRemoving) {
-                    updatedReactions[emoji] = (updatedReactions[emoji] || []).filter(uid => uid !== currentUser.id);
-                } else {
-                    updatedReactions[emoji] = [...(updatedReactions[emoji] || []), currentUser.id];
-                }
+                if (isRemoving) updatedReactions[emoji] = (updatedReactions[emoji] || []).filter(uid => uid !== currentUser.id);
+                else updatedReactions[emoji] = [...(updatedReactions[emoji] || []), currentUser.id];
                 return { ...m, reactions: updatedReactions };
             }
             return m;
         }));
-
         try {
-            await updateDoc(msgRef, {
-                [`reactions.${emoji}`]: isRemoving ? arrayRemove(currentUser.id) : arrayUnion(currentUser.id)
-            });
+            await updateDoc(msgRef, { [`reactions.${emoji}`]: isRemoving ? arrayRemove(currentUser.id) : arrayUnion(currentUser.id) });
         } catch (e) {
             console.error("Error reacting:", e);
         }
@@ -537,13 +467,9 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
          if (!selectedMessageForAction) return;
          const { msg } = selectedMessageForAction;
          if (msg.senderId !== currentUser.id) return;
-         
-         // Optimistic Delete
          setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, deleted: true } : m));
-
          try {
-             const msgRef = doc(db, 'chats', chatId, 'messages', msg.id);
-             await updateDoc(msgRef, { deleted: true });
+             await updateDoc(doc(db, 'chats', chatId, 'messages', msg.id), { deleted: true });
          } catch (e) {
              console.error("Error deleting:", e);
          }
@@ -551,8 +477,8 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
     };
 
     const handleCopy = () => {
-        if (!selectedMessageForAction) return;
-        navigator.clipboard.writeText(selectedMessageForAction.msg.text || '');
+        if (!selectedMessageForAction || !selectedMessageForAction.msg.text) return;
+        navigator.clipboard.writeText(selectedMessageForAction.msg.text);
         triggerHapticFeedback('light');
         setSelectedMessageForAction(null);
     };
@@ -568,11 +494,7 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
                     <div className="text-left min-w-0">
                         <div className="flex items-center gap-1.5">
                             <h3 className={`font-black text-sm uppercase truncate ${darkMode ? 'text-white' : 'text-slate-900'}`}>{partner.username}</h3>
-                            {partner.profileValidated && (
-                                <div className="text-blue-500 bg-blue-500/10 rounded-full p-0.5">
-                                    <VerifiedIcon />
-                                </div>
-                            )}
+                            {partner.profileValidated && (<div className="text-blue-500 bg-blue-500/10 rounded-full p-0.5"><VerifiedIcon /></div>)}
                         </div>
                         <p className="text-[10px] font-bold text-slate-400">{partnerStatusText}</p>
                     </div>
@@ -581,17 +503,14 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
             </header>
             
             <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4 custom-scroll">
-                {isLoading ? <div className="flex justify-center items-center h-full"><div className="w-6 h-6 border-2 border-misionero-azul/30 border-t-misionero-azul rounded-full animate-spin"></div></div> : messages.map(msg => <SwipeableDirectMessage key={msg.id} msg={msg} currentUser={currentUser} darkMode={darkMode} onReply={setReplyingTo} onLongPress={(msg, target) => setSelectedMessageForAction({ msg, position: target.getBoundingClientRect() })} onViewImage={setViewingImageUrl} onImageLoad={() => scrollToBottom(true)} />)}
+                {isLoading ? <div className="flex justify-center items-center h-full"><div className="w-6 h-6 border-2 border-misionero-azul/30 border-t-misionero-azul rounded-full animate-spin"></div></div> : messages.map(msg => (
+                    <SwipeableDirectMessage key={msg.id} msg={msg} currentUser={currentUser} partner={partner} darkMode={darkMode} onReply={setReplyingTo} onLongPress={(msg, target) => setSelectedMessageForAction({ msg, position: target.getBoundingClientRect() })} onViewImage={setViewingImageUrl} onImageLoad={() => scrollToBottom(true)} onJoinRoom={onJoinRoom} />
+                ))}
                 
-                {/* Indicador de "Escribiendo..." con efecto de ola */}
                 {isPartnerTyping && (
                     <div className="w-full flex justify-start animate-in fade-in slide-in-from-bottom-2 duration-200 mb-2">
                         <div className={`p-3.5 rounded-2xl shadow-sm ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
-                            <div className={`flex gap-1 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                                <span className="typing-dot"></span>
-                                <span className="typing-dot" style={{animationDelay: '0.2s'}}></span>
-                                <span className="typing-dot" style={{animationDelay: '0.4s'}}></span>
-                            </div>
+                            <div className={`flex gap-1 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}><span className="typing-dot"></span><span className="typing-dot" style={{animationDelay: '0.2s'}}></span><span className="typing-dot" style={{animationDelay: '0.4s'}}></span></div>
                         </div>
                     </div>
                 )}
@@ -601,56 +520,19 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
 
             <div className={`p-3 border-t shrink-0 ${darkMode ? 'border-slate-800 bg-black' : 'border-slate-100 bg-slate-50'} pb-[calc(0.75rem+env(safe-area-inset-bottom))]`}>
                 {replyingTo && <div className={`flex items-center justify-between px-4 py-2 mb-2 rounded-xl text-xs font-medium border-l-4 border-misionero-azul ${darkMode ? 'bg-slate-900 text-slate-300' : 'bg-slate-50 text-slate-600'}`}><div className="min-w-0"><span className="text-[8px] font-black uppercase text-misionero-azul">Respondiendo a {replyingTo.senderId === currentUser.id ? "ti mismo" : partner.username}</span><p className="truncate">{replyingTo.text}</p></div><button onClick={() => setReplyingTo(null)} className="p-1"><XIcon/></button></div>}
-                
                 <div className="flex gap-2 items-end">
                     {isRecording ? (
                         <>
-                            <div className="flex-1 flex items-center justify-between rounded-2xl px-4 py-3 bg-red-500/10 text-red-500 animate-pulse">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-2.5 h-2.5 bg-red-500 rounded-full"></div>
-                                    <span className="font-bold text-sm">Grabando...</span>
-                                </div>
-                                <span className="font-mono text-sm">{Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}</span>
-                            </div>
-                            <button
-                                onClick={() => stopRecording(false)}
-                                className="p-3.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 shadow-md active:scale-95"
-                            >
-                                <TrashIcon className="w-6 h-6 text-red-500" />
-                            </button>
-                            <button
-                                onClick={() => stopRecording(true)}
-                                className="bg-misionero-verde text-white font-black w-12 h-12 rounded-2xl shadow-md active:scale-95 transition-transform flex items-center justify-center shrink-0"
-                            >
-                                <SendIcon />
-                            </button>
+                            <div className="flex-1 flex items-center justify-between rounded-2xl px-4 py-3 bg-red-500/10 text-red-500 animate-pulse"><div className="flex items-center gap-2"><div className="w-2.5 h-2.5 bg-red-500 rounded-full"></div><span className="font-bold text-sm">Grabando...</span></div><span className="font-mono text-sm">{Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}</span></div>
+                            <button onClick={() => stopRecording(false)} className="p-3.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 shadow-md active:scale-95"><TrashIcon className="w-6 h-6 text-red-500" /></button>
+                            <button onClick={() => stopRecording(true)} className="bg-misionero-verde text-white font-black w-12 h-12 rounded-2xl shadow-md active:scale-95 transition-transform flex items-center justify-center shrink-0"><SendIcon /></button>
                         </>
                     ) : (
                         <>
-                            <button className={`p-3 rounded-full active:scale-90 transition-colors ${darkMode ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100'}`} onClick={() => fileInputRef.current?.click()}>
-                                <PlusIcon/>
-                            </button>
+                            <button className={`p-3 rounded-full active:scale-90 transition-colors ${darkMode ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100'}`} onClick={() => fileInputRef.current?.click()}><PlusIcon/></button>
                             <input type="file" ref={fileInputRef} hidden onChange={(e) => e.target.files?.[0] && handleSendFile(e.target.files[0])} />
-                            <textarea 
-                                value={inputContent} 
-                                onChange={e => {
-                                    setInputContent(e.target.value);
-                                    updateTypingStatus(true);
-                                }} 
-                                placeholder="Escribe un mensaje..." 
-                                className={`flex-1 min-w-0 rounded-2xl px-4 py-3 text-sm font-bold outline-none border transition-all resize-none max-h-32 ${darkMode ? 'bg-black border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`} 
-                                rows={1} 
-                                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage('text', inputContent); } }}
-                            />
-                            {inputContent ? (
-                                <button onClick={() => sendChatMessage('text', inputContent)} className="bg-misionero-verde text-white font-black w-12 h-12 rounded-2xl shadow-md active:scale-95 transition-transform flex items-center justify-center shrink-0">
-                                    <SendIcon/>
-                                </button>
-                            ) : (
-                                <button onClick={startRecording} className="p-3.5 rounded-full bg-misionero-rojo text-white shadow-md active:scale-95">
-                                    <MicIcon/>
-                                </button>
-                            )}
+                            <textarea value={inputContent} onChange={e => { setInputContent(e.target.value); updateTypingStatus(true); }} placeholder="Escribe un mensaje..." className={`flex-1 min-w-0 rounded-2xl px-4 py-3 text-sm font-bold outline-none border transition-all resize-none max-h-32 ${darkMode ? 'bg-black border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`} rows={1} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage('text', inputContent); } }} />
+                            {inputContent ? (<button onClick={() => sendChatMessage('text', inputContent)} className="bg-misionero-verde text-white font-black w-12 h-12 rounded-2xl shadow-md active:scale-95 transition-transform flex items-center justify-center shrink-0"><SendIcon/></button>) : (<button onClick={startRecording} className="p-3.5 rounded-full bg-misionero-rojo text-white shadow-md active:scale-95"><MicIcon/></button>)}
                         </>
                     )}
                 </div>
@@ -659,23 +541,11 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
             {selectedMessageForAction && (
                 <div className="fixed inset-0 z-[250] flex flex-col justify-end bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setSelectedMessageForAction(null)}>
                     <div className={`w-full p-6 rounded-t-[2.5rem] shadow-2xl animate-in slide-in-from-bottom duration-300 ${darkMode ? 'bg-slate-900 border-t border-slate-800' : 'bg-white border-t border-slate-200'}`} onClick={e => e.stopPropagation()}>
-                        <div className="flex justify-between mb-6 px-2">
-                            {REACTIONS.map(emoji => (
-                                <button key={emoji} onClick={() => handleReaction(emoji)} className="text-3xl hover:scale-125 transition-transform active:scale-90">{emoji}</button>
-                            ))}
-                        </div>
+                        <div className="flex justify-between mb-6 px-2">{REACTIONS.map(emoji => (<button key={emoji} onClick={() => handleReaction(emoji)} className="text-3xl hover:scale-125 transition-transform active:scale-90">{emoji}</button>))}</div>
                         <div className="space-y-2">
-                            <button onClick={() => { setReplyingTo(selectedMessageForAction.msg); setSelectedMessageForAction(null); }} className={`w-full py-4 rounded-2xl text-xs font-bold uppercase flex items-center justify-center gap-2 ${darkMode ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-700'}`}>
-                                <ReplyIcon /> Responder
-                            </button>
-                             <button onClick={handleCopy} className={`w-full py-4 rounded-2xl text-xs font-bold uppercase flex items-center justify-center gap-2 ${darkMode ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-700'}`}>
-                                <CopyIcon /> Copiar
-                            </button>
-                            {selectedMessageForAction.msg.senderId === currentUser.id && (
-                                 <button onClick={handleDelete} className={`w-full py-4 rounded-2xl text-xs font-bold uppercase flex items-center justify-center gap-2 text-red-500 ${darkMode ? 'bg-red-500/10' : 'bg-red-500/5'}`}>
-                                    <TrashIcon /> Eliminar
-                                </button>
-                            )}
+                            <button onClick={() => { setReplyingTo(selectedMessageForAction.msg); setSelectedMessageForAction(null); }} className={`w-full py-4 rounded-2xl text-xs font-bold uppercase flex items-center justify-center gap-2 ${darkMode ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-700'}`}><ReplyIcon /> Responder</button>
+                             <button onClick={handleCopy} className={`w-full py-4 rounded-2xl text-xs font-bold uppercase flex items-center justify-center gap-2 ${darkMode ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-700'}`}><CopyIcon /> Copiar</button>
+                            {selectedMessageForAction.msg.senderId === currentUser.id && (<button onClick={handleDelete} className={`w-full py-4 rounded-2xl text-xs font-bold uppercase flex items-center justify-center gap-2 text-red-500 ${darkMode ? 'bg-red-500/10' : 'bg-red-500/5'}`}><TrashIcon /> Eliminar</button>)}
                         </div>
                     </div>
                 </div>

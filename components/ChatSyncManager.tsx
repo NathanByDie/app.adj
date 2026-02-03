@@ -1,6 +1,8 @@
+
 import React, { useEffect, useRef } from 'react';
 import { User as AppUser, ChatInfo, DirectMessage } from '../types';
 import { Firestore, collection, query, orderBy, onSnapshot, doc, setDoc, increment, limit, Unsubscribe, updateDoc, getDoc } from 'firebase/firestore';
+import { triggerHapticFeedback } from '../services/haptics';
 
 interface ChatSyncManagerProps {
     currentUser: AppUser;
@@ -95,48 +97,90 @@ const ChatSyncManager: React.FC<ChatSyncManagerProps> = ({ currentUser, db }) =>
 
                             // Timestamp check logic
                             let shouldUpdate = false;
+                            let isNewMessage = false;
+                            let performWrite = false;
                             
                             if (!chatInfoTimestamp) {
                                 shouldUpdate = true;
+                                isNewMessage = true;
                             } else if (latestMessageTimestamp?.seconds && chatInfoTimestamp?.seconds) {
                                 if (latestMessageTimestamp.seconds > chatInfoTimestamp.seconds) {
                                     shouldUpdate = true;
+                                    isNewMessage = true;
+                                } else if (latestMessageTimestamp.seconds === chatInfoTimestamp.seconds) {
+                                    // Same timestamp, check for content update (e.g. deletion)
+                                    shouldUpdate = true; 
                                 }
                             }
 
+                            const updates: any = {
+                                // Ensure partner info is preserved/restored if missing
+                                partnerId: realPartnerId 
+                            };
+
+                            // Always check for profile updates (Name/Photo changes) whenever we sync
+                            // This fixes the issue where a user changes name but the chat list keeps the old one
+                            try {
+                                const partnerUserDoc = await getDoc(doc(db, 'users', realPartnerId));
+                                if (partnerUserDoc.exists()) {
+                                    const pData = partnerUserDoc.data();
+                                    
+                                    // Sync Validation Status
+                                    const isProfileValidated = pData.profileValidated === true;
+                                    updates.partnerValidated = isProfileValidated;
+                                    if (currentData.partnerValidated !== isProfileValidated) performWrite = true;
+
+                                    // Sync Username
+                                    if (pData.username && pData.username !== currentData.partnerUsername) {
+                                        updates.partnerUsername = pData.username;
+                                        performWrite = true;
+                                    }
+
+                                    // Sync Photo
+                                    if (pData.photoURL !== currentData.partnerPhotoURL) {
+                                        updates.partnerPhotoURL = pData.photoURL || null;
+                                        performWrite = true;
+                                    }
+                                }
+                            } catch (e) {
+                                // Silent failure for profile fetch
+                            }
+
                             if (shouldUpdate) {
-                                let previewText = latestMessage.text || '';
-                                if (!previewText) {
-                                    if (latestMessage.type === 'image') previewText = '📷 Imagen';
-                                    else if (latestMessage.type === 'audio') previewText = '🎤 Audio';
-                                    else if (latestMessage.type === 'file') previewText = `📄 ${latestMessage.fileName || 'Archivo'}`;
-                                    else previewText = 'Mensaje';
+                                let previewText = '';
+                                if (latestMessage.deleted) {
+                                    previewText = 'Mensaje eliminado';
+                                } else {
+                                    previewText = latestMessage.text || '';
+                                    if (!previewText) {
+                                        if (latestMessage.type === 'image') previewText = '📷 Imagen';
+                                        else if (latestMessage.type === 'audio') previewText = '🎤 Audio';
+                                        else if (latestMessage.type === 'file') previewText = `📄 ${latestMessage.fileName || 'Archivo'}`;
+                                        else previewText = 'Mensaje';
+                                    }
                                 }
                                 
-                                const updates: any = {
-                                    lastMessageText: previewText,
-                                    lastMessageTimestamp: latestMessage.timestamp,
-                                    lastMessageSenderId: latestMessage.senderId,
-                                    // Ensure partner info is preserved/restored if missing
-                                    partnerId: realPartnerId 
-                                };
+                                updates.lastMessageText = previewText;
+                                updates.lastMessageTimestamp = latestMessage.timestamp;
+                                updates.lastMessageSenderId = latestMessage.senderId;
 
-                                // Check validation status for the partner
-                                try {
-                                    const partnerUserDoc = await getDoc(doc(db, 'users', realPartnerId));
-                                    if (partnerUserDoc.exists()) {
-                                        const isProfileValidated = partnerUserDoc.data().profileValidated === true;
-                                        updates.partnerValidated = isProfileValidated;
-                                    }
-                                } catch (e) {
-                                    // Silent failure for profile fetch
+                                // Check if meaningful data changed to avoid redundant writes
+                                if (currentData.lastMessageText !== updates.lastMessageText ||
+                                    currentData.lastMessageTimestamp?.seconds !== updates.lastMessageTimestamp.seconds) {
+                                    performWrite = true;
                                 }
 
-                                // Only increment unread if I am NOT the sender
+                                // Only increment unread if I am NOT the sender AND it's a new message
                                 if (latestMessage.senderId !== currentUser.id) {
-                                    updates.unreadCount = increment(1);
+                                    if (isNewMessage) {
+                                        updates.unreadCount = increment(1);
+                                        performWrite = true;
+                                        triggerHapticFeedback('unread_message');
+                                    }
                                 }
+                            }
 
+                            if (performWrite) {
                                 await setDoc(myChatInfoRef, updates, { merge: true });
                             }
                         } catch (err) {
