@@ -118,6 +118,16 @@ Esta documentación sirve como guía técnica para entender la arquitectura, el 
         - Construye un `payload` de notificación.
         - Usa el SDK de Admin de Firebase para enviar la notificación a través de FCM al token del destinatario.
 
+### g. Deep Linking (Enlaces Profundos)
+
+- **Problema:** En la versión nativa (APK/IPA) generada por Median/GoNative, abrir la aplicación desde un enlace externo (ej. `https://adjstd.netlify.app/?song=SONG_ID`) no pasaba automáticamente los parámetros de la URL a la vista web, por lo que la canción no se cargaba.
+- **Solución:**
+    1.  **Receptor Nativo:** Se ha definido una función global en `App.tsx`: `window.median.app.receivedLink`. El contenedor nativo de Median está configurado para llamar a esta función cada vez que la aplicación se abre a través de un enlace.
+    2.  **Análisis y Evento:** Esta función recibe la URL completa, la analiza para extraer parámetros (como `songId`), y luego dispara un `CustomEvent` llamado `deep-link-received` en el objeto `window`.
+    3.  **Listener en React:** El componente `App.tsx` tiene un `useEffect` que escucha este evento. Al capturarlo, extrae el `songId`, busca la canción correspondiente en el estado de la aplicación y, si la encuentra, llama a la función `openSongViewer` para mostrarla.
+    - **Resultado:** Esto permite que los enlaces de canciones compartidos abran directamente la canción correcta dentro de la aplicación nativa, mejorando la experiencia del usuario.
+
+
 ## 5. Estructura de Firebase
 
 - **Firestore:**

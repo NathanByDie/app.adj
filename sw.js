@@ -1,4 +1,5 @@
 // sw.js - Service Worker Principal
+// Versión: 1.1 - Forzar actualización para fix de video
 
 // Importamos el script de Firebase Messaging para que las notificaciones push sigan funcionando.
 // Usamos una ruta relativa para evitar errores de cross-origin.
@@ -56,6 +57,13 @@ self.addEventListener('fetch', (event) => {
   // Estrategia "Stale-While-Revalidate" para assets de Firebase (imágenes, audio).
   // Esto sirve desde el caché inmediatamente para velocidad, y actualiza en segundo plano.
   if (url.hostname === 'firebasestorage.googleapis.com') {
+    // CRÍTICO: Si la solicitud es para un video, no la interceptamos.
+    // Esto permite que el navegador maneje las solicitudes de rango (Range requests)
+    // para el streaming, lo cual es esencial para que la reproducción funcione.
+    if (/\.(mp4|webm|mov)$/i.test(url.pathname)) {
+      return; // Dejar que la solicitud vaya directamente a la red.
+    }
+
     event.respondWith(
       caches.open(CACHE_NAME).then(cache => {
         return cache.match(request).then(cachedResponse => {

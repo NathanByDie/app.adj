@@ -12,9 +12,10 @@ interface SongFormProps {
   categories: string[];
   initialImportUrl?: string;
   currentUser: AppUser;
+  isSaving?: boolean;
 }
 
-const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, darkMode = false, categories, initialImportUrl, currentUser }) => {
+const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, darkMode = false, categories, initialImportUrl, currentUser, isSaving = false }) => {
   const [title, setTitle] = useState('');
   const [author, setAuthor] = useState('');
   const [key, setKey] = useState('DO');
@@ -105,9 +106,9 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
     scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.MouseEvent) => {
     e.preventDefault();
-    if (!title || !content) return;
+    if (isSaving || !title || !content) return;
     onSave({ title, key, category, content, author, source }, { blob: audioBlob, shouldDelete: deleteExistingAudio });
   };
   
@@ -229,7 +230,7 @@ const SongForm: React.FC<SongFormProps> = ({ initialData, onSave, onCancel, dark
         <h2 className="text-[10px] font-black uppercase tracking-widest">{initialData ? 'Editor de Obra' : 'Nueva Música'}</h2>
         <div className="flex items-center gap-2">
            <button type="button" onClick={() => setShowImporter(true)} className="bg-misionero-amarillo text-black px-4 py-2.5 rounded-2xl font-black text-[10px] uppercase shadow-lg active:scale-95 transition-all">Importar</button>
-           <button onClick={handleSubmit} className="bg-misionero-verde text-white px-6 py-2.5 rounded-2xl font-black text-[10px] uppercase disabled:opacity-30 shadow-lg active:scale-95 transition-all" disabled={!title || !content}>{initialData ? 'Guardar' : 'Publicar'}</button>
+           <button onClick={handleSubmit} className="bg-misionero-verde text-white px-6 py-2.5 rounded-2xl font-black text-[10px] uppercase disabled:opacity-30 shadow-lg active:scale-95 transition-all" disabled={!title || !content || isSaving}>{isSaving ? 'Guardando...' : (initialData ? 'Guardar' : 'Publicar')}</button>
         </div>
       </header>
 

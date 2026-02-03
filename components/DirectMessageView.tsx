@@ -85,6 +85,33 @@ const formatLastSeen = (timestamp: number) => {
     return `el ${lastSeenDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}`;
 };
 
+const LinkRenderer: React.FC<{ text: string }> = ({ text }) => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = text.split(urlRegex);
+
+    return (
+        <>
+            {parts.map((part, index) => {
+                if (part.match(urlRegex)) {
+                    return (
+                        <a
+                            key={index}
+                            href={part}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-500 dark:text-blue-400 underline hover:text-blue-600 dark:hover:text-blue-300"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {part}
+                        </a>
+                    );
+                }
+                return <span key={index}>{part}</span>;
+            })}
+        </>
+    );
+};
+
 const SwipeableDirectMessage: React.FC<{
     msg: DirectMessage, currentUser: AppUser, partner: AppUser, darkMode: boolean, 
     onReply: (msg: DirectMessage) => void, onLongPress: (msg: DirectMessage, target: HTMLDivElement) => void, 
@@ -183,7 +210,7 @@ const SwipeableDirectMessage: React.FC<{
             );
             case 'audio': return <CustomAudioPlayer src={cachedMediaUrl || msg.mediaUrl || ''} darkMode={darkMode} isSender={isMe} />;
             case 'file': return <div className="flex items-center gap-2"><p className="font-bold">{msg.fileName}</p><span className="text-xs opacity-70">{formatFileSize(msg.fileSize || 0)}</span></div>
-            default: return <p className="text-sm font-medium leading-tight whitespace-pre-wrap">{msg.text}</p>;
+            default: return <p className="text-sm font-medium leading-tight whitespace-pre-wrap"><LinkRenderer text={msg.text || ''} /></p>;
         }
     };
 
@@ -374,12 +401,24 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
             finalMessageData.encrypted = true;
         }
 
-        let lastMessageText = text ? '🔒 Texto cifrado' : '';
-        if (type === 'image') lastMessageText = '📷 Imagen';
-        else if (type === 'audio') lastMessageText = '🎤 Audio';
-        else if (type === 'video') lastMessageText = '📹 Video';
-        else if (type === 'file') lastMessageText = `📄 Archivo`;
-        else if (text?.startsWith('[INVITE_SALA]')) lastMessageText = 'Te ha invitado a una sala';
+        let lastMessageText: string;
+        if (type === 'text') {
+            if (text?.startsWith('[INVITE_SALA]')) {
+                lastMessageText = 'Te ha invitado a una sala';
+            } else {
+                lastMessageText = '🔒 Texto cifrado';
+            }
+        } else if (type === 'image') {
+            lastMessageText = '📷 Imagen';
+        } else if (type === 'audio') {
+            lastMessageText = '🎤 Nota de voz';
+        } else if (type === 'video') {
+            lastMessageText = '📹 Video';
+        } else if (type === 'file') {
+            lastMessageText = `📄 ${fileName || 'Archivo'}`;
+        } else {
+            lastMessageText = 'Mensaje';
+        }
 
         const commonChatInfo = { lastMessageText, lastMessageTimestamp: serverTimestamp(), lastMessageSenderId: String(currentUser.id) };
 
@@ -412,10 +451,15 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
             let type: DirectMessage['type'] = 'file';
             if (file.type.startsWith('image/')) type = 'image';
             if (file.type.startsWith('video/')) type = 'video';
+            if (file.type.startsWith('audio/')) type = 'audio';
             await sendChatMessage(type, undefined, url, file.type, file.name, file.size);
         } catch (error: any) {
             console.error("Error uploading file:", error);
-            alert("No se pudo enviar el archivo.");
+            if (error.code === 'storage/unauthorized') {
+                alert("Error de Permisos: No tienes permiso para subir este tipo de archivo. Revisa las reglas de almacenamiento en Firebase para permitir 'audio/*', 'video/*' y otros tipos de archivo.");
+            } else {
+                alert("No se pudo enviar el archivo. Revisa tu conexión a internet.");
+            }
         }
     };
     
@@ -442,7 +486,11 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
                     await sendChatMessage('audio', undefined, url, audioBlob.type, fileName, audioBlob.size);
                 } catch (error: any) {
                     console.error("Error uploading audio:", error);
-                    alert("Error enviando audio.");
+                    if (error.code === 'storage/unauthorized') {
+                        alert("Error de Permisos: No tienes permiso para subir notas de voz. Revisa las reglas de almacenamiento en Firebase.");
+                    } else {
+                        alert("Error enviando audio.");
+                    }
                 }
             };
             recorder.start();

@@ -82,7 +82,6 @@ export interface User {
   username_lowercase: string;
   email: string;
   role: UserRole;
-  isAuthenticated: boolean;
   createdAt?: string;
   photoURL?: string;
   hasPasswordProvider?: boolean;

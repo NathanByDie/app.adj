@@ -771,6 +771,7 @@ const App = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('Todos');
   const [animationDirection, setAnimationDirection] = useState<AnimationDirection>('fade');
+  const [isSavingSong, setIsSavingSong] = useState(false);
 
   // Room
   const [roomCodeInput, setRoomCodeInput] = useState('');
@@ -793,6 +794,7 @@ const App = () => {
   const [viewingProfileUser, setViewingProfileUser] = useState<AppUser | null>(null);
   const [categoryConfirmModal, setCategoryConfirmModal] = useState<any>(null);
   const [exitRoomConfirmModal, setExitRoomConfirmModal] = useState<any>(null);
+  const [deleteAccountConfirmModal, setDeleteAccountConfirmModal] = useState<any>(null);
 
 
   // Settings
@@ -951,8 +953,29 @@ const App = () => {
       });
   }, [userChats, allValidatedUsers, user, db]);
 
-  // Handle Share Plugin
+  // Handle Share Plugin & Median/GoNative Deep Links
   useEffect(() => {
+    // Handler for Median/GoNative's deep link functionality
+    (window as any).median = (window as any).median || {};
+    (window as any).median.app = (window as any).median.app || {};
+    (window as any).median.app.receivedLink = (data: { url: string }) => {
+        try {
+            const url = new URL(data.url);
+            const params = new URLSearchParams(url.search);
+            const songId = params.get('song');
+            
+            if (songId) {
+                // Dispatch a custom event that the React app can listen to.
+                // This is a clean way to communicate from a global function into the React lifecycle.
+                const event = new CustomEvent('deep-link-received', { detail: { songId } });
+                window.dispatchEvent(event);
+            }
+        } catch (error) {
+            console.error("Error parsing deep link URL:", error);
+        }
+    };
+
+    // Handler for GoNative's Share-to-App feature
     (window as any).median_share_to_app = (data: any) => {
         const url = data?.url;
         if (url && url.includes('lacuerda.net')) {
@@ -965,6 +988,32 @@ const App = () => {
         }
     };
   }, [openOverlay]);
+  
+    // Listener for the custom deep link event
+  useEffect(() => {
+    const handleDeepLink = (event: Event) => {
+        const customEvent = event as CustomEvent;
+        const { songId } = customEvent.detail;
+        if (songId) {
+            // Wait a moment for songs to be loaded if it's a cold start
+            setTimeout(() => {
+                const songToOpen = songs.find(s => s.id === songId);
+                if (songToOpen) {
+                    openSongViewer(songToOpen);
+                } else {
+                    console.warn(`Deep link for song ID ${songId} received, but song was not found.`);
+                    // Maybe show a toast message here
+                }
+            }, 500); // Small delay to ensure songs state is populated
+        }
+    };
+
+    window.addEventListener('deep-link-received', handleDeepLink);
+    return () => {
+        window.removeEventListener('deep-link-received', handleDeepLink);
+    };
+  }, [songs, openSongViewer]);
+
 
   // Authentication Effect
   useEffect(() => {
@@ -981,11 +1030,11 @@ const App = () => {
                     username_lowercase: (firebaseUser.displayName || 'usuario').toLowerCase(),
                     email: firebaseUser.email || '',
                     role: 'member',
-                    isAuthenticated: true,
                     photoURL: firebaseUser.photoURL || undefined,
                     hasGoogleProvider: firebaseUser.providerData.some(p => p.providerId === 'google.com'),
                     hasPasswordProvider: firebaseUser.providerData.some(p => p.providerId === 'password'),
-                    createdAt: new Date().toISOString()
+                    createdAt: new Date().toISOString(),
+                    profileValidated: true, // Auto-validate new users
                 };
                 await setDoc(userRef, newUser);
                 setUser(newUser);
@@ -1188,9 +1237,9 @@ const App = () => {
                            username_lowercase: authData.user.toLowerCase(),
                            email: authData.email,
                            role: 'member',
-                           isAuthenticated: true,
                            hasPasswordProvider: true,
-                           createdAt: new Date().toISOString()
+                           createdAt: new Date().toISOString(),
+                           profileValidated: true, // Auto-validate new users
                        });
                   } else {
                       await sendPasswordResetEmail(auth, authData.email);
@@ -1228,7 +1277,7 @@ const App = () => {
           <ChatSyncManager currentUser={user} db={db} />
           {!currentRoom && !viewerSong && !isSongEditorOpen && !directMessagePartner && !profileUserId ? (
               <MainView 
-                  user={user} view={view} darkMode={darkMode} theme={setTheme} isAdmin={user.role === 'admin'} isSuperAdmin={user.email === SUPER_ADMIN_EMAIL}
+                  user={user} view={view} darkMode={darkMode} theme={theme} setTheme={setTheme} isAdmin={user.role === 'admin'} isSuperAdmin={user.email === SUPER_ADMIN_EMAIL}
                   animationDirection={animationDirection} navigateTo={navigateTo}
                   totalUnreadCount={totalUnreadCount}
                   songs={songs} favorites={favorites}
@@ -1339,17 +1388,22 @@ const App = () => {
                       setIsSongEditorOpen(true);
                       openOverlay({ overlay: 'editor' });
                   }}
-                  onDeleteAccountRequest={async () => {
-                       if (confirm("¿Estás seguro de que quieres eliminar tu cuenta? Esta acción es irreversible.")) {
-                          try {
-                             if (auth.currentUser) {
-                                 await deleteDoc(doc(db, 'users', user.id));
-                                 await deleteUser(auth.currentUser);
-                             }
-                          } catch (e) {
-                              alert("Error al eliminar cuenta. Quizás necesites re-autenticarte.");
+                  onDeleteAccountRequest={() => {
+                      setDeleteAccountConfirmModal({
+                          title: 'Eliminar Cuenta',
+                          message: '¿Estás seguro de que quieres eliminar tu cuenta? Esta acción es permanente y todos tus datos se perderán.',
+                          action: async () => {
+                              setDeleteAccountConfirmModal(null);
+                              try {
+                                  if (auth.currentUser) {
+                                      await deleteDoc(doc(db, 'users', user.id));
+                                      await deleteUser(auth.currentUser);
+                                  }
+                              } catch (e) {
+                                  alert("Error al eliminar cuenta. Es posible que necesites volver a iniciar sesión recientemente para confirmar esta acción.");
+                              }
                           }
-                      }
+                      });
                   }}
                   sharedImportUrl={sharedImportUrl}
               />
@@ -1390,32 +1444,41 @@ const App = () => {
                 categories={categories.map(c => c.name)}
                 onCancel={goBack}
                 darkMode={darkMode}
+                isSaving={isSavingSong}
                 onSave={async (songData: any, audioAction: any) => {
-                    let audioUrl = editorSong?.audioUrl;
-                    if (audioAction.shouldDelete) {
-                        if (editorSong?.audioUrl) {
-                            try {
-                                const oldAudioRef = storageRef(storage, editorSong.audioUrl);
-                                await deleteObject(oldAudioRef);
-                            } catch (error) {
-                                console.warn("Old audio file could not be deleted, it might already be gone:", error);
+                    setIsSavingSong(true);
+                    try {
+                        let audioUrl = editorSong?.audioUrl;
+                        if (audioAction.shouldDelete) {
+                            if (editorSong?.audioUrl) {
+                                try {
+                                    const oldAudioRef = storageRef(storage, editorSong.audioUrl);
+                                    await deleteObject(oldAudioRef);
+                                } catch (error) {
+                                    console.warn("Old audio file could not be deleted, it might already be gone:", error);
+                                }
                             }
+                            audioUrl = undefined;
                         }
-                        audioUrl = undefined;
+                        if (audioAction.blob) {
+                             const storagePath = `songs/${songData.title}_${Date.now()}.webm`;
+                             const audioRef = storageRef(storage, storagePath);
+                             await uploadBytes(audioRef, audioAction.blob);
+                             audioUrl = await getDownloadURL(audioRef);
+                        }
+                        
+                        if (editorSong) {
+                            await updateDoc(doc(db, 'songs', editorSong.id), { ...songData, audioUrl: audioUrl === undefined ? deleteField() : audioUrl });
+                        } else {
+                            await addDoc(collection(db, 'songs'), { ...songData, audioUrl: audioUrl || null, createdAt: Date.now() });
+                        }
+                        goBack();
+                    } catch (error) {
+                        console.error("Error al guardar la música:", error);
+        alert("No se pudo guardar la canción. Verifica tu conexión o los permisos de escritura.");
+                    } finally {
+                        setIsSavingSong(false);
                     }
-                    if (audioAction.blob) {
-                         const storagePath = `songs/${songData.title}_${Date.now()}.webm`;
-                         const audioRef = storageRef(storage, storagePath);
-                         await uploadBytes(audioRef, audioAction.blob);
-                         audioUrl = await getDownloadURL(audioRef);
-                    }
-                    
-                    if (editorSong) {
-                        await updateDoc(doc(db, 'songs', editorSong.id), { ...songData, audioUrl: audioUrl === undefined ? deleteField() : audioUrl });
-                    } else {
-                        await addDoc(collection(db, 'songs'), { ...songData, audioUrl: audioUrl || null, createdAt: Date.now() });
-                    }
-                    goBack();
                 }}
                 initialImportUrl={sharedImportUrl || undefined}
              />
@@ -1455,29 +1518,34 @@ const App = () => {
                            await updateDoc(doc(db, 'users', user.id), { username: newUn, username_lowercase: newUn.toLowerCase() });
                        }
                   }}
-                  onDeleteAccountRequest={async () => {
-                       if (confirm("¿Estás seguro de que quieres eliminar tu cuenta? Esta acción es irreversible.")) {
-                          try {
-                             if (auth.currentUser) {
-                                 await deleteDoc(doc(db, 'users', user.id));
-                                 await deleteUser(auth.currentUser);
-                             }
-                          } catch (e) {
-                              alert("Error al eliminar cuenta. Quizás necesites re-autenticarte.");
+                  onDeleteAccountRequest={() => {
+                      setDeleteAccountConfirmModal({
+                          title: 'Eliminar Cuenta',
+                          message: '¿Estás seguro de que quieres eliminar tu cuenta? Esta acción es permanente y todos tus datos se perderán.',
+                          action: async () => {
+                              setDeleteAccountConfirmModal(null);
+                              try {
+                                  if (auth.currentUser) {
+                                      await deleteDoc(doc(db, 'users', user.id));
+                                      await deleteUser(auth.currentUser);
+                                  }
+                              } catch (e) {
+                                  alert("Error al eliminar cuenta. Es posible que necesites volver a iniciar sesión recientemente para confirmar esta acción.");
+                              }
                           }
-                      }
+                      });
                   }}
               />
           )}
           
-          {(categoryConfirmModal || exitRoomConfirmModal) && (
+          {(categoryConfirmModal || exitRoomConfirmModal || deleteAccountConfirmModal) && (
               <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
                   <div className={`w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}>
-                      <h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{exitRoomConfirmModal?.title || categoryConfirmModal?.title}</h3>
-                      <p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{exitRoomConfirmModal?.message || categoryConfirmModal?.message}</p>
+                      <h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{(deleteAccountConfirmModal || exitRoomConfirmModal || categoryConfirmModal)?.title}</h3>
+                      <p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{(deleteAccountConfirmModal || exitRoomConfirmModal || categoryConfirmModal)?.message}</p>
                       <div className="flex gap-3">
-                          <button onClick={() => { setCategoryConfirmModal(null); setExitRoomConfirmModal(null); }} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button>
-                          <button onClick={exitRoomConfirmModal?.action || categoryConfirmModal?.action} className="flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg bg-misionero-rojo">Confirmar</button>
+                          <button onClick={() => { setCategoryConfirmModal(null); setExitRoomConfirmModal(null); setDeleteAccountConfirmModal(null); }} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button>
+                          <button onClick={(deleteAccountConfirmModal || exitRoomConfirmModal || categoryConfirmModal)?.action} className="flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg bg-misionero-rojo">Confirmar</button>
                       </div>
                   </div>
               </div>

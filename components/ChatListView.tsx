@@ -40,6 +40,11 @@ const VerifiedIcon = ({ className }: { className?: string }) => (
 const ImageIcon = () => <svg className="w-4 h-4 inline -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>;
 const MicIcon = () => <svg className="w-4 h-4 inline -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>;
 const FileIcon = () => <svg className="w-4 h-4 inline -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>;
+const VideoIcon = ({ className }: { className?: string }) => (
+    <svg className={className || "w-6 h-6"} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+    </svg>
+);
 
 
 const generateChatId = (uid1: string, uid2: string): string => {
@@ -95,14 +100,15 @@ const ChatListItem: React.FC<{
         return () => { isMounted = false; };
     }, [chat.lastMessageText, chatId]);
 
-    const lastMsgContent = decryptedPreview ? decryptedPreview.split('\n')[0] : '';
-    let prefix = isMeSender && lastMsgContent ? 'Tú: ' : '';
+    let prefix = isMeSender && decryptedPreview ? 'Tú: ' : '';
 
     const renderPreview = (text?: string) => {
         if (!text) return null;
-        if (text.startsWith('📷')) return <span className="flex items-center gap-1.5"><ImageIcon/> {text.substring(2)}</span>;
-        if (text.startsWith('🎤')) return <span className="flex items-center gap-1.5"><MicIcon/> {text.substring(2)}</span>;
-        if (text.startsWith('📄')) return <span className="flex items-center gap-1.5"><FileIcon/> {text.substring(2)}</span>;
+        if (text.startsWith('📷')) return <span className="flex items-center gap-1.5"><ImageIcon/> Imagen</span>;
+        if (text.startsWith('🎤')) return <span className="flex items-center gap-1.5"><MicIcon/> Nota de voz</span>;
+        if (text.startsWith('📹')) return <span className="flex items-center gap-1.5"><VideoIcon className="w-4 h-4 inline -mt-0.5" /> Video</span>;
+        if (text.startsWith('📄')) return <span className="flex items-center gap-1.5"><FileIcon/> {text.substring(2).trim()}</span>;
+        if (text === '🔒 Texto cifrado') return <span className="opacity-80">Mensaje cifrado</span>;
         return text;
     };
     
@@ -110,8 +116,8 @@ const ChatListItem: React.FC<{
         ? <span className="text-misionero-verde animate-pulse font-bold">Escribiendo...</span>
         : isNewChat 
             ? <span className="italic opacity-70">Toca para iniciar un chat</span>
-            : (lastMsgContent 
-                ? <>{prefix}{renderPreview(lastMsgContent)}</> 
+            : (decryptedPreview 
+                ? <>{prefix}{renderPreview(decryptedPreview)}</> 
                 : (isDecrypting 
                     ? <span className="opacity-50 animate-pulse">...</span> 
                     : (isOnline ? 'En línea' : 'Desconectado')
@@ -195,6 +201,7 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, allValidatedUser
             onUserSelect(partnerUser);
         } else {
             // Fallback for new/unvalidated users
+            // FIX: Removed `isAuthenticated` as it does not exist on the AppUser type.
             const partialPartner: AppUser = {
                 id: chat.partnerId,
                 username: chat.partnerUsername,
@@ -203,7 +210,6 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, allValidatedUser
                 profileValidated: chat.partnerValidated,
                 email: '', // Not available in ChatInfo
                 role: 'member', // Assume
-                isAuthenticated: true, // Assume
             };
             onUserSelect(partialPartner);
         }

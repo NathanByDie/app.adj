@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef } from 'react';
 import { User as AppUser, ChatInfo, DirectMessage } from '../types';
 import { Firestore, collection, query, orderBy, onSnapshot, doc, setDoc, increment, limit, Unsubscribe, updateDoc, getDoc } from 'firebase/firestore';
@@ -175,7 +174,7 @@ const ChatSyncManager: React.FC<ChatSyncManagerProps> = ({ currentUser, db }) =>
                                     if (isNewMessage) {
                                         updates.unreadCount = increment(1);
                                         performWrite = true;
-                                        triggerHapticFeedback('unread_message');
+                                        triggerHapticFeedback('notification');
                                     }
                                 }
                             }

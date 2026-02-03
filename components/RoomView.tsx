@@ -348,7 +348,6 @@ const RoomView: React.FC<RoomViewProps> = ({
 
   const prevParticipants = useRef<string[]>([]);
   const notificationAudio = useRef<HTMLAudioElement | null>(null);
-  const lastSyncedHostSongId = useRef<string | undefined>(undefined);
   const roomRef = useRef(room);
   roomRef.current = room;
 
@@ -358,6 +357,8 @@ const RoomView: React.FC<RoomViewProps> = ({
   const repertoireScrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollIntervalRef = useRef<number | null>(null);
   const scrollDirectionRef = useRef<'up' | 'down' | null>(null);
+
+  const lastSyncedHostSongId = useRef<string | null>(null);
 
   const transferHost = (username: string) => {
     setConfirmModal({
@@ -704,12 +705,22 @@ const RoomView: React.FC<RoomViewProps> = ({
 
   useEffect(() => {
     const hostSongId = room.currentSongId;
-    if (isFollowingHost && !isTheHost && hostSongId && hostSongId !== selectedSongId && hostSongId !== lastSyncedHostSongId.current) {
-        lastSyncedHostSongId.current = hostSongId;
+
+    // Si el "Follow Host" está activado, no somos el host, y el anfitrión elige una canción
+    // que no es la que ya hemos sincronizado, forzamos la navegación.
+    if (isFollowingHost && !isTheHost && hostSongId && hostSongId !== lastSyncedHostSongId.current) {
         setSelectedSongId(hostSongId);
         openSubView('song');
+        // Recordamos que ya hemos sincronizado con esta canción para no volver a forzar.
+        lastSyncedHostSongId.current = hostSongId;
     }
-  }, [room.currentSongId, isFollowingHost, isTheHost, selectedSongId, openSubView]);
+
+    // Si el anfitrión sale de la vista de canción, reseteamos nuestro tracker.
+    // Esto permite que si el anfitrión vuelve a entrar a la MISMA canción, volvamos a seguirle.
+    if (!hostSongId) {
+        lastSyncedHostSongId.current = null;
+    }
+  }, [room.currentSongId, isFollowingHost, isTheHost, openSubView]);
 
   useEffect(() => {
     const checkParticipantRoles = async () => {
@@ -753,7 +764,7 @@ const RoomView: React.FC<RoomViewProps> = ({
       const newMsg = snapshot.val();
       if (newMsg && newMsg.timestamp > (liveChat?.[liveChat.length - 1]?.timestamp || 0)) {
         if (!isChatOpen && newMsg.sender !== currentUser) {
-          triggerHapticFeedback('light');
+          triggerHapticFeedback('notification');
           if (notificationAudio.current) {
             notificationAudio.current.play().catch(e => console.log("Audio play failed", e));
           }
@@ -972,8 +983,16 @@ const RoomView: React.FC<RoomViewProps> = ({
                 <div className="space-y-2">
                     {repertoireSongs.length > 0 ? (
                         repertoireSongs.map((song, index) => (
-                           <div key={song.id} onClick={() => handleSongSelect(song.id)} className={`relative p-4 rounded-2xl flex items-center justify-between gap-3 active:scale-[0.98] transition-transform cursor-pointer ${darkMode ? 'bg-slate-900 border-white/5' : 'bg-white border-slate-100 shadow-sm'} border`}>
-                               {room.currentSongId === song.id && <div className="absolute left-2 top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-misionero-verde rounded-full animate-pulse"></div>}
+                           <div key={song.id} onClick={() => handleSongSelect(song.id)} className={`relative p-4 rounded-2xl flex items-center justify-between gap-3 active:scale-[0.98] transition-all duration-300 cursor-pointer border ${
+                               darkMode 
+                                   ? 'bg-slate-900' 
+                                   : 'bg-white shadow-sm'
+                               } ${
+                               room.currentSongId === song.id 
+                                   ? 'border-misionero-rojo shadow-lg shadow-misionero-rojo/20' 
+                                   : (darkMode ? 'border-white/5' : 'border-slate-100')
+                               }`}
+                           >
                                <div className="min-w-0 flex-1">
                                     <p className="text-[10px] font-black uppercase truncate">{song.title}</p>
                                     <p className="text-[8px] text-slate-400 font-bold">{song.key} • {song.author}</p>
@@ -1000,7 +1019,7 @@ const RoomView: React.FC<RoomViewProps> = ({
                     setIsToastVisible(false);
                     handleOpenChat();
                 }}
-                className="fixed top-[calc(env(safe-area-inset-top)+1rem)] left-1/2 -translate-x-1/2 w-[90%] max-w-sm z-[150] glass-ui p-2 rounded-2xl shadow-2xl cursor-pointer active:scale-95"
+                className="fixed top-[calc(env(safe-area-inset-top)+2.5rem)] left-1/2 -translate-x-1/2 w-[90%] max-w-sm z-[150] glass-ui p-2 rounded-2xl shadow-2xl cursor-pointer active:scale-95"
                 style={{
                     transition: 'transform 0.3s ease, opacity 0.3s ease',
                     transform: `translateY(${toastTranslateY}px) translateX(-50%)`,
