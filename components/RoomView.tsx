@@ -422,7 +422,7 @@ const RoomView: React.FC<RoomViewProps> = ({
     });
 
     return () => {
-        listener.remove();
+        listener.then(l => l.remove());
     };
   }, [
     isChatOpen, 
@@ -599,10 +599,10 @@ const RoomView: React.FC<RoomViewProps> = ({
     setSelectedSongId(songId);
     openSubView('song');
     
-    if (isTheHost) {
+    if (canModify) {
       onUpdateRoom(room.id, { currentSongId: songId });
     }
-  }, [isTheHost, onUpdateRoom, room.id]);
+  }, [canModify, onUpdateRoom, room.id]);
 
   const handleTransposeChange = (songId: string, value: number) => {
     onUpdateRoom(room.id, {
@@ -726,13 +726,12 @@ const RoomView: React.FC<RoomViewProps> = ({
 
   useEffect(() => {
     const hostSongId = room.currentSongId;
-    if (isFollowingHost && !isTheHost && hostSongId && hostSongId !== selectedSongId && hostSongId !== lastSyncedHostSongId.current) {
+    if (isFollowingHost && !canModify && hostSongId && hostSongId !== selectedSongId && hostSongId !== lastSyncedHostSongId.current) {
         lastSyncedHostSongId.current = hostSongId;
         setSelectedSongId(hostSongId);
         openSubView('song');
-        addNotification(`El anfitrión abrió: ${songs.find(s => s.id === hostSongId)?.title || 'una canción'}`);
     }
-  }, [room.currentSongId, isFollowingHost, isTheHost, songs, addNotification, selectedSongId]);
+  }, [room.currentSongId, isFollowingHost, canModify, selectedSongId]);
 
   useEffect(() => {
     const checkParticipantRoles = async () => {
@@ -801,12 +800,12 @@ const RoomView: React.FC<RoomViewProps> = ({
   const handleToastTouchStart = (e: React.TouchEvent) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     if (toastExitTimerRef.current) clearTimeout(toastExitTimerRef.current);
-    toastTouchStartY.current = e.target.touches[0].clientY;
+    toastTouchStartY.current = e.touches[0].clientY;
   };
   
   const handleToastTouchMove = (e: React.TouchEvent) => {
     if (toastTouchStartY.current === null) return;
-    const currentY = e.target.touches[0].clientY;
+    const currentY = e.touches[0].clientY;
     const deltaY = currentY - toastTouchStartY.current;
     if (deltaY < 0) { 
       setToastTranslateY(deltaY);
@@ -1031,7 +1030,7 @@ const RoomView: React.FC<RoomViewProps> = ({
         )}
 
         {/* Botón Flotante para Seguir al Host */}
-        {!isTheHost && !isEditingRepertoire && !selectedSongId && (
+        {!canModify && !isEditingRepertoire && !selectedSongId && (
             <div className="fixed bottom-24 right-6 z-40 flex items-center gap-2 glass-ui p-2 rounded-full shadow-lg animate-in fade-in duration-300">
                 <span className="text-[10px] font-black uppercase px-2 text-slate-400">Host</span>
                 <button 
@@ -1099,7 +1098,7 @@ const RoomView: React.FC<RoomViewProps> = ({
                 hasNext={selectedSongIndex < repertoireSongs.length - 1}
                 hasPrev={selectedSongIndex > 0}
                 externalTranspose={room.globalTranspositions?.[selectedSong.id] || 0} 
-                onTransposeChange={isTheHost ? (val) => handleTransposeChange(selectedSong.id, val) : undefined} 
+                onTransposeChange={canModify ? (val) => handleTransposeChange(selectedSong.id, val) : undefined} 
                 onEdit={canModify ? () => onEditSong(selectedSong) : undefined} 
                 onDelete={canModify ? () => handleDeleteRequest(selectedSong) : undefined}
             />

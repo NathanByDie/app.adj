@@ -15,7 +15,7 @@ const AudioPlayerContext = createContext<AudioPlayerContextType>({
 export const useAudioPlayer = () => useContext(AudioPlayerContext);
 
 // FIX: Refactored to use React.FC to resolve typing error with the children prop.
-export const AudioPlayerProvider: React.FC = ({ children }) => {
+export const AudioPlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
 
     const playAudio = useCallback((newAudioEl: HTMLAudioElement) => {

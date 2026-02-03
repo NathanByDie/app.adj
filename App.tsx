@@ -867,7 +867,8 @@ const App = () => {
         });
 
         return () => {
-            listener.remove();
+// @FIX: Capacitor's addListener returns a promise. We must wait for it to resolve before calling remove().
+            listener.then(l => l.remove());
         };
     }
   }, [
