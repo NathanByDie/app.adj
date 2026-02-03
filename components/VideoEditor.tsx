@@ -3,7 +3,7 @@ import { PencilIcon, TextIcon, UndoIcon, TrimIcon } from '../constants';
 
 interface VideoEditorProps {
     videoFile: File;
-    onSend: (blob: Blob) => void;
+    onSend: (blob: Blob, mimeType: string) => void;
     onCancel: () => void;
     darkMode: boolean;
 }
@@ -14,6 +14,25 @@ interface Path { points: Point[]; color: string; size: number; }
 interface TextItem { text: string; x: number; y: number; color: string; size: number; id: number; }
 
 const COLORS = ['#ffffff', '#ef4444', '#facc15', '#22c55e', '#3b82f6', '#000000'];
+
+const PlayIcon = ({ className }: { className?: string }) => (
+    <svg className={className || "w-12 h-12"} fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+);
+const PauseIcon = ({ className }: { className?: string }) => (
+    <svg className={className || "w-12 h-12"} fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
+);
+
+const getSupportedMimeType = (): { mimeType: string; extension: string } => {
+    if (MediaRecorder.isTypeSupported('video/mp4')) {
+        return { mimeType: 'video/mp4', extension: '.mp4' };
+    }
+    if (MediaRecorder.isTypeSupported('video/webm')) {
+        return { mimeType: 'video/webm', extension: '.webm' };
+    }
+    // Fallback, aunque es poco probable que se necesite en navegadores modernos
+    return { mimeType: '', extension: '' };
+};
+
 
 const VideoEditor: React.FC<VideoEditorProps> = ({ videoFile, onSend, onCancel, darkMode }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -33,26 +52,41 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ videoFile, onSend, onCancel, 
     const [drawSize, setDrawSize] = useState(5);
     const [paths, setPaths] = useState<Path[]>([]);
     const [texts, setTexts] = useState<TextItem[]>([]);
+    
     const [isDrawing, setIsDrawing] = useState(false);
+    const [currentPath, setCurrentPath] = useState<Path | null>(null);
+    const [draggingText, setDraggingText] = useState<number | null>(null);
+    const dragOffset = useRef<Point>({ x: 0, y: 0 });
+    const [draggingTrimHandle, setDraggingTrimHandle] = useState<'start' | 'end' | null>(null);
     
     const [isProcessing, setIsProcessing] = useState(false);
 
-    // Main drawing loop
+    const getCanvasPoint = (e: React.MouseEvent | React.TouchEvent): Point => {
+        const canvas = canvasRef.current;
+        if (!canvas) return { x: 0, y: 0 };
+        const rect = canvas.getBoundingClientRect();
+        const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+        const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+    };
+
     const drawFrame = useCallback(() => {
         const canvas = canvasRef.current;
         const video = videoRef.current;
         if (!canvas || !video) return;
-
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
         
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-        // Draw overlays (paths and text)
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-        paths.forEach(path => {
+        
+        [...paths, currentPath].forEach(path => {
+            if(!path) return;
             ctx.strokeStyle = path.color;
             ctx.lineWidth = path.size;
             ctx.beginPath();
@@ -60,6 +94,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ videoFile, onSend, onCancel, 
             path.points.forEach(p => ctx.lineTo(p.x, p.y));
             ctx.stroke();
         });
+
         texts.forEach(text => {
             ctx.fillStyle = text.color;
             ctx.font = `bold ${text.size}px sans-serif`;
@@ -72,21 +107,18 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ videoFile, onSend, onCancel, 
         });
 
         animationFrameRef.current = requestAnimationFrame(drawFrame);
-    }, [paths, texts]);
+    }, [paths, texts, currentPath]);
     
-    // Setup video and canvas
     useEffect(() => {
         const video = videoRef.current;
         const canvas = canvasRef.current;
         if (!video || !canvas) return;
-
         const url = URL.createObjectURL(videoFile);
         video.src = url;
 
         const onLoadedData = () => {
             setDuration(video.duration);
             setEndTime(video.duration);
-
             const container = canvas.parentElement;
             if (container) {
                 const { width: cW, height: cH } = container.getBoundingClientRect();
@@ -103,34 +135,66 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ videoFile, onSend, onCancel, 
                 canvas.width = finalW;
                 canvas.height = finalH;
             }
-
-            video.currentTime = 0; // Ensure it starts at the beginning
+            video.currentTime = 0;
             startDrawingLoop();
         };
 
-        video.addEventListener('loadedmetadata', onLoadedData);
-        return () => {
-            URL.revokeObjectURL(url);
-            video.removeEventListener('loadedmetadata', onLoadedData);
-            stopDrawingLoop();
-        };
-    }, [videoFile]);
-
-    // Playback loop and time update
-    useEffect(() => {
-        const video = videoRef.current;
-        if (!video) return;
+        const onPlay = () => setIsPlaying(true);
+        const onPause = () => setIsPlaying(false);
         const onTimeUpdate = () => {
             if (video.currentTime >= endTime) {
                 video.pause();
-                setIsPlaying(false);
                 video.currentTime = startTime;
             }
             setCurrentTime(video.currentTime);
         };
+
+        video.addEventListener('loadedmetadata', onLoadedData);
+        video.addEventListener('play', onPlay);
+        video.addEventListener('pause', onPause);
         video.addEventListener('timeupdate', onTimeUpdate);
-        return () => video.removeEventListener('timeupdate', onTimeUpdate);
-    }, [startTime, endTime]);
+        return () => {
+            URL.revokeObjectURL(url);
+            video.removeEventListener('loadedmetadata', onLoadedData);
+            video.removeEventListener('play', onPlay);
+            video.removeEventListener('pause', onPause);
+            video.removeEventListener('timeupdate', onTimeUpdate);
+            stopDrawingLoop();
+        };
+    }, [videoFile, startTime, endTime]);
+
+    useEffect(() => {
+        const video = videoRef.current;
+        if (!draggingTrimHandle || !video) return;
+
+        const handleMove = (e: MouseEvent | TouchEvent) => {
+            const rect = timelineRef.current!.getBoundingClientRect();
+            const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+            const pos = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+            const newTime = pos * duration;
+            if (draggingTrimHandle === 'start') {
+                const newStartTime = Math.min(newTime, endTime - 0.1);
+                setStartTime(newStartTime);
+                video.currentTime = newStartTime;
+            } else {
+                const newEndTime = Math.max(newTime, startTime + 0.1);
+                setEndTime(newEndTime);
+                video.currentTime = newEndTime;
+            }
+        };
+        const handleUp = () => setDraggingTrimHandle(null);
+
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('touchmove', handleMove);
+        window.addEventListener('mouseup', handleUp);
+        window.addEventListener('touchend', handleUp);
+        return () => {
+            window.removeEventListener('mousemove', handleMove);
+            window.removeEventListener('touchmove', handleMove);
+            window.removeEventListener('mouseup', handleUp);
+            window.removeEventListener('touchend', handleUp);
+        };
+    }, [draggingTrimHandle, duration, startTime, endTime]);
 
     const startDrawingLoop = () => {
         stopDrawingLoop();
@@ -144,56 +208,48 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ videoFile, onSend, onCancel, 
     const togglePlay = () => {
         const video = videoRef.current;
         if (!video) return;
-        if (isPlaying) {
-            video.pause();
-        } else {
+        if (isPlaying) video.pause();
+        else {
             if (video.currentTime < startTime) video.currentTime = startTime;
             video.play();
         }
-        setIsPlaying(!isPlaying);
     };
 
-    const handleTimelineScrub = (e: React.MouseEvent | React.TouchEvent) => {
-        const video = videoRef.current;
-        if (!timelineRef.current || !video) return;
-        const rect = timelineRef.current.getBoundingClientRect();
-        const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-        const pos = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-        const newTime = pos * duration;
-        video.currentTime = newTime;
-    };
-    
-    // -- Canvas drawing logic --
-    const getCanvasPoint = (e: React.MouseEvent | React.TouchEvent): Point => {
-        const canvas = canvasRef.current;
-        if (!canvas) return { x: 0, y: 0 };
-        const rect = canvas.getBoundingClientRect();
-        const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-        const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-        return { x: clientX - rect.left, y: clientY - rect.top };
-    };
-
-    const handleDrawStart = (e: React.MouseEvent | React.TouchEvent) => {
-        if (tool !== 'draw') return;
-        setIsDrawing(true);
+    const handleInteractionStart = (e: React.MouseEvent | React.TouchEvent) => {
         const point = getCanvasPoint(e);
-        setPaths(prev => [...prev, { points: [point], color: drawColor, size: drawSize }]);
+        if (tool === 'draw') {
+            setIsDrawing(true);
+            setCurrentPath({ points: [point], color: drawColor, size: drawSize });
+        } else if (tool === 'text') {
+            const clickedText = texts.find(t => Math.abs(t.x - point.x) < t.size && Math.abs(t.y - point.y) < t.size);
+            if (clickedText) {
+                setDraggingText(clickedText.id);
+                dragOffset.current = { x: clickedText.x - point.x, y: clickedText.y - point.y };
+            }
+        }
     };
 
-    const handleDrawMove = (e: React.MouseEvent | React.TouchEvent) => {
-        if (tool !== 'draw' || !isDrawing) return;
+    const handleInteractionMove = (e: React.MouseEvent | React.TouchEvent) => {
         const point = getCanvasPoint(e);
-        setPaths(prev => {
-            const newPaths = [...prev];
-            const lastPath = newPaths[newPaths.length - 1];
-            if (lastPath) lastPath.points.push(point);
-            return newPaths;
-        });
+        if (tool === 'draw' && isDrawing) {
+            setCurrentPath(prev => prev ? { ...prev, points: [...prev.points, point] } : null);
+        } else if (tool === 'text' && draggingText !== null) {
+            setTexts(prev => prev.map(t => 
+                t.id === draggingText ? { ...t, x: point.x + dragOffset.current.x, y: point.y + dragOffset.current.y } : t
+            ));
+        }
     };
 
-    const handleDrawEnd = () => setIsDrawing(false);
+    const handleInteractionEnd = () => {
+        if (tool === 'draw' && isDrawing) {
+            if (currentPath) setPaths(prev => [...prev, currentPath]);
+            setCurrentPath(null);
+            setIsDrawing(false);
+        } else if (tool === 'text') {
+            setDraggingText(null);
+        }
+    };
 
-    // -- Text logic --
     const handleAddText = () => {
         const text = prompt("Escribe tu texto:");
         if (text && canvasRef.current) {
@@ -201,45 +257,44 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ videoFile, onSend, onCancel, 
         }
     };
     
-    // -- Final Send/Processing logic --
     const handleSend = async () => {
         const video = videoRef.current;
         if (!video) return;
-        
         setIsProcessing(true);
         stopDrawingLoop();
-        
         try {
-            // 1. Setup streams
-            const canvasStream = (canvasRef.current as any).captureStream(30); // 30 FPS
+            const { mimeType } = getSupportedMimeType();
+            if (!mimeType) {
+                throw new Error("No supported video format found for recording.");
+            }
+
+            const options = {
+                mimeType,
+                videoBitsPerSecond: 1000000, // 1 Mbps for compression
+            };
+
+            const canvasStream = (canvasRef.current as any).captureStream(30);
             const audioContext = new AudioContext();
             const sourceNode = audioContext.createMediaElementSource(video);
             const destinationNode = audioContext.createMediaStreamDestination();
             sourceNode.connect(destinationNode);
-            
             const [audioTrack] = destinationNode.stream.getAudioTracks();
-            canvasStream.addTrack(audioTrack);
+            if (audioTrack) canvasStream.addTrack(audioTrack);
 
-            // 2. Setup recorder
-            const recorder = new MediaRecorder(canvasStream, { mimeType: 'video/webm' });
+            const recorder = new MediaRecorder(canvasStream, options);
             const chunks: Blob[] = [];
             recorder.ondataavailable = e => chunks.push(e.data);
-            
             recorder.onstop = () => {
-                const finalBlob = new Blob(chunks, { type: 'video/webm' });
-                onSend(finalBlob);
-                // Cleanup
+                const finalBlob = new Blob(chunks, { type: mimeType });
+                onSend(finalBlob, mimeType);
                 audioContext.close();
                 setIsProcessing(false);
             };
 
-            // 3. Start processing
             recorder.start();
             video.currentTime = startTime;
             video.muted = true;
-            await video.play();
-
-            // 4. Monitor progress and stop
+            video.play();
             const checkTime = setInterval(() => {
                 if (video.currentTime >= endTime) {
                     video.pause();
@@ -247,17 +302,16 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ videoFile, onSend, onCancel, 
                     clearInterval(checkTime);
                 }
             }, 1000 / 30);
-
         } catch (error) {
             console.error("Video processing failed:", error);
             alert("Hubo un error al procesar el video.");
             setIsProcessing(false);
-            startDrawingLoop(); // Restart preview loop on failure
+            startDrawingLoop();
         }
     };
 
-    const startPercent = (startTime / duration) * 100;
-    const endPercent = (endTime / duration) * 100;
+    const startPercent = (startTime / duration) * 100 || 0;
+    const endPercent = (endTime / duration) * 100 || 100;
 
     return (
         <div className="fixed inset-0 z-[400] bg-black flex flex-col animate-in fade-in duration-200">
@@ -267,14 +321,21 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ videoFile, onSend, onCancel, 
                     <p className="mt-4 text-sm font-bold text-white">Procesando video...</p>
                 </div>
             )}
-            <video ref={videoRef} className="hidden" crossOrigin="anonymous" />
-            <div className="flex-1 flex items-center justify-center w-full h-full p-4 relative">
+            <video ref={videoRef} className="hidden" playsInline crossOrigin="anonymous" />
+            <div className="flex-1 flex items-center justify-center w-full h-full p-4 relative" onClick={togglePlay}>
                 <canvas 
                     ref={canvasRef} 
                     className="max-w-full max-h-full object-contain"
-                    onMouseDown={handleDrawStart} onMouseMove={handleDrawMove} onMouseUp={handleDrawEnd}
-                    onTouchStart={handleDrawStart} onTouchMove={handleDrawMove} onTouchEnd={handleDrawEnd}
+                    onMouseDown={handleInteractionStart} onMouseMove={handleInteractionMove} onMouseUp={handleInteractionEnd} onMouseLeave={handleInteractionEnd}
+                    onTouchStart={handleInteractionStart} onTouchMove={handleInteractionMove} onTouchEnd={handleInteractionEnd}
                 />
+                {!isPlaying && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <div className="w-16 h-16 bg-black/50 rounded-full flex items-center justify-center text-white">
+                            <PlayIcon />
+                        </div>
+                    </div>
+                )}
             </div>
             {/* Top Bar */}
             <div className="absolute top-0 left-0 right-0 p-4 pt-12 flex justify-between items-center bg-gradient-to-b from-black/50 to-transparent">
@@ -285,16 +346,14 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ videoFile, onSend, onCancel, 
             </div>
             {/* Bottom Bar */}
             <div className="w-full p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] bg-gradient-to-t from-black/70 to-transparent">
-                {/* Trimmer */}
                 {tool === 'trim' && (
-                    <div className="relative h-12 flex items-center mb-4">
-                        <div ref={timelineRef} onClick={handleTimelineScrub} className="w-full h-1 bg-white/20 rounded-full">
+                    <div ref={timelineRef} className="relative h-12 flex items-center mb-4 cursor-pointer">
+                        <div className="w-full h-1 bg-white/20 rounded-full">
                            <div className="absolute top-1/2 -translate-y-1/2 h-1 bg-misionero-amarillo" style={{ left: `${startPercent}%`, width: `${endPercent - startPercent}%` }}></div>
+                           <div className="absolute top-1/2 -translate-y-1/2 h-4 w-1 bg-white" style={{ left: `${(currentTime/duration)*100 || 0}%`}}></div>
                         </div>
-                        {/* Start Handle */}
-                        <div className="absolute top-1/2 -translate-y-1/2 w-4 h-6 bg-white rounded-md shadow-lg cursor-pointer" style={{ left: `${startPercent}%` }}></div>
-                        {/* End Handle */}
-                        <div className="absolute top-1/2 -translate-y-1/2 w-4 h-6 bg-white rounded-md shadow-lg cursor-pointer" style={{ left: `${endPercent}%` }}></div>
+                        <div onMouseDown={() => setDraggingTrimHandle('start')} onTouchStart={() => setDraggingTrimHandle('start')} className="absolute top-1/2 -translate-y-1/2 w-4 h-6 bg-white rounded-md shadow-lg cursor-pointer" style={{ left: `calc(${startPercent}% - 8px)` }}></div>
+                        <div onMouseDown={() => setDraggingTrimHandle('end')} onTouchStart={() => setDraggingTrimHandle('end')} className="absolute top-1/2 -translate-y-1/2 w-4 h-6 bg-white rounded-md shadow-lg cursor-pointer" style={{ left: `calc(${endPercent}% - 8px)` }}></div>
                     </div>
                 )}
                  {tool === 'draw' && (
@@ -303,7 +362,11 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ videoFile, onSend, onCancel, 
                         <div className="flex items-center gap-2 px-2"><div className="w-2 h-2 rounded-full" style={{ backgroundColor: drawColor }}></div><input type="range" min="2" max="20" value={drawSize} onChange={e => setDrawSize(Number(e.target.value))} className="w-full h-1 bg-white/30 rounded-full appearance-none accent-misionero-azul" /><div className="w-5 h-5 rounded-full" style={{ backgroundColor: drawColor }}></div></div>
                     </div>
                 )}
-                {/* Toolbar */}
+                {tool === 'text' && (
+                    <div className="bg-black/50 p-2 rounded-2xl mb-4 flex justify-around animate-in fade-in slide-in-from-bottom-4 duration-300">
+                        {COLORS.map(c => <button key={c} onClick={() => {}} className={`w-8 h-8 rounded-full transition-transform scale-90`} style={{ backgroundColor: c }} />)}
+                    </div>
+                )}
                 <div className="flex items-center justify-between">
                     <div className="flex gap-1 p-1 bg-black/50 rounded-full">
                         <button onClick={() => setTool('trim')} className={`p-3 rounded-full transition-colors ${tool === 'trim' ? 'bg-white text-black' : 'bg-transparent text-white'}`}><TrimIcon /></button>

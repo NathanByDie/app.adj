@@ -170,6 +170,9 @@ const SwipeableDirectMessage: React.FC<{
                     <video 
                         src={cachedMediaUrl || msg.mediaUrl}
                         className={`rounded-lg w-full min-h-[50px] bg-slate-100 dark:bg-slate-800 ${msg.pending ? 'opacity-50' : ''}`}
+                        playsInline
+                        muted
+                        preload="metadata"
                     />
                     <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-lg pointer-events-none">
                         <div className="w-12 h-12 bg-white/80 rounded-full flex items-center justify-center">
@@ -610,9 +613,10 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
                 <VideoEditor
                     videoFile={videoToEdit}
                     onCancel={() => setVideoToEdit(null)}
-                    onSend={(editedBlob) => {
-                        const newName = videoToEdit.name.replace(/\.[^/.]+$/, "") + ".webm";
-                        const editedFile = new File([editedBlob], newName, { type: 'video/webm' });
+                    onSend={(editedBlob, mimeType) => {
+                        const extension = mimeType.includes('mp4') ? '.mp4' : '.webm';
+                        const newName = videoToEdit.name.replace(/\.[^/.]+$/, "") + extension;
+                        const editedFile = new File([editedBlob], newName, { type: mimeType });
                         handleSendFile(editedFile);
                         setVideoToEdit(null);
                     }}

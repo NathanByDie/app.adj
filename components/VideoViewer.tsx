@@ -19,6 +19,7 @@ const VideoViewer: React.FC<VideoViewerProps> = ({ videoUrl, onClose, darkMode }
                     src={videoUrl} 
                     controls 
                     autoPlay
+                    playsInline
                     className="max-w-full max-h-full object-contain animate-in zoom-in-75 duration-300" 
                 />
             </div>
