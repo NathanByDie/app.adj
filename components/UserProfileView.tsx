@@ -117,7 +117,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
         } catch (error: any) {
             console.error("Error al subir foto:", error);
             if (error.code === 'storage/unauthorized') {
-                alert("Error de Permisos: No se pudo subir la foto. Por favor, contacta al administrador.");
+                alert("Error de Permisos: No se pudo subir la foto. Por favor, contacta al administrador para que revise las Reglas de Seguridad de Firebase Storage y permita la escritura en 'profile_pictures/'.");
             } else {
                 alert("Error al subir la foto. Inténtalo de nuevo.");
             }
