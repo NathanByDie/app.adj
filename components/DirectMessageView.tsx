@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { User as AppUser, DirectMessage } from '../types';
 import { Firestore, collection, query, orderBy, onSnapshot, serverTimestamp, writeBatch, doc, setDoc, increment, updateDoc, getDoc, runTransaction, arrayUnion, arrayRemove } from 'firebase/firestore';
@@ -8,6 +7,9 @@ import { triggerHapticFeedback } from '../services/haptics';
 import useCachedMedia from '../hooks/useCachedMedia';
 import CustomAudioPlayer from './CustomAudioPlayer';
 import ImageViewer from './ImageViewer';
+import ImageEditor from './ImageEditor';
+import VideoEditor from './VideoEditor';
+import VideoViewer from './VideoViewer';
 import { saveMessagesToCache, getMessagesFromCache } from '../services/cache';
 import { SecureMessenger } from '../services/security';
 import { UsersIcon } from '../constants';
@@ -87,9 +89,10 @@ const SwipeableDirectMessage: React.FC<{
     msg: DirectMessage, currentUser: AppUser, partner: AppUser, darkMode: boolean, 
     onReply: (msg: DirectMessage) => void, onLongPress: (msg: DirectMessage, target: HTMLDivElement) => void, 
     onViewImage: (url: string) => void,
+    onViewVideo: (url: string) => void,
     onImageLoad?: () => void,
     onJoinRoom: (code: string) => void
-}> = ({ msg, currentUser, partner, darkMode, onReply, onLongPress, onViewImage, onImageLoad, onJoinRoom }) => {
+}> = ({ msg, currentUser, partner, darkMode, onReply, onLongPress, onViewImage, onViewVideo, onImageLoad, onJoinRoom }) => {
     const isMe = msg.senderId === currentUser.id;
     const [translateX, setTranslateX] = useState(0);
     const touchStartCoords = useRef<{x: number, y: number} | null>(null);
@@ -162,6 +165,19 @@ const SwipeableDirectMessage: React.FC<{
                 onClick={() => onViewImage(cachedMediaUrl || msg.mediaUrl || '')} 
                 onLoad={onImageLoad}
             />;
+            case 'video': return (
+                <div className="relative max-w-[200px] sm:max-w-xs cursor-pointer" onClick={() => onViewVideo(cachedMediaUrl || msg.mediaUrl || '')}>
+                    <video 
+                        src={cachedMediaUrl || msg.mediaUrl}
+                        className={`rounded-lg w-full min-h-[50px] bg-slate-100 dark:bg-slate-800 ${msg.pending ? 'opacity-50' : ''}`}
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-lg pointer-events-none">
+                        <div className="w-12 h-12 bg-white/80 rounded-full flex items-center justify-center">
+                            <svg className="w-6 h-6 text-black ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                        </div>
+                    </div>
+                </div>
+            );
             case 'audio': return <CustomAudioPlayer src={cachedMediaUrl || msg.mediaUrl || ''} darkMode={darkMode} isSender={isMe} />;
             case 'file': return <div className="flex items-center gap-2"><p className="font-bold">{msg.fileName}</p><span className="text-xs opacity-70">{formatFileSize(msg.fileSize || 0)}</span></div>
             default: return <p className="text-sm font-medium leading-tight whitespace-pre-wrap">{msg.text}</p>;
@@ -226,6 +242,9 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
     
     const [isPartnerTyping, setIsPartnerTyping] = useState(false);
     const typingTimeoutRef = useRef<number | null>(null);
+    const [imageToEdit, setImageToEdit] = useState<File | null>(null);
+    const [videoToEdit, setVideoToEdit] = useState<File | null>(null);
+    const [viewingVideoUrl, setViewingVideoUrl] = useState<string | null>(null);
 
     useEffect(() => {
         const typingRef = refRtdb(rtdb, `typing/${chatId}/${partner.id}`);
@@ -355,6 +374,7 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
         let lastMessageText = text ? '🔒 Texto cifrado' : '';
         if (type === 'image') lastMessageText = '📷 Imagen';
         else if (type === 'audio') lastMessageText = '🎤 Audio';
+        else if (type === 'video') lastMessageText = '📹 Video';
         else if (type === 'file') lastMessageText = `📄 Archivo`;
         else if (text?.startsWith('[INVITE_SALA]')) lastMessageText = 'Te ha invitado a una sala';
 
@@ -386,7 +406,10 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
         try {
             await uploadBytes(fileRef, file);
             const url = await getDownloadURL(fileRef);
-            await sendChatMessage(file.type.startsWith('image/') ? 'image' : 'file', undefined, url, file.type, file.name, file.size);
+            let type: DirectMessage['type'] = 'file';
+            if (file.type.startsWith('image/')) type = 'image';
+            if (file.type.startsWith('video/')) type = 'video';
+            await sendChatMessage(type, undefined, url, file.type, file.name, file.size);
         } catch (error: any) {
             console.error("Error uploading file:", error);
             alert("No se pudo enviar el archivo.");
@@ -438,6 +461,22 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
         if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
         setIsRecording(false);
         setRecordingTime(0);
+    };
+
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            if (file.type.startsWith('image/')) {
+                setImageToEdit(file);
+            } else if (file.type.startsWith('video/')) {
+                setVideoToEdit(file);
+            } else {
+                handleSendFile(file);
+            }
+        }
+        if (e.target) {
+            e.target.value = '';
+        }
     };
 
     const handleReaction = async (emoji: string) => {
@@ -504,7 +543,7 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
             
             <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4 custom-scroll">
                 {isLoading ? <div className="flex justify-center items-center h-full"><div className="w-6 h-6 border-2 border-misionero-azul/30 border-t-misionero-azul rounded-full animate-spin"></div></div> : messages.map(msg => (
-                    <SwipeableDirectMessage key={msg.id} msg={msg} currentUser={currentUser} partner={partner} darkMode={darkMode} onReply={setReplyingTo} onLongPress={(msg, target) => setSelectedMessageForAction({ msg, position: target.getBoundingClientRect() })} onViewImage={setViewingImageUrl} onImageLoad={() => scrollToBottom(true)} onJoinRoom={onJoinRoom} />
+                    <SwipeableDirectMessage key={msg.id} msg={msg} currentUser={currentUser} partner={partner} darkMode={darkMode} onReply={setReplyingTo} onLongPress={(msg, target) => setSelectedMessageForAction({ msg, position: target.getBoundingClientRect() })} onViewImage={setViewingImageUrl} onViewVideo={setViewingVideoUrl} onImageLoad={() => scrollToBottom(true)} onJoinRoom={onJoinRoom} />
                 ))}
                 
                 {isPartnerTyping && (
@@ -530,7 +569,7 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
                     ) : (
                         <>
                             <button className={`p-3 rounded-full active:scale-90 transition-colors ${darkMode ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100'}`} onClick={() => fileInputRef.current?.click()}><PlusIcon/></button>
-                            <input type="file" ref={fileInputRef} hidden onChange={(e) => e.target.files?.[0] && handleSendFile(e.target.files[0])} />
+                            <input type="file" ref={fileInputRef} hidden onChange={handleFileSelect} accept="image/*,audio/*,video/*,.pdf,.doc,.docx" />
                             <textarea value={inputContent} onChange={e => { setInputContent(e.target.value); updateTypingStatus(true); }} placeholder="Escribe un mensaje..." className={`flex-1 min-w-0 rounded-2xl px-4 py-3 text-sm font-bold outline-none border transition-all resize-none max-h-32 ${darkMode ? 'bg-black border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`} rows={1} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage('text', inputContent); } }} />
                             {inputContent ? (<button onClick={() => sendChatMessage('text', inputContent)} className="bg-misionero-verde text-white font-black w-12 h-12 rounded-2xl shadow-md active:scale-95 transition-transform flex items-center justify-center shrink-0"><SendIcon/></button>) : (<button onClick={startRecording} className="p-3.5 rounded-full bg-misionero-rojo text-white shadow-md active:scale-95"><MicIcon/></button>)}
                         </>
@@ -552,6 +591,34 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
             )}
             
             {viewingImageUrl && <ImageViewer imageUrl={viewingImageUrl} onClose={() => setViewingImageUrl(null)} onDelete={()=>{}} darkMode={darkMode} />}
+            {viewingVideoUrl && <VideoViewer videoUrl={viewingVideoUrl} onClose={() => setViewingVideoUrl(null)} darkMode={darkMode} />}
+
+            {imageToEdit && (
+                <ImageEditor
+                    imageFile={imageToEdit}
+                    onCancel={() => setImageToEdit(null)}
+                    onSend={(editedBlob) => {
+                        const newName = imageToEdit.name.replace(/\.[^/.]+$/, "") + ".jpg";
+                        const editedFile = new File([editedBlob], newName, { type: 'image/jpeg' });
+                        handleSendFile(editedFile);
+                        setImageToEdit(null);
+                    }}
+                    darkMode={darkMode}
+                />
+            )}
+            {videoToEdit && (
+                <VideoEditor
+                    videoFile={videoToEdit}
+                    onCancel={() => setVideoToEdit(null)}
+                    onSend={(editedBlob) => {
+                        const newName = videoToEdit.name.replace(/\.[^/.]+$/, "") + ".webm";
+                        const editedFile = new File([editedBlob], newName, { type: 'video/webm' });
+                        handleSendFile(editedFile);
+                        setVideoToEdit(null);
+                    }}
+                    darkMode={darkMode}
+                />
+            )}
         </div>
     );
 };

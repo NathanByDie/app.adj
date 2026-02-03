@@ -144,7 +144,7 @@ const translateAuthError = (errorCode: string): string => {
     case 'auth/account-exists-with-different-credential': return 'Ya existe una cuenta con este email. Inicia sesión con el método original.';
     case 'auth/operation-not-allowed': return 'El registro con correo y contraseña no está habilitado en Firebase.';
     case 'permission-denied': return 'Permiso denegado: Verifica las reglas de Firestore.';
-    case 'auth/credential-already-in-use': return 'Esta cuenta ya está vinculada a otro usuario.';
+    case 'auth/credential-already-in-use': return 'Esta cuenta de Google ya está vinculada a otro usuario.';
     case 'auth/unauthorized-domain': {
         const hostname = window.location.hostname;
         const origin = window.location.origin;
@@ -431,7 +431,7 @@ const SettingsView = ({
                     <img src={cachedPhotoUrl} alt={currentUser.username} className="w-16 h-16 rounded-full object-cover shadow-lg shrink-0" />
                 ) : (
                     <div className="w-16 h-16 rounded-full bg-misionero-azul flex items-center justify-center text-3xl font-black text-white shadow-lg shrink-0">
-                        {currentUser.username.charAt(0).toUpperCase()}
+                        {currentUser.username?.charAt(0).toUpperCase() || '?'}
                     </div>
                 )}
                 <div className="flex-1">
@@ -782,7 +782,7 @@ const App = () => {
   const [userChats, setUserChats] = useState<ChatInfo[]>([]);
   const [allValidatedUsers, setAllValidatedUsers] = useState<AppUser[]>([]);
   const [onlineStatuses, setOnlineStatuses] = useState<Record<string, any>>({});
-  const [typingStatuses, setTypingStatuses] = useState<Record<string, string[]>>({});
+  const [typingStatuses, setTypingStatuses] = useState<Record<string, any>>({});
 
   // Overlays
   const [viewerSong, setViewerSong] = useState<Song | null>(null);
@@ -792,6 +792,8 @@ const App = () => {
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const [viewingProfileUser, setViewingProfileUser] = useState<AppUser | null>(null);
   const [categoryConfirmModal, setCategoryConfirmModal] = useState<any>(null);
+  const [exitRoomConfirmModal, setExitRoomConfirmModal] = useState<any>(null);
+
 
   // Settings
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -810,12 +812,39 @@ const App = () => {
       return [uid1, uid2].sort().join('_');
   };
 
-  const handleOpenDirectMessage = (partnerId: string) => {
-    getDoc(doc(db, 'users', partnerId)).then(snap => {
-         if (snap.exists()) setDirectMessagePartner({id: partnerId, ...snap.data()} as AppUser);
-    });
-  };
+  // FIX: Added explicit typing for state to resolve TS error.
+  const openOverlay = useCallback((state: { overlay: string }) => {
+    // FIX: Cast window.history.state to avoid type error on 'overlay' property.
+    if ((window.history.state as { overlay?: string })?.overlay !== state.overlay) {
+        window.history.pushState(state, '');
+    }
+  }, []);
 
+  const goBack = useCallback(() => {
+    window.history.back();
+  }, []);
+
+  const openSongViewer = useCallback((song: Song) => {
+    setViewerSong(song);
+    openOverlay({ overlay: 'song' });
+  }, [openOverlay]);
+
+  const openDirectMessage = useCallback((partner: AppUser) => {
+    setDirectMessagePartner(partner);
+    openOverlay({ overlay: 'dm' });
+  }, [openOverlay]);
+  
+  const openUserProfile = useCallback((userId: string) => {
+    setProfileUserId(userId);
+    openOverlay({ overlay: 'profile' });
+  }, [openOverlay]);
+
+  const handleOpenDirectMessageFromId = useCallback((partnerId: string) => {
+    getDoc(doc(db, 'users', partnerId)).then(snap => {
+         if (snap.exists()) openDirectMessage({id: partnerId, ...snap.data()} as AppUser);
+    });
+  }, [openDirectMessage]);
+  
   const handleExitRoom = useCallback(async () => {
     if (!currentRoom || !user) return;
     const roomToExit = currentRoom;
@@ -823,7 +852,8 @@ const App = () => {
         roomSubscription.current();
         roomSubscription.current = null;
     }
-    setCurrentRoom(null);
+    // We don't set currentRoom to null here. The popstate listener will do it.
+    goBack();
     try {
         await updateDoc(doc(db, 'rooms', roomToExit.id), { participants: arrayRemove(user.username) });
         const partRef = ref(rtdb, `rooms/${roomToExit.id}/participants/${user.username}`);
@@ -831,72 +861,75 @@ const App = () => {
     } catch (error) {
         console.error("Failed to cleanly exit room from database:", error);
     }
-  }, [currentRoom, user, db, rtdb]);
+  }, [currentRoom, user, db, rtdb, goBack]);
+
+  // FIX: Moved navigateTo function before its usage in useEffect hooks.
+  const navigateTo = useCallback((newView: AppView, direction: AnimationDirection = 'fade') => {
+    setAnimationDirection(direction);
+    setView(newView);
+  }, []);
+
+  // --- NATIVE BACK BUTTON & HISTORY MANAGEMENT ---
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+        // FIX: Cast event.state to fix 'overlay' property does not exist error.
+        const overlay = (event.state as { overlay?: string })?.overlay;
+        if (!overlay) {
+            setViewerSong(null);
+            setCurrentRoom(null);
+            setDirectMessagePartner(null);
+            setProfileUserId(null);
+            setIsSongEditorOpen(false);
+            setEditorSong(null);
+        }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   useEffect(() => {
-    if (Capacitor.isNativePlatform()) {
-        const listener = CapacitorApp.addListener('backButton', () => {
-            if (categoryConfirmModal) {
-                setCategoryConfirmModal(null);
-                return;
-            }
-            if (profileUserId) {
-                setProfileUserId(null);
-                return;
-            }
-            if (directMessagePartner) {
-                setDirectMessagePartner(null);
-                return;
-            }
-            if (isSongEditorOpen || editorSong) {
-                setIsSongEditorOpen(false);
-                setEditorSong(null);
-                return;
-            }
-            if (viewerSong) {
-                setViewerSong(null);
-                return;
-            }
-            if (currentRoom) {
-                // En una sala, el listener interno de RoomView se encargará primero.
-                // Si este listener global se dispara, significa que RoomView no pudo manejarlo
-                // o que es hora de salir. Por seguridad, lo dejamos en manos de RoomView.
-                return;
-            }
+    if (!Capacitor.isNativePlatform()) return;
+
+    const listener = CapacitorApp.addListener('backButton', () => {
+        const currentState = window.history.state;
+
+        if (exitRoomConfirmModal || categoryConfirmModal) {
+            setExitRoomConfirmModal(null);
+            setCategoryConfirmModal(null);
+            return;
+        }
+
+        if (currentState?.overlay === 'room') {
+            setExitRoomConfirmModal({
+                title: 'Salir de la Sala',
+                message: '¿Estás seguro de que quieres salir de la sala en vivo?',
+                action: handleExitRoom,
+                type: 'warning'
+            });
+        } else if (currentState?.overlay) {
+            window.history.back();
+        } else {
             CapacitorApp.exitApp();
-        });
+        }
+    });
 
-        return () => {
-// @FIX: Capacitor's addListener returns a promise. We must wait for it to resolve before calling remove().
-            listener.then(l => l.remove());
-        };
-    }
-  }, [
-      categoryConfirmModal,
-      profileUserId,
-      directMessagePartner,
-      isSongEditorOpen,
-      editorSong,
-      viewerSong,
-      currentRoom
-  ]);
-
+    return () => { listener.then(l => l.remove()); };
+  }, [exitRoomConfirmModal, categoryConfirmModal, handleExitRoom]);
 
   // --- Push Notifications Effect ---
   useEffect(() => {
     if (user?.id) {
         initializePushNotifications(app, db, user.id, (chatId) => {
-            // This callback handles notification taps
             const partnerId = chatId.replace(user.id, '').replace('_', '');
             if (partnerId) {
               navigateTo('chat');
-              handleOpenDirectMessage(partnerId);
+              handleOpenDirectMessageFromId(partnerId);
             }
         });
     }
-  }, [user?.id]);
-  // ---------------------------------
-
+  }, [user?.id, navigateTo, handleOpenDirectMessageFromId]);
+  
   // Self-Healing Effect: Sync user names/photos in chat list with validated users list
   useEffect(() => {
       if (!user || userChats.length === 0 || allValidatedUsers.length === 0) return;
@@ -926,11 +959,12 @@ const App = () => {
             setSharedImportUrl(url);
             setEditorSong(null);
             setIsSongEditorOpen(true);
+            openOverlay({ overlay: 'editor' });
         } else if (url) {
             alert("Por el momento solo soportamos importar desde LaCuerda.net");
         }
     };
-  }, []);
+  }, [openOverlay]);
 
   // Authentication Effect
   useEffect(() => {
@@ -1004,7 +1038,6 @@ const App = () => {
         }
     }, (error) => console.error("Error fetching user profile:", error));
 
-    // Chat List
     const unsubChats = onSnapshot(query(collection(db, 'user_chats', user.id, 'chats'), orderBy('lastMessageTimestamp', 'desc')), 
         (snap) => {
             const chats = snap.docs.map(d => {
@@ -1021,17 +1054,12 @@ const App = () => {
                 return { ...data, partnerId } as ChatInfo;
             });
             
-            // Check for missing verification data and backfill it
             chats.forEach(async (chat) => {
-                // If partnerValidated is missing, assume it's an old chat and fetch the status
                 if (chat.partnerValidated === undefined) {
                     try {
                         const partnerDoc = await getDoc(doc(db, 'users', chat.partnerId));
                         if (partnerDoc.exists()) {
                             const isProfileValidated = partnerDoc.data().profileValidated === true;
-                            // Update the chat document with the validation status
-                            // Note: We use the document ID from the snapshot
-                            // Finding the correct doc ID corresponding to this chat in the array
                             const docId = snap.docs.find(d => {
                                 const dData = d.data();
                                 let pId = dData.partnerId;
@@ -1062,27 +1090,23 @@ const App = () => {
         }
     );
     
-    // All Validated Users
     const unsubAllUsers = onSnapshot(query(collection(db, 'users'), where('profileValidated', '==', true)),
       (snap) => {
           const users = snap.docs
               .map(d => ({ id: d.id, ...d.data() } as AppUser))
-              .filter(u => u.id !== user.id); // Excluir al usuario actual de la lista
+              .filter(u => u.id !== user.id);
           setAllValidatedUsers(users);
       }, (error) => console.error("Error fetching all users:", error)
     );
 
-    // Online Statuses
     const unsubOnline = onValue(ref(rtdb, 'status'), (snap) => {
         setOnlineStatuses(snap.val() || {});
     });
 
-    // Typing Statuses
     const unsubTyping = onValue(ref(rtdb, 'typing'), (snap) => {
         setTypingStatuses(snap.val() || {});
     });
     
-    // Admins
     let unsubAdmins = () => {};
     if (user.email === SUPER_ADMIN_EMAIL) {
         const q = query(collection(db, 'users'), where('role', '==', 'admin'));
@@ -1109,12 +1133,7 @@ const App = () => {
     }
   }, [profileUserId, user]);
 
-  const navigateTo = (newView: AppView, direction: AnimationDirection = 'fade') => {
-    setAnimationDirection(direction);
-    setView(newView);
-  };
-
-  const handleJoinRoom = async (code?: string) => {
+  const handleJoinRoom = useCallback(async (code?: string) => {
       const codeToJoin = code || roomCodeInput;
       if (!codeToJoin) return;
       setIsJoiningRoom(true);
@@ -1128,26 +1147,18 @@ const App = () => {
           
           if (roomData.banned?.includes(user!.username)) throw new Error("Estás baneado de esta sala");
 
-          // Unsubscribe from any previous room listener
-          if (roomSubscription.current) {
-              roomSubscription.current();
-          }
+          if (roomSubscription.current) roomSubscription.current();
 
-          // Subscribe to real-time updates for the new room
           roomSubscription.current = onSnapshot(doc(db, 'rooms', roomData.id), (doc) => {
               if (doc.exists()) {
                   setCurrentRoom({ id: doc.id, ...doc.data() } as Room);
               } else {
-                  // The room was deleted, clean up
                   setCurrentRoom(null);
-                  if (roomSubscription.current) {
-                      roomSubscription.current();
-                      roomSubscription.current = null;
-                  }
+                  if (roomSubscription.current) roomSubscription.current();
               }
           });
-
-          // Join Logic
+          
+          openOverlay({ overlay: 'room' });
           await updateDoc(doc(db, 'rooms', roomData.id), { participants: arrayUnion(user!.username) });
 
       } catch (e: any) {
@@ -1155,7 +1166,7 @@ const App = () => {
       } finally {
           setIsJoiningRoom(false);
       }
-  };
+  }, [roomCodeInput, user, openOverlay]);
   
   if (authLoading) return <div className="fixed inset-0 flex items-center justify-center bg-black"><div className="w-10 h-10 border-4 border-white/30 border-t-white rounded-full animate-spin"></div></div>;
 
@@ -1217,12 +1228,11 @@ const App = () => {
           <ChatSyncManager currentUser={user} db={db} />
           {!currentRoom && !viewerSong && !isSongEditorOpen && !directMessagePartner && !profileUserId ? (
               <MainView 
-                  user={user} view={view} darkMode={darkMode} theme={theme} setTheme={setTheme}
-                  isAdmin={user.role === 'admin'} isSuperAdmin={user.email === SUPER_ADMIN_EMAIL}
+                  user={user} view={view} darkMode={darkMode} theme={setTheme} isAdmin={user.role === 'admin'} isSuperAdmin={user.email === SUPER_ADMIN_EMAIL}
                   animationDirection={animationDirection} navigateTo={navigateTo}
                   totalUnreadCount={totalUnreadCount}
                   songs={songs} favorites={favorites}
-                  openSongViewer={setViewerSong}
+                  openSongViewer={openSongViewer}
                   toggleFavorite={async (e: any, songId: string) => {
                       e.stopPropagation();
                       const newFavs = favorites.includes(songId) ? arrayRemove(songId) : arrayUnion(songId);
@@ -1232,8 +1242,8 @@ const App = () => {
                   activeFilter={activeFilter} setActiveFilter={setActiveFilter}
                   categories={categories}
                   userChats={userChats} allValidatedUsers={allValidatedUsers} onlineStatuses={onlineStatuses} typingStatuses={typingStatuses}
-                  openDirectMessage={handleOpenDirectMessage}
-                  onViewProfile={setProfileUserId}
+                  openDirectMessage={(partner: AppUser) => openDirectMessage(partner)}
+                  onViewProfile={openUserProfile}
                   roomCodeInput={roomCodeInput} setRoomCodeInput={setRoomCodeInput}
                   isJoiningRoom={isJoiningRoom}
                   handleJoinRoom={handleJoinRoom}
@@ -1242,7 +1252,7 @@ const App = () => {
                       setIsJoiningRoom(true);
                       try {
                           const code = Math.random().toString(36).substring(2, 6).toUpperCase();
-                          const roomRef = await addDoc(collection(db, 'rooms'), {
+                          await addDoc(collection(db, 'rooms'), {
                               code,
                               host: user.username,
                               repertoire: [],
@@ -1327,9 +1337,10 @@ const App = () => {
                   openSongEditor={(song: Song | null) => {
                       setEditorSong(song);
                       setIsSongEditorOpen(true);
+                      openOverlay({ overlay: 'editor' });
                   }}
                   onDeleteAccountRequest={async () => {
-                      if (confirm("¿Estás seguro de que quieres eliminar tu cuenta? Esta acción es irreversible.")) {
+                       if (confirm("¿Estás seguro de que quieres eliminar tu cuenta? Esta acción es irreversible.")) {
                           try {
                              if (auth.currentUser) {
                                  await deleteDoc(doc(db, 'users', user.id));
@@ -1354,31 +1365,21 @@ const App = () => {
                   onUpdateRoom={(roomId: string, updates: Partial<Room>) => updateDoc(doc(db, 'rooms', roomId), updates)}
                   darkMode={darkMode}
                   db={db} rtdb={rtdb}
-                  onEditSong={(s: Song) => { setEditorSong(s); setIsSongEditorOpen(true); }}
+                  onEditSong={(s: Song) => { setEditorSong(s); setIsSongEditorOpen(true); openOverlay({ overlay: 'editor' }); }}
                   onDeleteSong={async (sid: string) => { await deleteDoc(doc(db, 'songs', sid)); }}
                   categories={categories.map(c => c.name)}
                   allUsers={allValidatedUsers}
-                  onViewProfile={(uid: string) => setProfileUserId(uid)}
+                  onViewProfile={openUserProfile}
               />
           )}
 
           {viewerSong && (
               <SongViewer 
                   song={viewerSong}
-                  onBack={() => setViewerSong(null)}
-                  onEdit={user.role === 'admin' ? () => { setEditorSong(viewerSong); setViewerSong(null); setIsSongEditorOpen(true); } : undefined}
-                  onDelete={user.role === 'admin' ? async () => { await deleteDoc(doc(db, 'songs', viewerSong.id)); setViewerSong(null); } : undefined}
+                  onBack={goBack}
+                  onEdit={user.role === 'admin' ? () => { setEditorSong(viewerSong); setIsSongEditorOpen(true); openOverlay({ overlay: 'editor' }); } : undefined}
+                  onDelete={user.role === 'admin' ? async () => { await deleteDoc(doc(db, 'songs', viewerSong.id)); goBack(); } : undefined}
                   darkMode={darkMode}
-                  onNext={() => {
-                      const idx = songs.findIndex(s => s.id === viewerSong.id);
-                      if (idx < songs.length - 1) setViewerSong(songs[idx+1]);
-                  }}
-                  onPrev={() => {
-                      const idx = songs.findIndex(s => s.id === viewerSong.id);
-                      if (idx > 0) setViewerSong(songs[idx-1]);
-                  }}
-                  hasNext={songs.findIndex(s => s.id === viewerSong.id) < songs.length - 1}
-                  hasPrev={songs.findIndex(s => s.id === viewerSong.id) > 0}
               />
           )}
 
@@ -1387,7 +1388,7 @@ const App = () => {
                 currentUser={user}
                 initialData={editorSong || undefined}
                 categories={categories.map(c => c.name)}
-                onCancel={() => { setIsSongEditorOpen(false); setEditorSong(null); }}
+                onCancel={goBack}
                 darkMode={darkMode}
                 onSave={async (songData: any, audioAction: any) => {
                     let audioUrl = editorSong?.audioUrl;
@@ -1414,8 +1415,7 @@ const App = () => {
                     } else {
                         await addDoc(collection(db, 'songs'), { ...songData, audioUrl: audioUrl || null, createdAt: Date.now() });
                     }
-                    setIsSongEditorOpen(false);
-                    setEditorSong(null);
+                    goBack();
                 }}
                 initialImportUrl={sharedImportUrl || undefined}
              />
@@ -1425,13 +1425,13 @@ const App = () => {
               <DirectMessageView 
                   currentUser={user}
                   partner={directMessagePartner}
-                  onBack={() => setDirectMessagePartner(null)}
+                  onBack={goBack}
                   db={db} rtdb={rtdb} storage={storage}
                   darkMode={darkMode}
                   partnerStatus={onlineStatuses[directMessagePartner.id]}
-                  onViewProfile={setProfileUserId}
+                  onViewProfile={openUserProfile}
                   onJoinRoom={async (code: string) => {
-                      setDirectMessagePartner(null);
+                      goBack(); // Close DM view
                       navigateTo('room');
                       await handleJoinRoom(code);
                   }}
@@ -1442,10 +1442,10 @@ const App = () => {
               <UserProfileView 
                   user={viewingProfileUser} 
                   currentUser={user}
-                  onBack={() => setProfileUserId(null)}
+                  onBack={goBack}
                   onSaveBio={async (bio) => { await updateDoc(doc(db, 'users', user.id), { biography: bio }); }}
                   songs={songs}
-                  onOpenSong={setViewerSong}
+                  onOpenSong={openSongViewer}
                   darkMode={darkMode}
                   db={db} storage={storage}
                   onUpdateUsername={async (newUn, pwd) => {
@@ -1470,14 +1470,14 @@ const App = () => {
               />
           )}
           
-          {categoryConfirmModal && (
+          {(categoryConfirmModal || exitRoomConfirmModal) && (
               <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
                   <div className={`w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}>
-                      <h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{categoryConfirmModal.title}</h3>
-                      <p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{categoryConfirmModal.message}</p>
+                      <h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{exitRoomConfirmModal?.title || categoryConfirmModal?.title}</h3>
+                      <p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{exitRoomConfirmModal?.message || categoryConfirmModal?.message}</p>
                       <div className="flex gap-3">
-                          <button onClick={() => setCategoryConfirmModal(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button>
-                          <button onClick={categoryConfirmModal.action} className="flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg bg-misionero-rojo">Confirmar</button>
+                          <button onClick={() => { setCategoryConfirmModal(null); setExitRoomConfirmModal(null); }} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button>
+                          <button onClick={exitRoomConfirmModal?.action || categoryConfirmModal?.action} className="flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg bg-misionero-rojo">Confirmar</button>
                       </div>
                   </div>
               </div>

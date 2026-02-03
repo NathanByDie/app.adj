@@ -118,6 +118,33 @@ const ChatBubbleIcon = ({ className }: { className?: string }) => (
 
 const generateChatId = (uid1: string, uid2: string): string => [uid1, uid2].sort().join('_');
 
+const LinkRenderer: React.FC<{ text: string }> = ({ text }) => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = text.split(urlRegex);
+
+    return (
+        <>
+            {parts.map((part, index) => {
+                if (part.match(urlRegex)) {
+                    return (
+                        <a
+                            key={index}
+                            href={part}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-500 dark:text-blue-400 underline hover:text-blue-600 dark:hover:text-blue-300"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {part}
+                        </a>
+                    );
+                }
+                return <span key={index}>{part}</span>;
+            })}
+        </>
+    );
+};
+
 const SwipeableMessage: React.FC<SwipeableMessageProps> = ({ msg, currentUser, onReply, darkMode, formatTime }) => {
   const [translateX, setTranslateX] = useState(0);
   const touchStartCoords = useRef<{x: number, y: number} | null>(null);
@@ -191,7 +218,9 @@ const SwipeableMessage: React.FC<SwipeableMessageProps> = ({ msg, currentUser, o
                       <p className={`opacity-80 truncate`}>{replyText}</p>
                   </div>
                 )}
-                <p className="text-sm font-medium leading-tight whitespace-pre-wrap">{actualMessage}</p>
+                <p className="text-sm font-medium leading-tight whitespace-pre-wrap">
+                    <LinkRenderer text={actualMessage} />
+                </p>
             </div>
             <div className="flex items-center gap-1.5 mt-1 px-1">
                 <span className={`text-[8px] font-black uppercase ${darkMode ? 'text-slate-600' : 'text-slate-400'}`}>{msg.sender}</span>
@@ -226,9 +255,9 @@ const ParticipantItem: React.FC<{
                     {cachedPhoto ? (
                         <img src={cachedPhoto} alt={name} className="w-10 h-10 rounded-full object-cover shadow-sm" />
                     ) : (
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-white text-lg shadow-sm ${isHost ? 'bg-misionero-amarillo' : 'bg-misionero-azul'}`}>
-                            {name.charAt(0).toUpperCase()}
-                        </div>
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-white text-lg shadow-sm ${isHost ? 'bg-misionero-amarillo' : 'bg-misionero-azul'}`}>{
+                            name?.charAt(0).toUpperCase() || '?'
+                        }</div>
                     )}
                     {isHost && (
                         <div className="absolute -top-1 -right-1 bg-white dark:bg-slate-800 rounded-full p-0.5 shadow-sm">
@@ -344,43 +373,31 @@ const RoomView: React.FC<RoomViewProps> = ({
   };
   
   const handleCloseSong = useCallback(() => {
-    setSelectedSongId(null);
-    const currentState = window.history.state;
-    if (currentState?.overlay?.startsWith('room-')) {
-// @FIX: The error "Expected 1 arguments, but got 0" likely points to an issue with `window.history.back()`. Replacing it with `window.history.go(-1)` which achieves the same result and is more explicit.
-        window.history.go(-1);
-    }
+    window.history.back();
   }, []);
   
   const handleCloseSubView = useCallback(() => {
-      const currentState = window.history.state;
-      if (currentState?.overlay?.startsWith('room-')) {
-          // FIX: The error "Expected 1 arguments, but got 0" was reported for a similar call. Replacing `window.history.back()` with `window.history.go(-1)` to fix it.
-          window.history.go(-1);
-      } else {
-          setIsChatOpen(false);
-          setShowParticipants(false);
-      }
+    window.history.back();
   }, []);
 
   // --- NAVEGACIÓN Y GESTIÓN DE SUB-VISTAS ---
-  const openSubView = (subview: 'chat' | 'participants' | 'song') => {
+  const openSubView = useCallback((subview: 'chat' | 'participants' | 'song') => {
       const newOverlay = `room-${subview}`;
       const currentState = window.history.state;
       if (currentState?.overlay !== newOverlay) {
           window.history.pushState({ overlay: newOverlay }, '');
       }
-  };
+  }, []);
 
-  const handleOpenChat = () => {
+  const handleOpenChat = useCallback(() => {
       setIsChatOpen(true);
       openSubView('chat');
-  };
+  }, [openSubView]);
 
-  const handleOpenParticipants = () => {
+  const handleOpenParticipants = useCallback(() => {
       setShowParticipants(true);
       openSubView('participants');
-  };
+  }, [openSubView]);
 
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
@@ -396,47 +413,6 @@ const RoomView: React.FC<RoomViewProps> = ({
     };
   }, []);
   
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-
-    const listener = CapacitorApp.addListener('backButton', () => {
-        if (confirmModal) {
-            setConfirmModal(null);
-            return;
-        }
-        if (isAddSongDrawerOpen) {
-            setIsAddSongDrawerOpen(false);
-            return;
-        }
-        if (isShareMenuOpen) {
-            setIsShareMenuOpen(false);
-            return;
-        }
-        if (isChatOpen || showParticipants) {
-            handleCloseSubView();
-            return;
-        }
-        if (selectedSongId) {
-            handleCloseSong();
-            return;
-        }
-        onExitRequest();
-    });
-
-    return () => {
-        listener.then(l => l.remove());
-    };
-  }, [
-    isChatOpen, 
-    showParticipants, 
-    selectedSongId, 
-    onExitRequest, 
-    handleCloseSubView, 
-    handleCloseSong,
-    confirmModal,
-    isAddSongDrawerOpen,
-    isShareMenuOpen
-  ]);
   // --- FIN GESTIÓN NAVEGACIÓN ---
 
   useEffect(() => {
@@ -604,7 +580,7 @@ const RoomView: React.FC<RoomViewProps> = ({
     if (canModify) {
       onUpdateRoom(room.id, { currentSongId: songId });
     }
-  }, [canModify, onUpdateRoom, room.id]);
+  }, [canModify, onUpdateRoom, room.id, openSubView]);
 
   const handleTransposeChange = (songId: string, value: number) => {
     onUpdateRoom(room.id, {
@@ -733,7 +709,7 @@ const RoomView: React.FC<RoomViewProps> = ({
         setSelectedSongId(hostSongId);
         openSubView('song');
     }
-  }, [room.currentSongId, isFollowingHost, isTheHost, selectedSongId]);
+  }, [room.currentSongId, isFollowingHost, isTheHost, selectedSongId, openSubView]);
 
   useEffect(() => {
     const checkParticipantRoles = async () => {
@@ -1032,7 +1008,9 @@ const RoomView: React.FC<RoomViewProps> = ({
                 }}
             >
                 <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 bg-misionero-azul rounded-full flex items-center justify-center font-black text-white text-sm">{chatToast.sender.charAt(0)}</div>
+                    <div className="w-8 h-8 bg-misionero-azul rounded-full flex items-center justify-center font-black text-white text-sm">{
+                        chatToast.sender?.charAt(0) || '?'
+                    }</div>
                     <div className="flex-1 min-w-0">
                         <h5 className={`text-[10px] font-black uppercase ${darkMode ? 'text-white' : 'text-slate-900'}`}>{chatToast.sender}</h5>
                         <p className={`text-xs truncate ${darkMode ? 'text-slate-300' : 'text-slate-600'}`}>{chatToast.text.split('\n').pop()}</p>
@@ -1129,7 +1107,7 @@ const ShareMenu: React.FC<{ room: Room, allUsers: AppUser[], currentUser: AppUse
     const [search, setSearch] = useState('');
     const [sent, setSent] = useState<string[]>([]);
     
-    const shareMessage = `¡Únete a mi sala en ADJStudios! Código: ${room.code}. Entra a la app aquí: https://myadjstudios.netlify.app`;
+    const shareMessage = `¡Únete a mi sala en ADJStudios! Código: ${room.code}. Entra a la app aquí: https://adjstd.netlify.app/`;
     const whatsappLink = `whatsapp://send?text=${encodeURIComponent(shareMessage)}`;
     const smsLink = `sms:?&body=${encodeURIComponent(shareMessage)}`;
 

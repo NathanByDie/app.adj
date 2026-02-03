@@ -143,9 +143,9 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
                         {cachedPhotoUrl ? (
                             <img src={cachedPhotoUrl} alt={user.username} className="w-28 h-28 rounded-full object-cover shadow-2xl" />
                         ) : (
-                            <div className="w-28 h-28 rounded-full bg-misionero-azul flex items-center justify-center text-5xl font-black text-white shadow-2xl">
-                                {user.username.charAt(0).toUpperCase()}
-                            </div>
+                            <div className="w-28 h-28 rounded-full bg-misionero-azul flex items-center justify-center text-5xl font-black text-white shadow-2xl">{
+                                user.username?.charAt(0).toUpperCase() || '?'
+                            }</div>
                         )}
                         {isMe && (
                             <>

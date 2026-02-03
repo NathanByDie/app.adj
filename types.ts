@@ -1,4 +1,5 @@
 
+
 export enum LiturgicalTime {
   ADVIENTO = 'Adviento',
   NAVIDAD = 'Navidad',
@@ -37,7 +38,7 @@ export interface DirectMessage {
   timestamp: any;
   read: boolean;
 
-  type: 'text' | 'image' | 'audio' | 'file';
+  type: 'text' | 'image' | 'audio' | 'file' | 'video';
   text?: string;
   mediaUrl?: string;
   mediaType?: string; // e.g., 'image/jpeg', 'audio/webm'

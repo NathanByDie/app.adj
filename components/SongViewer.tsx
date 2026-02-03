@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Song } from '../types';
 import { isChordLine, transposeSong, transposeRoot, findBestCapo } from '../services/musicUtils';
@@ -149,7 +148,7 @@ const SongViewer: React.FC<SongViewerProps> = ({
   };
 
   const handleShare = async () => {
-    const webUrl = `https://myadjstudios.netlify.app/?song=${song.id}`;
+    const webUrl = `https://adjstd.netlify.app/?song=${song.id}`;
     const textData = `Mira esta música en ADJStudios: ${song.title}`;
     
     const shareData = {

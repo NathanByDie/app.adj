@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { User as AppUser, ChatInfo } from '../types';
 import { triggerHapticFeedback } from '../services/haptics';
@@ -11,7 +10,7 @@ interface ChatListViewProps {
     allValidatedUsers: AppUser[];
     onlineStatuses: Record<string, { state: 'online' } | { state: 'offline', last_changed: number }>;
     typingStatuses: Record<string, any>;
-    onUserSelect: (partnerId: string) => void;
+    onUserSelect: (partner: AppUser) => void;
     onViewProfile: (userId: string) => void;
     darkMode: boolean;
     currentUser: AppUser;
@@ -49,8 +48,8 @@ const generateChatId = (uid1: string, uid2: string): string => {
 
 const ChatListItem: React.FC<{
     chat: ChatInfo, darkMode: boolean, onlineStatuses: Record<string, any>, currentUser: AppUser, 
-    typingStatuses: Record<string, any>, handleTouchStart: any, handleTouchEnd: any, 
-    handleTouchMove: any, onViewProfile: any, onUserSelect: any 
+    typingStatuses: Record<string, any>, handleTouchStart: (e: React.TouchEvent) => void, handleTouchEnd: () => void, 
+    handleTouchMove: (e: React.TouchEvent) => void, onViewProfile: () => void, onUserSelect: () => void 
 }> = ({ chat, darkMode, onlineStatuses, currentUser, typingStatuses, handleTouchStart, handleTouchEnd, handleTouchMove, onViewProfile, onUserSelect }) => {
     
     // Si no hay timestamp NI texto, es un chat nuevo sin uso.
@@ -121,12 +120,12 @@ const ChatListItem: React.FC<{
 
     return (
         <div
-            onTouchStart={(e) => handleTouchStart(chat, e)}
-            onTouchEnd={() => handleTouchEnd(chat)}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
             onTouchMove={handleTouchMove}
             onClick={(e) => {
                 if (!(e.target as HTMLElement).closest('[data-avatar-button="true"]')) {
-                    onUserSelect(chat.partnerId);
+                    onUserSelect();
                 }
             }}
             className={`relative glass-ui rounded-2xl p-4 flex items-center gap-4 active:scale-[0.98] transition-transform animate-stagger-in cursor-pointer ${isBlocked ? 'opacity-60 grayscale' : ''}`}
@@ -136,15 +135,15 @@ const ChatListItem: React.FC<{
                 data-avatar-button="true"
                 onClick={(e) => {
                     e.stopPropagation();
-                    onViewProfile(chat.partnerId);
+                    onViewProfile();
                 }}
             >
                 {cachedPhotoUrl ? (
                     <img src={cachedPhotoUrl} alt={chat.partnerUsername} className="w-12 h-12 rounded-full object-cover shadow-lg" />
                 ) : (
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-lg text-white ${isNewChat ? 'bg-slate-400' : 'bg-misionero-azul'} shadow-lg`}>
-                        {chat.partnerUsername.charAt(0).toUpperCase()}
-                    </div>
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-lg text-white ${isNewChat ? 'bg-slate-400' : 'bg-misionero-azul'} shadow-lg`}>{
+                        chat.partnerUsername?.charAt(0).toUpperCase() || '?'
+                    }</div>
                 )}
                 <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 ${darkMode ? 'border-black' : 'border-slate-50'} ${isOnline ? 'bg-misionero-verde' : 'bg-slate-400'}`}></div>
             </div>
@@ -189,6 +188,26 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, allValidatedUser
     const touchStartCoords = useRef<{x: number, y: number} | null>(null);
     const isLongPress = useRef(false);
     const touchStartTargetRef = useRef<EventTarget | null>(null);
+
+    const handleSelectChat = (chat: ChatInfo) => {
+        const partnerUser = allValidatedUsers.find(u => u.id === chat.partnerId);
+        if (partnerUser) {
+            onUserSelect(partnerUser);
+        } else {
+            // Fallback for new/unvalidated users
+            const partialPartner: AppUser = {
+                id: chat.partnerId,
+                username: chat.partnerUsername,
+                username_lowercase: chat.partnerUsername.toLowerCase(),
+                photoURL: chat.partnerPhotoURL,
+                profileValidated: chat.partnerValidated,
+                email: '', // Not available in ChatInfo
+                role: 'member', // Assume
+                isAuthenticated: true, // Assume
+            };
+            onUserSelect(partialPartner);
+        }
+    };
 
     const combinedAndFilteredChats = useMemo(() => {
         const existingPartnerIds = new Set(userChats.map(c => c.partnerId));
@@ -272,7 +291,7 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, allValidatedUser
             if ((touchStartTargetRef.current as HTMLElement)?.closest('[data-avatar-button="true"]')) {
                 onViewProfile(chat.partnerId);
             } else {
-                onUserSelect(chat.partnerId);
+                handleSelectChat(chat);
             }
         }
         isLongPress.current = false;
@@ -340,11 +359,11 @@ const ChatListView: React.FC<ChatListViewProps> = ({ userChats, allValidatedUser
                         onlineStatuses={onlineStatuses}
                         currentUser={currentUser}
                         typingStatuses={typingStatuses}
-                        handleTouchStart={handleTouchStart}
-                        handleTouchEnd={handleTouchEnd}
+                        handleTouchStart={(e) => handleTouchStart(chat, e)}
+                        handleTouchEnd={() => handleTouchEnd(chat)}
                         handleTouchMove={handleTouchMove}
-                        onViewProfile={onViewProfile}
-                        onUserSelect={onUserSelect}
+                        onViewProfile={() => onViewProfile(chat.partnerId)}
+                        onUserSelect={() => handleSelectChat(chat)}
                     />
                 ))}
 
