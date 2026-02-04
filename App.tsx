@@ -795,6 +795,7 @@ const App = () => {
   const [categoryConfirmModal, setCategoryConfirmModal] = useState<any>(null);
   const [exitRoomConfirmModal, setExitRoomConfirmModal] = useState<any>(null);
   const [deleteAccountConfirmModal, setDeleteAccountConfirmModal] = useState<any>(null);
+  const [deleteSongConfirmModal, setDeleteSongConfirmModal] = useState<any>(null);
 
 
   // Settings
@@ -1451,7 +1452,15 @@ const App = () => {
                   song={viewerSong}
                   onBack={goBack}
                   onEdit={user.role === 'admin' ? () => { setEditorSong(viewerSong); setIsSongEditorOpen(true); openOverlay({ overlay: 'editor' }); } : undefined}
-                  onDelete={user.role === 'admin' ? async () => { await deleteDoc(doc(db, 'songs', viewerSong.id)); goBack(); } : undefined}
+                  onDelete={user.role === 'admin' ? () => setDeleteSongConfirmModal({
+                      title: "Eliminar Música",
+                      message: `¿Estás seguro de que quieres eliminar "${viewerSong.title}"? Esta acción es permanente.`,
+                      action: async () => {
+                          await deleteDoc(doc(db, 'songs', viewerSong.id));
+                          setDeleteSongConfirmModal(null);
+                          goBack();
+                      }
+                  }) : undefined}
                   darkMode={darkMode}
               />
           )}
@@ -1557,14 +1566,14 @@ const App = () => {
               />
           )}
           
-          {(categoryConfirmModal || exitRoomConfirmModal || deleteAccountConfirmModal) && (
+          {(categoryConfirmModal || exitRoomConfirmModal || deleteAccountConfirmModal || deleteSongConfirmModal) && (
               <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
                   <div className={`w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}>
-                      <h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{(deleteAccountConfirmModal || exitRoomConfirmModal || categoryConfirmModal)?.title}</h3>
-                      <p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{(deleteAccountConfirmModal || exitRoomConfirmModal || categoryConfirmModal)?.message}</p>
+                      <h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{(deleteAccountConfirmModal || exitRoomConfirmModal || categoryConfirmModal || deleteSongConfirmModal)?.title}</h3>
+                      <p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{(deleteAccountConfirmModal || exitRoomConfirmModal || categoryConfirmModal || deleteSongConfirmModal)?.message}</p>
                       <div className="flex gap-3">
-                          <button onClick={() => { setCategoryConfirmModal(null); setExitRoomConfirmModal(null); setDeleteAccountConfirmModal(null); }} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button>
-                          <button onClick={(deleteAccountConfirmModal || exitRoomConfirmModal || categoryConfirmModal)?.action} className="flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg bg-misionero-rojo">Confirmar</button>
+                          <button onClick={() => { setCategoryConfirmModal(null); setExitRoomConfirmModal(null); setDeleteAccountConfirmModal(null); setDeleteSongConfirmModal(null); }} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button>
+                          <button onClick={(deleteAccountConfirmModal || exitRoomConfirmModal || categoryConfirmModal || deleteSongConfirmModal)?.action} className="flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg bg-misionero-rojo">Confirmar</button>
                       </div>
                   </div>
               </div>

@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check for Super Admin role by email
+    function isSuperAdmin() {
+      return request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email == 'biden.inf@gmail.com';
+    }
+
+    // Users: Can read profiles, user can write to their own doc, super admin can update any doc.
+    match /users/{userId} {
+      allow get;
+      allow list: if request.auth != null; // Needed for user search in chat
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && (request.auth.uid == userId || isSuperAdmin());
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Songs & Categories: Admins write, anyone can read.
+    function isAdmin() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    match /songs/{songId} {
+      allow get, list;
+      allow create, update, delete: if isAdmin();
+    }
+    match /song_categories/{catId} {
+      allow get, list;
+      allow create, update, delete: if isAdmin();
+    }
+    
+    // Chat: Participants can read/write.
+    function isChatParticipant(chatId) {
+      return request.auth.uid in chatId.split('_');
+    }
+    // Function to identify the chatbot user by its unique email.
+    function isChatbot(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data.email == 'nathancodnext@gmail.com';
+    }
+    match /chats/{chatId}/messages/{messageId} {
+      allow read, create: if isChatParticipant(chatId);
+      // Allow updates if you are the sender OR updating a chatbot message
+      allow update: if isChatParticipant(chatId) && (resource.data.senderId == request.auth.uid || isChatbot(resource.data.senderId));
+      // Only allow deleting your own messages
+      allow delete: if isChatParticipant(chatId) && resource.data.senderId == request.auth.uid;
+    }
+    
+    // User's Chat List: Only the user can access their own list.
+    match /user_chats/{userId}/{document=**} {
+      allow read, write: if request.auth.uid == userId;
+    }
+
+    // Rooms: Any authenticated user can interact with rooms.
+    match /rooms/{roomId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // GenAI Chatbot Extension: Secure endpoint for creating prompts.
+    match /generate/{docId} {
+      // Allow creation only if the user claims the doc as their own.
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      
+      // Allow reading only if the doc belongs to the user.
+      allow get: if request.auth != null && resource.data.userId == request.auth.uid;
+      
+      // Allow updates (e.g. by extensions) but prevent hijacking ownership.
+      allow update: if resource.data.userId == request.resource.data.userId; // User ID must not change
+      
+      // Deny listing all prompts and deleting from the client.
+      allow list, delete: if false;
+    }
+  }
+}

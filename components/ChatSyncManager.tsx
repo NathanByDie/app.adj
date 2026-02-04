@@ -30,19 +30,13 @@ const ChatSyncManager: React.FC<ChatSyncManagerProps> = ({ currentUser, db }) =>
             snapshot.docs.forEach(docSnap => {
                 const data = docSnap.data();
                 
-                // --- CRITICAL FIX START ---
-                // Robust logic to determine who the chat partner is.
-                // 1. Prefer explicit 'partnerId' field.
                 let realPartnerId = data.partnerId;
 
-                // 2. If missing, parse the document ID (which is usually the chatId: uidA_uidB)
                 if (!realPartnerId) {
                     const docId = docSnap.id;
                     const parts = docId.split('_');
                     
                     if (parts.length === 2) {
-                        // Standard case: "myId_partnerId" or "partnerId_myId"
-                        // We strictly look for the part that is NOT the current user.
                         if (parts[0] === currentUser.id) {
                             realPartnerId = parts[1];
                         } else if (parts[1] === currentUser.id) {
@@ -50,21 +44,17 @@ const ChatSyncManager: React.FC<ChatSyncManagerProps> = ({ currentUser, db }) =>
                         }
                     } 
                     
-                    // Edge case: If the ID format is weird or it's a legacy ID that is just the partnerId
                     if (!realPartnerId && docId !== currentUser.id) {
                         realPartnerId = docId;
                     }
                 }
-                // --- CRITICAL FIX END ---
-
-                // If we still can't identify a partner, skip this doc to prevent errors
+                
                 if (!realPartnerId) return;
 
                 const chatInfo = { ...data, partnerId: realPartnerId } as ChatInfo;
                 
                 currentPartnerIds.add(chatInfo.partnerId);
 
-                // 2. If we don't have a listener for this chat, create one
                 if (!messageListeners.current.has(chatInfo.partnerId)) {
                     const chatId = generateChatId(currentUser.id, chatInfo.partnerId);
                     const messagesQuery = query(
@@ -78,71 +68,49 @@ const ChatSyncManager: React.FC<ChatSyncManagerProps> = ({ currentUser, db }) =>
 
                         const latestMessage = msgSnapshot.docs[0].data() as DirectMessage;
                         
-                        // Sync logic: update preview if local version is outdated
-                        // We check timestamp logic inside to avoid infinite loops if we are the sender
-                        
-                        // The document ID in 'user_chats' collection IS usually the chatId
                         const myChatInfoRef = doc(db, 'user_chats', currentUser.id, 'chats', chatId);
                         
                         try {
                             const myChatInfoSnap = await getDoc(myChatInfoRef);
-                            
-                            // If doc doesn't exist, create it (restores deleted chat references when new msg arrives)
-                            // or update if exists.
                             const currentData = myChatInfoSnap.exists() ? myChatInfoSnap.data() : {};
                             
                             const latestMessageTimestamp = latestMessage.timestamp;
                             const chatInfoTimestamp = currentData.lastMessageTimestamp;
 
-                            // Timestamp check logic
                             let shouldUpdate = false;
                             let isNewMessage = false;
                             let performWrite = false;
                             
-                            if (!chatInfoTimestamp) {
+                            if (!chatInfoTimestamp || (latestMessageTimestamp?.seconds > chatInfoTimestamp?.seconds)) {
                                 shouldUpdate = true;
                                 isNewMessage = true;
-                            } else if (latestMessageTimestamp?.seconds && chatInfoTimestamp?.seconds) {
-                                if (latestMessageTimestamp.seconds > chatInfoTimestamp.seconds) {
-                                    shouldUpdate = true;
-                                    isNewMessage = true;
-                                } else if (latestMessageTimestamp.seconds === chatInfoTimestamp.seconds) {
-                                    // Same timestamp, check for content update (e.g. deletion)
-                                    shouldUpdate = true; 
-                                }
+                            } else if (latestMessageTimestamp?.seconds === chatInfoTimestamp?.seconds) {
+                                shouldUpdate = true; 
                             }
 
-                            const updates: any = {
-                                // Ensure partner info is preserved/restored if missing
-                                partnerId: realPartnerId 
-                            };
+                            const updates: any = { partnerId: realPartnerId };
 
-                            // Always check for profile updates (Name/Photo changes) whenever we sync
-                            // This fixes the issue where a user changes name but the chat list keeps the old one
                             try {
                                 const partnerUserDoc = await getDoc(doc(db, 'users', realPartnerId));
                                 if (partnerUserDoc.exists()) {
                                     const pData = partnerUserDoc.data();
                                     
-                                    // Sync Validation Status
                                     const isProfileValidated = pData.profileValidated === true;
                                     updates.partnerValidated = isProfileValidated;
                                     if (currentData.partnerValidated !== isProfileValidated) performWrite = true;
 
-                                    // Sync Username
                                     if (pData.username && pData.username !== currentData.partnerUsername) {
                                         updates.partnerUsername = pData.username;
                                         performWrite = true;
                                     }
-
-                                    // Sync Photo
+                                    
                                     if (pData.photoURL !== currentData.partnerPhotoURL) {
                                         updates.partnerPhotoURL = pData.photoURL || null;
                                         performWrite = true;
                                     }
                                 }
                             } catch (e) {
-                                // Silent failure for profile fetch
+                                // Silent failure
                             }
 
                             if (shouldUpdate) {
@@ -163,19 +131,15 @@ const ChatSyncManager: React.FC<ChatSyncManagerProps> = ({ currentUser, db }) =>
                                 updates.lastMessageTimestamp = latestMessage.timestamp;
                                 updates.lastMessageSenderId = latestMessage.senderId;
 
-                                // Check if meaningful data changed to avoid redundant writes
                                 if (currentData.lastMessageText !== updates.lastMessageText ||
-                                    currentData.lastMessageTimestamp?.seconds !== updates.lastMessageTimestamp.seconds) {
+                                    currentData.lastMessageTimestamp?.seconds !== updates.lastMessageTimestamp?.seconds) {
                                     performWrite = true;
                                 }
 
-                                // Only increment unread if I am NOT the sender AND it's a new message
-                                if (latestMessage.senderId !== currentUser.id) {
-                                    if (isNewMessage) {
-                                        updates.unreadCount = increment(1);
-                                        performWrite = true;
-                                        triggerHapticFeedback('notification');
-                                    }
+                                // If it's a new message for me, trigger haptic feedback.
+                                // The Cloud Function is now responsible for incrementing the unread count.
+                                if (latestMessage.senderId !== currentUser.id && isNewMessage) {
+                                    triggerHapticFeedback('notification');
                                 }
                             }
 
@@ -186,7 +150,6 @@ const ChatSyncManager: React.FC<ChatSyncManagerProps> = ({ currentUser, db }) =>
                              console.error(`Failed to get doc for sync check on chat ${chatId}:`, err);
                         }
                     }, (error) => {
-                        // Gracefully handle permission denied errors for specific chats
                         console.warn(`Permission denied syncing messages for chat ${chatId}. Ignoring.`, error);
                     });
                     

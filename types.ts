@@ -40,6 +40,7 @@ export interface DirectMessage {
 
   type: 'text' | 'image' | 'audio' | 'file' | 'video';
   text?: string;
+  prompt?: string; // Added for Firebase GenAI Chatbot extension
   mediaUrl?: string;
   mediaType?: string; // e.g., 'image/jpeg', 'audio/webm'
   fileName?: string;

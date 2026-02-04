@@ -1,6 +1,7 @@
+// FIX: Removed extraneous content from another file that was mistakenly pasted at the end of this file. This resolves multiple duplicate import errors.
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { User as AppUser, DirectMessage } from '../types';
-import { Firestore, collection, query, orderBy, onSnapshot, serverTimestamp, writeBatch, doc, setDoc, increment, updateDoc, getDoc, runTransaction, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { Firestore, collection, query, orderBy, onSnapshot, serverTimestamp, writeBatch, doc, setDoc, increment, updateDoc, getDoc, runTransaction, arrayUnion, arrayRemove, DocumentReference, addDoc } from 'firebase/firestore';
 import { FirebaseStorage, ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { ref as refRtdb, onValue as onValueRtdb, set as setRtdb, remove as removeRtdb, onDisconnect } from 'firebase/database';
 import { triggerHapticFeedback } from '../services/haptics';
@@ -13,6 +14,9 @@ import VideoViewer from './VideoViewer';
 import { saveMessagesToCache, getMessagesFromCache } from '../services/cache';
 import { SecureMessenger } from '../services/security';
 import { UsersIcon } from '../constants';
+
+// --- CONSTANTES Y CONFIGURACIÓN DEL CHATBOT ---
+const CHATBOT_EMAIL = 'nathancodnext@gmail.com';
 
 // --- ICONOS ---
 const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
@@ -51,6 +55,16 @@ const LockIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
+// Helper function to remove undefined properties from an object before writing to Firestore
+const cleanObjectForFirestore = (obj: any) => {
+  const newObj: any = {};
+  Object.keys(obj).forEach(key => {
+    if (obj[key] !== undefined) {
+      newObj[key] = obj[key];
+    }
+  });
+  return newObj;
+};
 
 interface DirectMessageViewProps {
     currentUser: AppUser;
@@ -276,6 +290,31 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
     const [videoToEdit, setVideoToEdit] = useState<File | null>(null);
     const [viewingVideoUrl, setViewingVideoUrl] = useState<string | null>(null);
 
+    // --- Chatbot State ---
+    const [projectContext, setProjectContext] = useState<string | null>(null);
+    const isChatbot = partner.email === CHATBOT_EMAIL;
+
+    // Efecto para cargar el contexto del proyecto (README) para el chatbot
+    useEffect(() => {
+        if (isChatbot && !projectContext) {
+            fetch('/README.md')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('La respuesta de la red no fue correcta');
+                    }
+                    return response.text();
+                })
+                .then(text => {
+                    setProjectContext(text);
+                    console.log("Contexto del proyecto cargado para el chatbot.");
+                })
+                .catch(error => {
+                    console.error('Error al cargar el contexto del proyecto (README.md):', error);
+                });
+        }
+    }, [isChatbot, projectContext]);
+
+
     useEffect(() => {
         const typingRef = refRtdb(rtdb, `typing/${chatId}/${partner.id}`);
         const unsubscribe = onValueRtdb(typingRef, (snapshot) => {
@@ -285,6 +324,7 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
     }, [chatId, partner.id, rtdb]);
 
     const updateTypingStatus = (isTyping: boolean) => {
+        if (isChatbot) return; // No enviar status de typing al bot
         const myTypingRef = refRtdb(rtdb, `typing/${chatId}/${currentUser.id}`);
         if (isTyping) {
             setRtdb(myTypingRef, true);
@@ -350,95 +390,216 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
     }, [chatId, db]);
 
     const scrollToBottom = useCallback((smooth = true) => {
-        if (messagesEndRef.current) {
-            messagesEndRef.current.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'end' });
-        }
+        setTimeout(() => {
+            messagesEndRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'end' });
+        }, 50);
     }, []);
 
     useEffect(() => {
         scrollToBottom(false);
-        const scrollTimeout = setTimeout(() => scrollToBottom(true), 100);
         const myChatInfoRef = doc(db, 'user_chats', currentUser.id, 'chats', chatId);
         updateDoc(myChatInfoRef, { unreadCount: 0 }).catch(() => {});
-        return () => clearTimeout(scrollTimeout);
-    }, [messages.length, chatId, currentUser.id, db, scrollToBottom]);
+    }, [messages.length, chatId, currentUser.id, db]);
     
-    const sendChatMessage = async (type: DirectMessage['type'], text?: string, mediaUrl?: string, mediaType?: string, fileName?: string, fileSize?: number) => {
+    const writeMessageToFirestore = async (
+        senderId: string, 
+        recipientId: string, 
+        messagePayload: Omit<DirectMessage, 'id' | 'senderId' | 'timestamp' | 'read'>,
+        docRef?: DocumentReference // Allow passing a pre-made doc ref
+    ) => {
+        const newMsgRef = docRef || doc(collection(db, 'chats', chatId, 'messages'));
+        const finalMessageData = cleanObjectForFirestore({ ...messagePayload, senderId, timestamp: serverTimestamp(), read: false });
+
+        if (finalMessageData.text && finalMessageData.encrypted) {
+            finalMessageData.text = await SecureMessenger.encrypt(finalMessageData.text, chatId);
+        }
+
+        let lastMessageText: string;
+        if (finalMessageData.type === 'text') {
+            lastMessageText = '🔒 Texto cifrado';
+        } else if (finalMessageData.type === 'image') {
+            lastMessageText = '📷 Imagen';
+        } else if (finalMessageData.type === 'audio') {
+            lastMessageText = '🎤 Nota de voz';
+        } else if (finalMessageData.type === 'video') {
+            lastMessageText = '📹 Video';
+        } else if (finalMessageData.type === 'file') {
+            lastMessageText = `📄 ${finalMessageData.fileName || 'Archivo'}`;
+        } else {
+            lastMessageText = 'Mensaje';
+        }
+        
+        const commonChatInfo = { lastMessageText, lastMessageTimestamp: serverTimestamp(), lastMessageSenderId: senderId };
+        
+        try {
+            const batch = writeBatch(db);
+            batch.set(newMsgRef, finalMessageData);
+            
+            if (senderId === currentUser.id) {
+                batch.set(doc(db, 'user_chats', senderId, 'chats', chatId), { ...commonChatInfo, partnerId: recipientId, unreadCount: 0 }, { merge: true });
+            }
+            
+            await batch.commit();
+
+            return newMsgRef.id;
+        } catch (error) {
+            console.error("Error writing message:", error);
+            throw error;
+        }
+    };
+    
+    const handleSendToChatbot = async (text: string) => {
+        // 1. Send user message and display it
+        await sendUserMessage('text', text);
+    
+        // 2. Create a "Thinking..." placeholder message
+        const thinkingMsgRef = doc(collection(db, 'chats', chatId, 'messages'));
+        await setDoc(thinkingMsgRef, {
+            senderId: partner.id,
+            timestamp: serverTimestamp(),
+            read: false,
+            type: 'text',
+            text: 'Pensando...',
+            encrypted: false,
+        });
+    
+        try {
+            // 3. Prepare conversation history
+            const conversationHistory = messages
+                .slice(-6) // Get last 6 messages for context
+                .map(msg => {
+                    const sender = msg.senderId === currentUser.id ? 'Usuario' : 'SOPORTE';
+                    return `${sender}: "${msg.text}"`;
+                })
+                .join('\n');
+
+            // 4. Trigger the GenAI extension with augmented prompt
+            const generateCollectionRef = collection(db, 'generate');
+            
+            const finalPrompt = projectContext 
+                ? `
+**ROL Y OBJETIVO:**
+Actúa como "SOPORTE y ASISTENTE CREATIVO". Tu objetivo es ayudar al usuario con la app "ADJStudios" y también colaborar en la creación musical.
+
+**INSTRUCCIONES CLAVE:**
+- **Rol Dual:** Eres tanto un soporte técnico como un **asistente creativo musical**. Si el usuario pregunta sobre la app, responde desde el contexto. Si pide ayuda para crear música, utiliza la guía de composición y géneros para colaborar.
+- **Fuentes de Verdad:** Tu única fuente de verdad es el 'CONTEXTO' (documentación) y el 'HISTORIAL' de la conversación. No inventes funcionalidades ni uses conocimiento externo.
+- **Sé Proactivo y Colaborativo:** No esperes a que el usuario te dé toda la información. Haz preguntas para guiarlo, como '¿Qué sentimiento quieres transmitir?' o '¿Tienes alguna idea para empezar?'. Ofrece ejemplos cortos de letras o acordes.
+- **Conversación Natural:** Sé amigable. Puedes usar el nombre del usuario, "${currentUser.username}", para personalizar, pero evita ser repetitivo.
+- **Utiliza el Contexto Musical:** Basa tus sugerencias de acordes, letras y estructura en la 'Guía de Composición' y la sección de 'Géneros Musicales' del contexto. Adapta las progresiones de acordes (ej. I-V-vi-IV) al género y sentimiento que el usuario pida.
+- **Modifica y Refina:** Si el usuario te da una letra, puedes sugerir mejoras. Si te da acordes, puedes proponer variaciones. Puedes reescribir y ajustar el contenido que te den.
+
+--- HISTORIAL DE LA CONVERSACIÓN RECIENTE ---
+${conversationHistory}
+--- FIN DEL HISTORIAL ---
+
+--- CONTEXTO DEL PROYECTO Y GUÍA MUSICAL ---
+${projectContext}
+--- FIN DEL CONTEXTO ---
+
+**PREGUNTA DEL USUARIO:**
+"${text}"
+`
+                : `Estás hablando con ${currentUser.username}. Responde a su pregunta: "${text}"`;
+
+            const newDocRef = await addDoc(generateCollectionRef, {
+                userId: currentUser.id,
+                prompt: finalPrompt,
+                createTime: serverTimestamp(),
+            });
+    
+            // 5. Listen for the response
+            const unsubscribe = onSnapshot(doc(db, 'generate', newDocRef.id), 
+                async (snap) => {
+                    const data = snap.data();
+                    if (!data) return;
+
+                    const responseText = data.response || data.output;
+                    const statusState = data.status?.state;
+
+                    if (statusState === 'COMPLETED' || statusState === 'ERRORED') {
+                        unsubscribe(); 
+
+                        if (statusState === 'COMPLETED' && responseText) {
+                            const encryptedResponse = await SecureMessenger.encrypt(responseText, chatId);
+                            await updateDoc(thinkingMsgRef, {
+                                text: encryptedResponse,
+                                encrypted: true,
+                                timestamp: serverTimestamp(),
+                            });
+                            
+                            const myChatInfoRef = doc(db, 'user_chats', currentUser.id, 'chats', chatId);
+                            await setDoc(myChatInfoRef, {
+                                lastMessageText: '🔒 Texto cifrado',
+                                lastMessageTimestamp: serverTimestamp(),
+                                lastMessageSenderId: partner.id,
+                            }, { merge: true });
+
+                        } else {
+                            await updateDoc(thinkingMsgRef, {
+                                text: data.status?.error || 'El asistente encontró un error.',
+                                encrypted: false,
+                            });
+                        }
+                    }
+                },
+                (error) => {
+                    console.error("Error listening to chatbot response:", error);
+                    unsubscribe();
+                    updateDoc(thinkingMsgRef, {
+                        text: 'Error al leer la respuesta del bot.',
+                        encrypted: false,
+                    });
+                }
+            );
+        } catch (error) {
+            console.error("Failed to trigger GenAI extension:", error);
+            await updateDoc(thinkingMsgRef, {
+                text: 'Error al contactar al bot.',
+                encrypted: false,
+            });
+        }
+    };
+
+    const sendUserMessage = async (type: DirectMessage['type'], text?: string, mediaUrl?: string, mediaType?: string, fileName?: string, fileSize?: number) => {
         updateTypingStatus(false);
         const newMsgRef = doc(collection(db, 'chats', chatId, 'messages'));
-        const tempId = newMsgRef.id;
-        const now = new Date();
-
+        
         const messageData: Partial<DirectMessage> = {
-            id: tempId, senderId: currentUser.id, timestamp: now, read: false, type, text: text || '',
+            id: newMsgRef.id, senderId: currentUser.id, timestamp: new Date(), read: false, type, text, mediaUrl, mediaType, fileName, fileSize
         };
-        if (mediaUrl) messageData.mediaUrl = mediaUrl;
-        if (mediaType) messageData.mediaType = mediaType;
-        if (fileName) messageData.fileName = fileName;
-        if (fileSize) messageData.fileSize = fileSize;
-
         if (replyingTo) {
             messageData.replyTo = {
                 messageId: replyingTo.id,
                 senderId: replyingTo.senderId,
                 senderUsername: replyingTo.senderId === currentUser.id ? currentUser.username : partner.username,
-                textSnippet: replyingTo.text?.substring(0, 50) || (replyingTo.type === 'image' ? 'Imagen' : 'Archivo'),
+                textSnippet: replyingTo.text?.substring(0, 50) || (replyingTo.type !== 'text' ? `[${replyingTo.type}]` : ''),
+                imagePreviewUrl: replyingTo.type === 'image' ? replyingTo.mediaUrl : undefined,
             };
-            if (replyingTo.mediaUrl) messageData.replyTo.imagePreviewUrl = replyingTo.mediaUrl;
         }
-
+        
         const optimisticMessage = { ...messageData, pending: true } as DirectMessage;
         setMessages(prev => [...prev, optimisticMessage]);
         setInputContent('');
         setReplyingTo(null);
         scrollToBottom(true);
-
-        const finalMessageData = { ...messageData, timestamp: serverTimestamp() };
-
-        if (text) {
-            const encryptedText = await SecureMessenger.encrypt(text, chatId);
-            finalMessageData.text = encryptedText;
-            finalMessageData.encrypted = true;
-        }
-
-        let lastMessageText: string;
-        if (type === 'text') {
-            if (text?.startsWith('[INVITE_SALA]')) {
-                lastMessageText = 'Te ha invitado a una sala';
-            } else {
-                lastMessageText = '🔒 Texto cifrado';
-            }
-        } else if (type === 'image') {
-            lastMessageText = '📷 Imagen';
-        } else if (type === 'audio') {
-            lastMessageText = '🎤 Nota de voz';
-        } else if (type === 'video') {
-            lastMessageText = '📹 Video';
-        } else if (type === 'file') {
-            lastMessageText = `📄 ${fileName || 'Archivo'}`;
-        } else {
-            lastMessageText = 'Mensaje';
-        }
-
-        const commonChatInfo = { lastMessageText, lastMessageTimestamp: serverTimestamp(), lastMessageSenderId: String(currentUser.id) };
-
+        
         try {
-            const batch = writeBatch(db);
-            batch.set(newMsgRef, finalMessageData as Omit<DirectMessage, 'pending' | 'id'>);
-            batch.set(doc(db, 'user_chats', currentUser.id, 'chats', chatId), { ...commonChatInfo, partnerId: partner.id, partnerUsername: partner.username, partnerPhotoURL: partner.photoURL || null, unreadCount: 0 }, { merge: true });
-            await batch.commit();
-
-            try {
-                await setDoc(doc(db, 'user_chats', partner.id, 'chats', chatId), { ...commonChatInfo, partnerId: currentUser.id, partnerUsername: currentUser.username, partnerPhotoURL: currentUser.photoURL || null, unreadCount: increment(1) }, { merge: true });
-            } catch (partnerUpdateError) {
-                console.warn("Could not update recipient's chat list. Sync will handle it.", partnerUpdateError);
-            }
-        } catch (error: any) {
-            console.error("Error sending message:", error);
-            setMessages(prev => prev.map(m => m.id === tempId ? { ...m, text: 'Error al enviar', pending: false } : m));
+            await writeMessageToFirestore(currentUser.id, partner.id, { ...messageData, type, text: text || '', encrypted: type === 'text' }, newMsgRef);
+        } catch (error) {
+            setMessages(prev => prev.map(m => m.id === newMsgRef.id ? { ...m, text: 'Error al enviar', pending: false } : m));
             alert("Fallo al enviar mensaje.");
         }
     };
+    
+    const handleSendMessage = (type: DirectMessage['type'], text?: string, mediaUrl?: string, mediaType?: string, fileName?: string, fileSize?: number) => {
+        if (isChatbot && type === 'text' && text) {
+            handleSendToChatbot(text);
+        } else {
+            sendUserMessage(type, text, mediaUrl, mediaType, fileName, fileSize);
+        }
+    };
+
 
     const handleSendFile = async (file: File) => {
         const fileId = doc(collection(db, 'chats')).id;
@@ -452,7 +613,7 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
             if (file.type.startsWith('image/')) type = 'image';
             if (file.type.startsWith('video/')) type = 'video';
             if (file.type.startsWith('audio/')) type = 'audio';
-            await sendChatMessage(type, undefined, url, file.type, file.name, file.size);
+            await handleSendMessage(type, undefined, url, file.type, file.name, file.size);
         } catch (error: any) {
             console.error("Error uploading file:", error);
             if (error.code === 'storage/unauthorized') {
@@ -483,7 +644,7 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
                 try {
                     await uploadBytes(fileRef, audioBlob);
                     const url = await getDownloadURL(fileRef);
-                    await sendChatMessage('audio', undefined, url, audioBlob.type, fileName, audioBlob.size);
+                    await handleSendMessage('audio', undefined, url, audioBlob.type, fileName, audioBlob.size);
                 } catch (error: any) {
                     console.error("Error uploading audio:", error);
                     if (error.code === 'storage/unauthorized') {
@@ -585,8 +746,9 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
                         <div className="flex items-center gap-1.5">
                             <h3 className={`font-black text-sm uppercase truncate ${darkMode ? 'text-white' : 'text-slate-900'}`}>{partner.username}</h3>
                             {partner.profileValidated && (<div className="text-blue-500 bg-blue-500/10 rounded-full p-0.5"><VerifiedIcon /></div>)}
+                            {isChatbot && <span className="text-[8px] font-black bg-misionero-verde text-white px-2 py-0.5 rounded-full">BOT</span>}
                         </div>
-                        <p className="text-[10px] font-bold text-slate-400">{partnerStatusText}</p>
+                        <p className="text-[10px] font-bold text-slate-400">{isChatbot ? 'Asistente Virtual' : partnerStatusText}</p>
                     </div>
                 </button>
                 <div className="w-10"></div>
@@ -594,16 +756,8 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
             
             <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4 custom-scroll">
                 {isLoading ? <div className="flex justify-center items-center h-full"><div className="w-6 h-6 border-2 border-misionero-azul/30 border-t-misionero-azul rounded-full animate-spin"></div></div> : messages.map(msg => (
-                    <SwipeableDirectMessage key={msg.id} msg={msg} currentUser={currentUser} partner={partner} darkMode={darkMode} onReply={setReplyingTo} onLongPress={(msg, target) => setSelectedMessageForAction({ msg, position: target.getBoundingClientRect() })} onViewImage={setViewingImageUrl} onViewVideo={setViewingVideoUrl} onImageLoad={() => scrollToBottom(true)} onJoinRoom={onJoinRoom} />
+                    <SwipeableDirectMessage key={msg.id} msg={msg} currentUser={currentUser} partner={partner} darkMode={darkMode} onReply={setReplyingTo} onLongPress={(msg, target) => setSelectedMessageForAction({ msg, position: target.getBoundingClientRect() })} onViewImage={setViewingImageUrl} onViewVideo={setViewingVideoUrl} onImageLoad={scrollToBottom} onJoinRoom={onJoinRoom} />
                 ))}
-                
-                {isPartnerTyping && (
-                    <div className="w-full flex justify-start animate-in fade-in slide-in-from-bottom-2 duration-200 mb-2">
-                        <div className={`p-3.5 rounded-2xl shadow-sm ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
-                            <div className={`flex gap-1 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}><span className="typing-dot"></span><span className="typing-dot" style={{animationDelay: '0.2s'}}></span><span className="typing-dot" style={{animationDelay: '0.4s'}}></span></div>
-                        </div>
-                    </div>
-                )}
                 
                 <div ref={messagesEndRef} />
             </div>
@@ -619,10 +773,10 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
                         </>
                     ) : (
                         <>
-                            <button className={`p-3 rounded-full active:scale-90 transition-colors ${darkMode ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100'}`} onClick={() => fileInputRef.current?.click()}><PlusIcon/></button>
+                            {!isChatbot && <button className={`p-3 rounded-full active:scale-90 transition-colors ${darkMode ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100'}`} onClick={() => fileInputRef.current?.click()}><PlusIcon/></button>}
                             <input type="file" ref={fileInputRef} hidden onChange={handleFileSelect} accept="image/*,audio/*,video/*,.pdf,.doc,.docx" />
-                            <textarea value={inputContent} onChange={e => { setInputContent(e.target.value); updateTypingStatus(true); }} placeholder="Escribe un mensaje..." className={`flex-1 min-w-0 rounded-2xl px-4 py-3 text-sm font-bold outline-none border transition-all resize-none max-h-32 ${darkMode ? 'bg-black border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`} rows={1} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage('text', inputContent); } }} />
-                            {inputContent ? (<button onClick={() => sendChatMessage('text', inputContent)} className="bg-misionero-verde text-white font-black w-12 h-12 rounded-2xl shadow-md active:scale-95 transition-transform flex items-center justify-center shrink-0"><SendIcon/></button>) : (<button onClick={startRecording} className="p-3.5 rounded-full bg-misionero-rojo text-white shadow-md active:scale-95"><MicIcon/></button>)}
+                            <textarea value={inputContent} onChange={e => { setInputContent(e.target.value); updateTypingStatus(true); }} placeholder="Escribe un mensaje..." className={`flex-1 min-w-0 rounded-2xl px-4 py-3 text-sm font-bold outline-none border transition-all resize-none max-h-32 ${darkMode ? 'bg-black border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`} rows={1} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (inputContent.trim()) handleSendMessage('text', inputContent); } }} />
+                            {inputContent ? (<button onClick={() => {if (inputContent.trim()) handleSendMessage('text', inputContent)}} className="bg-misionero-verde text-white font-black w-12 h-12 rounded-2xl shadow-md active:scale-95 transition-transform flex items-center justify-center shrink-0"><SendIcon/></button>) : (!isChatbot && <button onClick={startRecording} className="p-3.5 rounded-full bg-misionero-rojo text-white shadow-md active:scale-95"><MicIcon/></button>)}
                         </>
                     )}
                 </div>

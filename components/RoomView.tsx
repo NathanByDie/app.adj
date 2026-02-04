@@ -472,20 +472,8 @@ const RoomView: React.FC<RoomViewProps> = ({
               partnerPhotoURL: partner.photoURL || null 
           }, { merge: true });
   
+          // The Cloud Function will now handle updating the partner's chat list.
           await batch.commit();
-  
-          // --- Operation 2: Best-effort write to partner's list ---
-          try {
-              await setDoc(doc(db, 'user_chats', partner.id, 'chats', chatId), { 
-                  ...commonChatInfo, 
-                  partnerId: currentUserData.id, 
-                  partnerUsername: currentUserData.username, 
-                  partnerPhotoURL: currentUserData.photoURL || null, 
-                  unreadCount: increment(1) 
-              }, { merge: true });
-          } catch (partnerUpdateError) {
-              console.warn("Could not update recipient's chat list (expected permission issue). ChatSyncManager will handle it.", partnerUpdateError);
-          }
   
       } catch (error) {
           console.error("Error sending invitation:", error);

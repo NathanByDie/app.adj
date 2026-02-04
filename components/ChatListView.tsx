@@ -75,6 +75,7 @@ const ChatListItem: React.FC<{
     const chatId = generateChatId(currentUser.id, chat.partnerId);
     
     const isPartnerTyping = typingStatuses[chatId] && typingStatuses[chatId][chat.partnerId];
+    const isBot = chat.partnerUsername === 'SOPORTE';
 
     // Estado para almacenar el texto descifrado
     const [decryptedPreview, setDecryptedPreview] = useState<string>('');
@@ -154,7 +155,7 @@ const ChatListItem: React.FC<{
                 <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 ${darkMode ? 'border-black' : 'border-slate-50'} ${isOnline ? 'bg-misionero-verde' : 'bg-slate-400'}`}></div>
             </div>
             <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1.5">
                     <h4 className={`font-black text-sm uppercase truncate ${darkMode ? 'text-white' : 'text-slate-800'} ${hasUnread ? 'font-extrabold' : ''}`}>
                         {isSelfChat ? <span className="text-slate-500 mr-1">(Tú)</span> : null}
                         {chat.partnerUsername}
@@ -163,6 +164,9 @@ const ChatListItem: React.FC<{
                         <div className="text-blue-500 bg-blue-500/10 rounded-full p-0.5" title="Perfil Verificado">
                             <VerifiedIcon />
                         </div>
+                    )}
+                    {isBot && (
+                        <span className="text-[8px] font-black bg-misionero-verde text-white px-2 py-0.5 rounded-full">BOT</span>
                     )}
                 </div>
                 <p className={`text-xs truncate ${hasUnread ? `font-bold ${darkMode ? 'text-white' : 'text-slate-900'}` : `font-medium ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}`}>

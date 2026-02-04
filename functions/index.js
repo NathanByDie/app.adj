@@ -6,7 +6,7 @@ admin.initializeApp();
 
 const db = admin.firestore();
 
-exports.sendChatNotification = functions.firestore
+exports.onNewMessage = functions.firestore
     .document("chats/{chatId}/messages/{messageId}")
     .onCreate(async (snapshot, context) => {
       const messageData = snapshot.data();
@@ -18,63 +18,101 @@ exports.sendChatNotification = functions.firestore
       const recipientId = participants.find((id) => id !== senderId);
 
       if (!recipientId) {
-        console.log("No se pudo determinar el destinatario.");
+        console.log("No se pudo determinar el destinatario para el chatId:", chatId);
         return null;
       }
 
-      // 2. Obtener el token FCM del destinatario y el nombre del remitente
-      const recipientDoc = await db.collection("users").doc(recipientId).get();
+      // 2. Obtener los documentos del remitente y del destinatario
       const senderDoc = await db.collection("users").doc(senderId).get();
+      const recipientDoc = await db.collection("users").doc(recipientId).get();
 
-      if (!recipientDoc.exists || !senderDoc.exists) {
-        console.log("No se encontró el remitente o el destinatario.");
+      if (!senderDoc.exists) {
+        console.error("El documento del remitente no existe:", senderId);
+        return null;
+      }
+      if (!recipientDoc.exists) {
+        console.error("El documento del destinatario no existe:", recipientId);
         return null;
       }
 
+      const senderData = senderDoc.data();
       const recipientData = recipientDoc.data();
-      const fcmToken = recipientData.fcmToken;
-      const senderName = senderDoc.data().username;
 
+      // 3. Actualizar la lista de chats del destinatario (CORE FIX)
+      const recipientChatRef = db.doc(`user_chats/${recipientId}/chats/${chatId}`);
+
+      let lastMessageText;
+      if (messageData.deleted) {
+          lastMessageText = "Mensaje eliminado";
+      } else if (messageData.type === 'text') {
+          lastMessageText = '🔒 Texto cifrado';
+      } else if (messageData.type === 'image') {
+          lastMessageText = '📷 Imagen';
+      } else if (messageData.type === 'audio') {
+          lastMessageText = '🎤 Nota de voz';
+      } else if (messageData.type === 'video') {
+          lastMessageText = '📹 Video';
+      } else if (messageData.type === 'file') {
+          lastMessageText = `📄 ${messageData.fileName || 'Archivo'}`;
+      } else {
+          lastMessageText = 'Nuevo mensaje';
+      }
+
+      const chatInfoUpdate = {
+        lastMessageText,
+        lastMessageTimestamp: messageData.timestamp,
+        lastMessageSenderId: senderId,
+        unreadCount: admin.firestore.FieldValue.increment(1),
+        partnerId: senderId,
+        partnerUsername: senderData.username,
+        partnerPhotoURL: senderData.photoURL || null,
+        partnerValidated: senderData.profileValidated === true,
+      };
+
+      try {
+        await recipientChatRef.set(chatInfoUpdate, { merge: true });
+        console.log(`Lista de chats actualizada para el destinatario: ${recipientId}`);
+      } catch (error) {
+        console.error("Error al actualizar la lista de chats del destinatario:", error);
+      }
+
+      // 4. Enviar Notificación Push
+      const fcmToken = recipientData.fcmToken;
       if (!fcmToken) {
-        console.log("El destinatario no tiene un token FCM registrado.");
+        console.log("El destinatario no tiene un token FCM.");
         return null;
       }
 
-      // 3. Determinar el contenido de la notificación
       let notificationBody;
       switch (messageData.type) {
         case "image":
-          notificationBody = `${senderName} te ha enviado una imagen.`;
+          notificationBody = "Te ha enviado una imagen.";
           break;
         case "audio":
-          notificationBody = `${senderName} te ha enviado una nota de voz.`;
+          notificationBody = "Te ha enviado una nota de voz.";
           break;
         default:
-          notificationBody = messageData.text;
+          notificationBody = "Te ha enviado un nuevo mensaje.";
       }
-
-      // 4. Construir el payload de la notificación
+      
       const payload = {
         notification: {
-          title: `Nuevo mensaje de ${senderName}`,
+          title: `Nuevo mensaje de ${senderData.username}`,
           body: notificationBody,
           sound: "default",
           badge: "1",
         },
         data: {
-          // Datos adicionales para que la app sepa a dónde navegar
           chatId: chatId,
           senderId: senderId,
         },
       };
 
-      // 5. Enviar la notificación
       try {
-        console.log(`Enviando notificación a ${recipientId} con token ${fcmToken}`);
         await admin.messaging().sendToDevice(fcmToken, payload);
-        console.log("Notificación enviada con éxito.");
+        console.log("Notificación push enviada con éxito.");
       } catch (error) {
-        console.error("Error al enviar la notificación:", error);
+        console.error("Error al enviar la notificación push:", error);
       }
 
       return null;
