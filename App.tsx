@@ -334,57 +334,118 @@ const LoginView = ({ handleAuthSubmit, authData, setAuthData, authMode, setAuthM
 );
 
 // --- VISTAS INDIVIDUALES ---
-const FeedView = ({ songs, favorites, openSongViewer, toggleFavorite, darkMode }: any) => (
-    <div className="w-full h-full overflow-y-auto custom-scroll px-4 pt-4 pb-48 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-start auto-rows-max">
-       {songs.map((song: Song, index: number) => (
-          <div 
-            key={song.id} 
-            className="relative glass-ui rounded-[1.8rem] overflow-hidden active:scale-[0.98] transition-all animate-stagger-in h-fit"
-            style={{ animationDelay: `${index * 30}ms` }}
-            onClick={() => openSongViewer(song)}
-          >
-            {song.source === 'lacuerda' && (
-              <span className="absolute top-3 left-3 z-20 text-[7px] font-black text-orange-500 bg-orange-500/10 px-2 py-1 rounded-full border border-orange-500/20">LaCuerda.net</span>
-            )}
-            <button onClick={(e) => toggleFavorite(e, song.id)} className={`absolute top-3 right-3 z-20 p-2 transition-colors ${favorites.includes(song.id) ? 'text-misionero-rojo' : `${darkMode ? 'text-white/30 hover:text-white/60' : 'text-black/20 hover:text-black/50'}`}`}>
-              <svg className="w-5 h-5" fill={favorites.includes(song.id) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
-            </button>
-            <div className={`p-4 ${song.source === 'lacuerda' ? 'pt-8' : ''}`}>
-              <p className={`text-[7px] font-black uppercase mb-1 ${getLiturgicalColorClass(song.category)}`}>{song.category}</p>
-              <h4 className={`font-black text-sm uppercase truncate pr-8 ${darkMode ? 'text-white' : 'text-slate-800'}`}>{song.title}</h4>
-              <p className={`text-[9px] font-bold ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Tono: <span className={`${darkMode ? 'text-misionero-rojo/80' : 'text-misionero-rojo'}`}>{song.key}</span> • Por: {song.author}</p>
+const VirtualSongItem: React.FC<{
+  song: Song;
+  favorites: string[];
+  openSongViewer: (song: Song) => void;
+  toggleFavorite: (e: React.MouseEvent, songId: string) => void;
+  darkMode: boolean;
+  observer: IntersectionObserver;
+  index: number;
+}> = ({ song, favorites, openSongViewer, toggleFavorite, darkMode, observer, index }) => {
+  const [isInView, setIsInView] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  
+  useEffect(() => {
+    const element = ref.current;
+    if (element) {
+        (element as any)._setIsInView = setIsInView;
+        observer.observe(element);
+    }
+    return () => {
+      if (element) {
+        observer.unobserve(element);
+        delete (element as any)._setIsInView;
+      }
+    };
+  }, [observer, setIsInView]);
+  
+  return (
+    <div ref={ref} style={{ minHeight: '96px' }}>
+        {isInView && (
+            <div 
+                className="relative glass-ui rounded-[1.8rem] overflow-hidden active:scale-[0.98] transition-all animate-stagger-in h-fit"
+                style={{ animationDelay: `${(index % 20) * 30}ms` }}
+                onClick={() => openSongViewer(song)}
+            >
+                {song.source === 'lacuerda' && (
+                  <span className="absolute top-3 left-3 z-20 text-[7px] font-black text-orange-500 bg-orange-500/10 px-2 py-1 rounded-full border border-orange-500/20">LaCuerda.net</span>
+                )}
+                <button onClick={(e) => toggleFavorite(e, song.id)} className={`absolute top-3 right-3 z-20 p-2 transition-colors ${favorites.includes(song.id) ? 'text-misionero-rojo' : `${darkMode ? 'text-white/30 hover:text-white/60' : 'text-black/20 hover:text-black/50'}`}`}>
+                  <svg className="w-5 h-5" fill={favorites.includes(song.id) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
+                </button>
+                <div className={`p-4 ${song.source === 'lacuerda' ? 'pt-8' : ''}`}>
+                  <p className={`text-[7px] font-black uppercase mb-1 ${getLiturgicalColorClass(song.category)}`}>{song.category}</p>
+                  <h4 className={`font-black text-sm uppercase truncate pr-8 ${darkMode ? 'text-white' : 'text-slate-800'}`}>{song.title}</h4>
+                  <p className={`text-[9px] font-bold ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Tono: <span className={`${darkMode ? 'text-misionero-rojo/80' : 'text-misionero-rojo'}`}>{song.key}</span> • Por: {song.author}</p>
+                </div>
             </div>
-          </div>
-       ))}
+        )}
     </div>
-);
+  );
+};
 
-const FavoritesView = ({ songs, favorites, openSongViewer, toggleFavorite, darkMode }: any) => (
-    <div className="w-full h-full overflow-y-auto custom-scroll px-4 pt-4 pb-48 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-start auto-rows-max">
+const FeedView = ({ songs, favorites, openSongViewer, toggleFavorite, darkMode }: any) => {
+    const observer = useMemo(() => new IntersectionObserver(
+        (entries) => {
+            entries.forEach(entry => {
+                const target = entry.target as HTMLElement & { _setIsInView?: (isIntersecting: boolean) => void };
+                if (target._setIsInView) {
+                    target._setIsInView(entry.isIntersecting);
+                }
+            });
+        }, { rootMargin: '200px' }
+    ), []);
+
+    return (
+        <div className="w-full h-full overflow-y-auto custom-scroll px-4 pt-4 pb-48 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-0.5 items-start auto-rows-max">
+           {songs.map((song: Song, index: number) => (
+              <VirtualSongItem 
+                key={song.id}
+                song={song}
+                favorites={favorites}
+                openSongViewer={openSongViewer}
+                toggleFavorite={toggleFavorite}
+                darkMode={darkMode}
+                observer={observer}
+                index={index}
+              />
+           ))}
+        </div>
+    );
+};
+
+const FavoritesView = ({ songs, favorites, openSongViewer, toggleFavorite, darkMode }: any) => {
+    const observer = useMemo(() => new IntersectionObserver(
+        (entries) => {
+            entries.forEach(entry => {
+                const target = entry.target as HTMLElement & { _setIsInView?: (isIntersecting: boolean) => void };
+                if (target._setIsInView) {
+                    target._setIsInView(entry.isIntersecting);
+                }
+            });
+        }, { rootMargin: '200px' }
+    ), []);
+    
+    return (
+    <div className="w-full h-full overflow-y-auto custom-scroll px-4 pt-4 pb-48 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-0.5 items-start auto-rows-max">
        {songs.length === 0 ? (
          <div className="flex flex-col items-center justify-center h-full opacity-20 md:col-span-2 lg:col-span-3 xl:col-span-4"><p className="text-[10px] font-black uppercase">Sin favoritos</p></div>
        ) : songs.map((song: Song, index: number) => (
-          <div 
-            key={song.id} 
-            className="relative glass-ui rounded-[1.8rem] overflow-hidden active:scale-[0.98] transition-all animate-stagger-in h-fit"
-            style={{ animationDelay: `${index * 30}ms` }}
-            onClick={() => openSongViewer(song)}
-          >
-            {song.source === 'lacuerda' && (
-              <span className="absolute top-3 left-3 z-20 text-[7px] font-black text-orange-500 bg-orange-500/10 px-2 py-1 rounded-full border border-orange-500/20">LaCuerda.net</span>
-            )}
-            <button onClick={(e) => toggleFavorite(e, song.id)} className={`absolute top-3 right-3 z-20 p-2 transition-colors ${favorites.includes(song.id) ? 'text-misionero-rojo' : `${darkMode ? 'text-white/30 hover:text-white/60' : 'text-black/20 hover:text-black/50'}`}`}>
-              <svg className="w-5 h-5" fill={favorites.includes(song.id) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
-            </button>
-            <div className={`p-4 ${song.source === 'lacuerda' ? 'pt-8' : ''}`}>
-               <p className={`text-[7px] font-black uppercase mb-1 ${getLiturgicalColorClass(song.category)}`}>{song.category}</p>
-              <h4 className={`font-black text-sm uppercase truncate pr-8 ${darkMode ? 'text-white' : 'text-slate-800'}`}>{song.title}</h4>
-               <p className={`text-[9px] font-bold ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Tono: <span className={`${darkMode ? 'text-misionero-rojo/80' : 'text-misionero-rojo'}`}>{song.key}</span> • Por: {song.author}</p>
-            </div>
-          </div>
+            <VirtualSongItem 
+                key={song.id}
+                song={song}
+                favorites={favorites}
+                openSongViewer={openSongViewer}
+                toggleFavorite={toggleFavorite}
+                darkMode={darkMode}
+                observer={observer}
+                index={index}
+            />
        ))}
     </div>
-);
+    );
+};
 
 const RoomLobbyView = ({ roomCodeInput, setRoomCodeInput, handleJoinRoom, handleCreateRoom, isAdmin, isJoiningRoom }: any) => (
     <div className="w-full h-full flex flex-col items-center justify-center px-8 py-4 text-center space-y-6 relative max-w-sm mx-auto">
@@ -1417,7 +1478,8 @@ const App = () => {
                               } catch (e) {
                                   alert("Error al eliminar cuenta. Es posible que necesites volver a iniciar sesión recientemente para confirmar esta acción.");
                               }
-                          }
+                          },
+                          type: 'danger'
                       });
                   }}
                   sharedImportUrl={sharedImportUrl}
@@ -1467,7 +1529,8 @@ const App = () => {
                               await deleteDoc(doc(db, 'songs', viewerSong.id));
                               setDeleteSongConfirmModal(null);
                               goBack();
-                          }
+                          },
+                           type: 'danger'
                       });
                   } : undefined}
                   darkMode={darkMode}
@@ -1570,7 +1633,8 @@ const App = () => {
                               } catch (e) {
                                   alert("Error al eliminar cuenta. Es posible que necesites volver a iniciar sesión recientemente para confirmar esta acción.");
                               }
-                          }
+                          },
+                          type: 'danger'
                       });
                   }}
               />
@@ -1583,7 +1647,7 @@ const App = () => {
                       <p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{(deleteAccountConfirmModal || exitRoomConfirmModal || categoryConfirmModal || deleteSongConfirmModal)?.message}</p>
                       <div className="flex gap-3">
                           <button onClick={() => { setCategoryConfirmModal(null); setExitRoomConfirmModal(null); setDeleteAccountConfirmModal(null); setDeleteSongConfirmModal(null); }} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button>
-                          <button onClick={(deleteAccountConfirmModal || exitRoomConfirmModal || categoryConfirmModal || deleteSongConfirmModal)?.action} className="flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg bg-misionero-rojo">Confirmar</button>
+                          <button onClick={(deleteAccountConfirmModal || exitRoomConfirmModal || categoryConfirmModal || deleteSongConfirmModal)?.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg ${(deleteAccountConfirmModal || exitRoomConfirmModal || categoryConfirmModal || deleteSongConfirmModal)?.type === 'danger' ? 'bg-misionero-rojo' : 'bg-misionero-azul'}`}>Confirmar</button>
                       </div>
                   </div>
               </div>
