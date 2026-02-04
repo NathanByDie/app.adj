@@ -405,7 +405,12 @@ const RoomView: React.FC<RoomViewProps> = ({
         const overlay = event.state?.overlay;
         if (overlay !== 'room-chat') setIsChatOpen(false);
         if (overlay !== 'room-participants') setShowParticipants(false);
-        if (overlay !== 'room-song') setSelectedSongId(null);
+        
+        // CORRECCIÓN: Solo limpia la canción seleccionada si volvemos explícitamente a la vista de sala principal.
+        // Si `overlay` es `room-song` (al volver del editor), no hagas nada y mantén el SongViewer.
+        if (overlay === 'room') {
+            setSelectedSongId(null);
+        }
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -556,23 +561,13 @@ const RoomView: React.FC<RoomViewProps> = ({
   
   useEffect(() => {
     const participantsRef = refRtdb(rtdb, `rooms/${room.id}/participants`);
-    const myConnectionRef = refRtdb(rtdb, `rooms/${room.id}/participants/${currentUser}`);
-    
     const unsubscribe = onValueRtdb(participantsRef, (snap) => {
-      const participantsData = snap.val() || {};
-      const online = Object.keys(participantsData).filter(p => participantsData[p] === true);
-      setOnlineParticipants(online);
+        const participantsData = snap.val() || {};
+        const online = Object.keys(participantsData).filter(p => participantsData[p] === true);
+        setOnlineParticipants(online);
     });
-    
-    setRtdb(myConnectionRef, true);
-    const onDisconnectRef = onDisconnect(myConnectionRef);
-    onDisconnectRef.remove();
-    
-    return () => {
-      unsubscribe();
-      removeRtdb(myConnectionRef);
-    };
-  }, [room.id, currentUser, rtdb]);
+    return () => unsubscribe();
+  }, [room.id, rtdb]);
 
   const handleSongSelect = useCallback((songId: string) => {
     setSelectedSongId(songId);
@@ -706,17 +701,12 @@ const RoomView: React.FC<RoomViewProps> = ({
   useEffect(() => {
     const hostSongId = room.currentSongId;
 
-    // Si el "Follow Host" está activado, no somos el host, y el anfitrión elige una canción
-    // que no es la que ya hemos sincronizado, forzamos la navegación.
     if (isFollowingHost && !isTheHost && hostSongId && hostSongId !== lastSyncedHostSongId.current) {
         setSelectedSongId(hostSongId);
         openSubView('song');
-        // Recordamos que ya hemos sincronizado con esta canción para no volver a forzar.
         lastSyncedHostSongId.current = hostSongId;
     }
 
-    // Si el anfitrión sale de la vista de canción, reseteamos nuestro tracker.
-    // Esto permite que si el anfitrión vuelve a entrar a la MISMA canción, volvamos a seguirle.
     if (!hostSongId) {
         lastSyncedHostSongId.current = null;
     }
@@ -752,7 +742,6 @@ const RoomView: React.FC<RoomViewProps> = ({
     const sortedPrevParticipants = [...(prevParticipants.current || [])].sort();
 
     if (JSON.stringify(sortedParticipants) !== JSON.stringify(sortedPrevParticipants)) {
-      // Notifications for users joining or leaving have been removed as per user request.
       prevParticipants.current = onlineParticipants;
     }
   }, [onlineParticipants]);
@@ -1114,6 +1103,7 @@ const RoomView: React.FC<RoomViewProps> = ({
         )}
         {showParticipants && <ParticipantsPanel room={room} onlineParticipants={onlineParticipants} currentUser={currentUser} participantDetails={participantDetails} canModify={canModify} kickUser={kickUser} banUser={banUser} onClose={handleCloseSubView} onViewProfile={onViewProfile} darkMode={darkMode} transferHost={transferHost} />}
         {isChatOpen && <ChatPanel messages={liveChat} currentUser={currentUser} onClose={handleCloseSubView} chatMessage={chatMessage} setChatMessage={setChatMessage} handleSendChatMessage={handleSendChatMessage} chatScrollRef={chatScrollRef} chatInputRef={chatInputRef} replyingTo={replyingTo} setReplyingTo={setReplyingTo} darkMode={darkMode} typingUsers={typingUsers} updateTypingStatus={updateTypingStatus} />}
+        {/* FIX: Pass setAddSongFilter as the setFilter prop */}
         {isAddSongDrawerOpen && <AddSongDrawer allSongs={songsNotInRepertoire} onToggle={toggleSongInTemp} selectedIds={tempRepertoire} onClose={() => setIsAddSongDrawerOpen(false)} filter={addSongFilter} setFilter={setAddSongFilter} categories={categories} darkMode={darkMode} />}
         {confirmModal && <ConfirmModal title={confirmModal.title} message={confirmModal.message} action={confirmModal.action} type={confirmModal.type} onClose={() => setConfirmModal(null)} darkMode={darkMode} />}
         {isShareMenuOpen && <ShareMenu room={room} allUsers={allUsers} currentUser={currentUserData} onClose={() => setIsShareMenuOpen(false)} onSendInvitation={handleSendInvitation} darkMode={darkMode} />}

@@ -814,9 +814,7 @@ const App = () => {
       return [uid1, uid2].sort().join('_');
   };
 
-  // FIX: Added explicit typing for state to resolve TS error.
   const openOverlay = useCallback((state: { overlay: string }) => {
-    // FIX: Cast window.history.state to avoid type error on 'overlay' property.
     if ((window.history.state as { overlay?: string })?.overlay !== state.overlay) {
         window.history.pushState(state, '');
     }
@@ -847,25 +845,22 @@ const App = () => {
     });
   }, [openDirectMessage]);
   
-  const handleExitRoom = useCallback(async () => {
+  const cleanUpRoomExit = useCallback(async () => {
     if (!currentRoom || !user) return;
     const roomToExit = currentRoom;
+    setCurrentRoom(null); // Set state immediately
     if (roomSubscription.current) {
         roomSubscription.current();
         roomSubscription.current = null;
     }
-    // We don't set currentRoom to null here. The popstate listener will do it.
-    goBack();
     try {
-        await updateDoc(doc(db, 'rooms', roomToExit.id), { participants: arrayRemove(user.username) });
         const partRef = ref(rtdb, `rooms/${roomToExit.id}/participants/${user.username}`);
         await removeRtdb(partRef);
     } catch (error) {
         console.error("Failed to cleanly exit room from database:", error);
     }
-  }, [currentRoom, user, db, rtdb, goBack]);
+  }, [currentRoom, user, rtdb]);
 
-  // FIX: Moved navigateTo function before its usage in useEffect hooks.
   const navigateTo = useCallback((newView: AppView, direction: AnimationDirection = 'fade') => {
     setAnimationDirection(direction);
     setView(newView);
@@ -874,21 +869,33 @@ const App = () => {
   // --- NATIVE BACK BUTTON & HISTORY MANAGEMENT ---
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
-        // FIX: Cast event.state to fix 'overlay' property does not exist error.
         const overlay = (event.state as { overlay?: string })?.overlay;
+
+        // Si estamos en una sala y el nuevo estado NO es una superposición relacionada con la sala, entonces salimos.
+        if (currentRoom && !overlay?.startsWith('room') && overlay !== 'editor' && overlay !== 'profile' && overlay !== 'song') {
+            cleanUpRoomExit();
+        }
+
         if (!overlay) {
-            setViewerSong(null);
-            setCurrentRoom(null);
-            setDirectMessagePartner(null);
-            setProfileUserId(null);
-            setIsSongEditorOpen(false);
-            setEditorSong(null);
+          setViewerSong(null);
+          setDirectMessagePartner(null);
+          setProfileUserId(null);
+          setIsSongEditorOpen(false);
+          setEditorSong(null);
+        } else {
+           if (overlay !== 'song') setViewerSong(null);
+           if (overlay !== 'dm') setDirectMessagePartner(null);
+           if (overlay !== 'profile') setProfileUserId(null);
+           if (overlay !== 'editor') {
+              setIsSongEditorOpen(false);
+              setEditorSong(null);
+           }
         }
     };
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  }, [currentRoom, cleanUpRoomExit]);
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
@@ -902,11 +909,14 @@ const App = () => {
             return;
         }
 
-        if (currentState?.overlay === 'room') {
+        if (currentState?.overlay?.startsWith('room')) {
             setExitRoomConfirmModal({
                 title: 'Salir de la Sala',
                 message: '¿Estás seguro de que quieres salir de la sala en vivo?',
-                action: handleExitRoom,
+                action: () => {
+                    setExitRoomConfirmModal(null);
+                    goBack(); // Esto dispara popstate, que llama a cleanUpRoomExit
+                },
                 type: 'warning'
             });
         } else if (currentState?.overlay) {
@@ -917,7 +927,7 @@ const App = () => {
     });
 
     return () => { listener.then(l => l.remove()); };
-  }, [exitRoomConfirmModal, categoryConfirmModal, handleExitRoom]);
+  }, [exitRoomConfirmModal, categoryConfirmModal, goBack]);
 
   // --- Push Notifications Effect ---
   useEffect(() => {
@@ -955,7 +965,6 @@ const App = () => {
 
   // Handle Share Plugin & Median/GoNative Deep Links
   useEffect(() => {
-    // Handler for Median/GoNative's deep link functionality
     (window as any).median = (window as any).median || {};
     (window as any).median.app = (window as any).median.app || {};
     (window as any).median.app.receivedLink = (data: { url: string }) => {
@@ -965,8 +974,6 @@ const App = () => {
             const songId = params.get('song');
             
             if (songId) {
-                // Dispatch a custom event that the React app can listen to.
-                // This is a clean way to communicate from a global function into the React lifecycle.
                 const event = new CustomEvent('deep-link-received', { detail: { songId } });
                 window.dispatchEvent(event);
             }
@@ -974,8 +981,6 @@ const App = () => {
             console.error("Error parsing deep link URL:", error);
         }
     };
-
-    // Handler for GoNative's Share-to-App feature
     (window as any).median_share_to_app = (data: any) => {
         const url = data?.url;
         if (url && url.includes('lacuerda.net')) {
@@ -989,22 +994,19 @@ const App = () => {
     };
   }, [openOverlay]);
   
-    // Listener for the custom deep link event
   useEffect(() => {
     const handleDeepLink = (event: Event) => {
         const customEvent = event as CustomEvent;
         const { songId } = customEvent.detail;
         if (songId) {
-            // Wait a moment for songs to be loaded if it's a cold start
             setTimeout(() => {
                 const songToOpen = songs.find(s => s.id === songId);
                 if (songToOpen) {
                     openSongViewer(songToOpen);
                 } else {
                     console.warn(`Deep link for song ID ${songId} received, but song was not found.`);
-                    // Maybe show a toast message here
                 }
-            }, 500); // Small delay to ensure songs state is populated
+            }, 500);
         }
     };
 
@@ -1015,16 +1017,18 @@ const App = () => {
   }, [songs, openSongViewer]);
 
 
-  // Authentication Effect
+  // Authentication and Presence Effect
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
         if (firebaseUser) {
             const userRef = doc(db, 'users', firebaseUser.uid);
             const userSnap = await getDoc(userRef);
+            let appUser: AppUser;
             if (userSnap.exists()) {
-                setUser({ id: firebaseUser.uid, ...userSnap.data() } as AppUser);
+                appUser = { id: firebaseUser.uid, ...userSnap.data() } as AppUser;
+                setUser(appUser);
             } else {
-                 const newUser: AppUser = {
+                 appUser = {
                     id: firebaseUser.uid,
                     username: firebaseUser.displayName || 'Usuario',
                     username_lowercase: (firebaseUser.displayName || 'usuario').toLowerCase(),
@@ -1034,10 +1038,10 @@ const App = () => {
                     hasGoogleProvider: firebaseUser.providerData.some(p => p.providerId === 'google.com'),
                     hasPasswordProvider: firebaseUser.providerData.some(p => p.providerId === 'password'),
                     createdAt: new Date().toISOString(),
-                    profileValidated: true, // Auto-validate new users
+                    profileValidated: true,
                 };
-                await setDoc(userRef, newUser);
-                setUser(newUser);
+                await setDoc(userRef, appUser);
+                setUser(appUser);
             }
             const rtdbRef = ref(rtdb, `.info/connected`);
             onValue(rtdbRef, (snap) => {
@@ -1045,6 +1049,13 @@ const App = () => {
                     const con = ref(rtdb, `status/${firebaseUser.uid}`);
                     onDisconnect(con).set({ state: 'offline', last_changed: serverTimestamp() });
                     set(con, { state: 'online', last_changed: serverTimestamp() });
+
+                    // Robust Room Presence Management
+                    if (currentRoom) {
+                       const roomPresenceRef = ref(rtdb, `rooms/${currentRoom.id}/participants/${appUser.username}`);
+                       onDisconnect(roomPresenceRef).remove();
+                       set(roomPresenceRef, true);
+                    }
                 }
             });
         } else {
@@ -1054,7 +1065,7 @@ const App = () => {
         setAuthLoading(false);
     });
     return () => unsubscribe();
-  }, []);
+  }, [currentRoom]); // Re-run when currentRoom changes to set correct onDisconnect
 
   // Theme Effect
   useEffect(() => {
@@ -1184,7 +1195,7 @@ const App = () => {
 
   const handleJoinRoom = useCallback(async (code?: string) => {
       const codeToJoin = code || roomCodeInput;
-      if (!codeToJoin) return;
+      if (!codeToJoin || !user) return;
       setIsJoiningRoom(true);
       try {
           const q = query(collection(db, 'rooms'), where('code', '==', codeToJoin.toUpperCase()));
@@ -1194,7 +1205,7 @@ const App = () => {
           const roomDoc = snap.docs[0];
           let roomData = { id: roomDoc.id, ...roomDoc.data() } as Room;
           
-          if (roomData.banned?.includes(user!.username)) throw new Error("Estás baneado de esta sala");
+          if (roomData.banned?.includes(user.username)) throw new Error("Estás baneado de esta sala");
 
           if (roomSubscription.current) roomSubscription.current();
 
@@ -1208,8 +1219,6 @@ const App = () => {
           });
           
           openOverlay({ overlay: 'room' });
-          await updateDoc(doc(db, 'rooms', roomData.id), { participants: arrayUnion(user!.username) });
-
       } catch (e: any) {
           alert(e.message);
       } finally {
@@ -1239,7 +1248,7 @@ const App = () => {
                            role: 'member',
                            hasPasswordProvider: true,
                            createdAt: new Date().toISOString(),
-                           profileValidated: true, // Auto-validate new users
+                           profileValidated: true,
                        });
                   } else {
                       await sendPasswordResetEmail(auth, authData.email);
@@ -1305,7 +1314,7 @@ const App = () => {
                               code,
                               host: user.username,
                               repertoire: [],
-                              participants: [user.username],
+                              participants: [],
                               createdAt: Date.now()
                           });
                           handleJoinRoom(code);
@@ -1415,7 +1424,17 @@ const App = () => {
                   songs={songs}
                   currentUser={user}
                   isAdmin={user.role === 'admin'}
-                  onExitRequest={handleExitRoom}
+                  onExitRequest={() => {
+                      setExitRoomConfirmModal({
+                        title: 'Salir de la Sala',
+                        message: '¿Estás seguro de que quieres salir de la sala en vivo?',
+                        action: () => {
+                            setExitRoomConfirmModal(null);
+                            goBack(); // This triggers popstate, which calls cleanUpRoomExit
+                        },
+                        type: 'warning'
+                      });
+                  }}
                   onUpdateRoom={(roomId: string, updates: Partial<Room>) => updateDoc(doc(db, 'rooms', roomId), updates)}
                   darkMode={darkMode}
                   db={db} rtdb={rtdb}
