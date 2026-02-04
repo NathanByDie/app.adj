@@ -25,7 +25,7 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ imageFile, onSend, onCancel, 
     const [tool, setTool] = useState<Tool>('draw');
     const [drawColor, setDrawColor] = useState('#ef4444');
     const [drawSize, setDrawSize] = useState(5);
-    const [textColor, setTextColor] = useState('#ffffff');
+    const [textColor, setTextColor] = useState('#ef4444');
     const [textSize, setTextSize] = useState(32);
     
     const [paths, setPaths] = useState<Path[]>([]);
@@ -46,9 +46,6 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ imageFile, onSend, onCancel, 
         const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
         const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
 
-        // SCALING FIX: Adjust coordinates based on the ratio between the element's
-        // display size (rect) and its internal resolution (canvas.width/height).
-        // This solves the drawing offset issue.
         const scaleX = canvas.width / rect.width;
         const scaleY = canvas.height / rect.height;
 
@@ -97,22 +94,32 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ imageFile, onSend, onCancel, 
             ctx.font = `bold ${text.size}px sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.shadowColor = 'rgba(0,0,0,0.5)';
-            ctx.shadowBlur = 5;
+            // Add stroke for better visibility
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = text.size / 16;
+            ctx.strokeText(text.text, text.x, text.y);
             ctx.fillText(text.text, text.x, text.y);
-            ctx.shadowColor = 'transparent';
         });
 
         if (tool === 'crop' && cropRect) {
-            // Overlay
+            ctx.save();
+            // Draw semi-transparent overlay
             ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            // Clear inside crop rect
-            ctx.clearRect(cropRect.x, cropRect.y, cropRect.width, cropRect.height);
-            // Draw handles
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-            ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
-            ctx.lineWidth = 1;
+
+            // Create a "window" through the overlay
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.fillStyle = 'white'; // Color doesn't matter with destination-out
+            ctx.fillRect(cropRect.x, cropRect.y, cropRect.width, cropRect.height);
+            
+            ctx.restore(); // Restore composite operation
+
+            // Draw border and handles
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(cropRect.x, cropRect.y, cropRect.width, cropRect.height);
+            
+            ctx.fillStyle = 'white';
             const handles = {
                 topLeft: { x: cropRect.x, y: cropRect.y },
                 topRight: { x: cropRect.x + cropRect.width, y: cropRect.y },
@@ -123,7 +130,6 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ imageFile, onSend, onCancel, 
                 ctx.beginPath();
                 ctx.arc(p.x, p.y, HANDLE_SIZE / 2, 0, 2 * Math.PI);
                 ctx.fill();
-                ctx.stroke();
             });
         }
     }, [paths, texts, currentPath, tool, cropRect]);
@@ -140,24 +146,23 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ imageFile, onSend, onCancel, 
         img.onload = () => {
             const container = canvas.parentElement;
             if (container) {
+                // Set canvas resolution to image resolution for max quality
+                canvas.width = img.width;
+                canvas.height = img.height;
+                
+                // Set display size to fit container while maintaining aspect ratio
                 const { width: containerWidth, height: containerHeight } = container.getBoundingClientRect();
                 const imgAspectRatio = img.width / img.height;
                 const containerAspectRatio = containerWidth / containerHeight;
 
-                let canvasWidth, canvasHeight;
                 if (imgAspectRatio > containerAspectRatio) {
-                    canvasWidth = containerWidth;
-                    canvasHeight = containerWidth / imgAspectRatio;
+                    canvas.style.width = `${containerWidth}px`;
+                    canvas.style.height = `${containerWidth / imgAspectRatio}px`;
                 } else {
-                    canvasHeight = containerHeight;
-                    canvasWidth = containerHeight * imgAspectRatio;
+                    canvas.style.height = `${containerHeight}px`;
+                    canvas.style.width = `${containerHeight * imgAspectRatio}px`;
                 }
                 
-                canvas.width = canvasWidth;
-                canvas.height = canvasHeight;
-                canvas.style.width = `${canvasWidth}px`;
-                canvas.style.height = `${canvasHeight}px`;
-
                 redrawCanvas();
             }
         };
@@ -325,8 +330,20 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ imageFile, onSend, onCancel, 
 
             canvas.width = newImg.width;
             canvas.height = newImg.height;
-            canvas.style.width = `${newImg.width}px`;
-            canvas.style.height = `${newImg.height}px`;
+            // Recalculate display size
+            const container = canvas.parentElement;
+             if (container) {
+                const { width: cW, height: cH } = container.getBoundingClientRect();
+                const vAR = newImg.width / newImg.height;
+                const cAR = cW / cH;
+                if (vAR > cAR) {
+                    canvas.style.width = `${cW}px`;
+                    canvas.style.height = `${cW / vAR}px`;
+                } else {
+                    canvas.style.height = `${cH}px`;
+                    canvas.style.width = `${cH * vAR}px`;
+                }
+            }
 
             setTool('draw');
             setCropRect(null);
@@ -345,15 +362,28 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ imageFile, onSend, onCancel, 
     const handleSend = () => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-        canvas.toBlob(blob => { if (blob) onSend(blob); }, 'image/jpeg', 0.9);
+        // Redraw one last time without crop UI before exporting
+        if (tool === 'crop') {
+            const currentCropRect = cropRect;
+            setCropRect(null); // Temporarily disable crop UI
+            setTimeout(() => { // Allow UI to update
+                redrawCanvas(); // Redraw without overlay
+                canvas.toBlob(blob => { if (blob) onSend(blob); }, 'image/jpeg', 0.9);
+                setCropRect(currentCropRect); // Restore crop UI
+            }, 50);
+        } else {
+             canvas.toBlob(blob => { if (blob) onSend(blob); }, 'image/jpeg', 0.9);
+        }
     };
 
     return (
-        <div className="fixed inset-0 z-[400] bg-black flex flex-col justify-center items-center animate-in fade-in duration-200">
-            <canvas ref={canvasRef}
-                onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd} onMouseLeave={handleEnd}
-                onTouchStart={handleStart} onTouchMove={handleMove} onTouchEnd={handleEnd}
-            />
+        <div className="fixed inset-0 z-[400] bg-black flex flex-col items-center justify-center animate-in fade-in duration-200">
+            <div className="flex-1 w-full flex items-center justify-center p-4">
+                <canvas ref={canvasRef}
+                    onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd} onMouseLeave={handleEnd}
+                    onTouchStart={handleStart} onTouchMove={handleMove} onTouchEnd={handleEnd}
+                />
+            </div>
             <div className="absolute top-0 left-0 right-0 p-4 pt-12 flex justify-between items-center bg-gradient-to-b from-black/50 to-transparent">
                 <button onClick={onCancel} className="bg-black/50 text-white w-10 h-10 rounded-full flex items-center justify-center active:scale-90 transition-transform">
                     <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
@@ -364,7 +394,7 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ imageFile, onSend, onCancel, 
                     </div>
                 )}
             </div>
-            <div className="absolute bottom-0 left-0 right-0 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] bg-gradient-to-t from-black/50 to-transparent">
+            <div className="w-full p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] bg-gradient-to-t from-black/50 to-transparent">
                 {tool === 'draw' && (
                     <div className="bg-black/50 p-2 rounded-2xl mb-4 space-y-2 animate-in fade-in slide-in-from-bottom-4 duration-300">
                         <div className="flex justify-around">{COLORS.map(c => <button key={c} onClick={() => setDrawColor(c)} className={`w-8 h-8 rounded-full transition-transform ${drawColor === c ? 'scale-125 ring-2 ring-white ring-offset-2 ring-offset-transparent' : 'scale-90'}`} style={{ backgroundColor: c }} />)}</div>
@@ -374,6 +404,7 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ imageFile, onSend, onCancel, 
                  {tool === 'text' && (
                     <div className="bg-black/50 p-2 rounded-2xl mb-4 space-y-2 animate-in fade-in slide-in-from-bottom-4 duration-300">
                         <div className="flex justify-around">{COLORS.map(c => <button key={c} onClick={() => setTextColor(c)} className={`w-8 h-8 rounded-full transition-transform ${textColor === c ? 'scale-125 ring-2 ring-white ring-offset-2 ring-offset-transparent' : 'scale-90'}`} style={{ backgroundColor: c }} />)}</div>
+                        <div className="flex items-center gap-2 px-2"><span className="text-white font-bold text-xs">Aa</span><input type="range" min="16" max="72" value={textSize} onChange={e => setTextSize(Number(e.target.value))} className="w-full h-1 bg-white/30 rounded-full appearance-none accent-misionero-azul" /><span className="text-white font-bold text-xl">Aa</span></div>
                     </div>
                 )}
                 {tool === 'crop' ? (

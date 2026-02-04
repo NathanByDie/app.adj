@@ -7,7 +7,7 @@ export interface ImportedSongData {
 }
 
 // Lista de proxies para intentar en orden. Si uno falla, se prueba el siguiente.
-const PROXIES = [
+export const PROXIES = [
     (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
     (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
     (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`

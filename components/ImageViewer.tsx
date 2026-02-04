@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { PROXIES } from '../services/importer';
 
 interface ImageViewerProps {
     imageUrl: string;
@@ -35,23 +36,45 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ imageUrl, onClose, onDelete, 
     }, [showOptions]);
 
     const handleDownload = async () => {
-        try {
-            const response = await fetch(imageUrl);
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.style.display = 'none';
-            a.href = url;
-            a.download = fileName || 'imagen.jpg';
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-        } catch (error) {
-            console.error("Error al descargar la imagen:", error);
-            alert("No se pudo descargar la imagen.");
-        } finally {
-            setShowOptions(false);
+        setShowOptions(false);
+        let blob: Blob | null = null;
+        let lastError: any = null;
+
+        // Try fetching through proxies to bypass CORS issues.
+        for (const buildProxyUrl of PROXIES) {
+            try {
+                const proxyUrl = buildProxyUrl(imageUrl);
+                const response = await fetch(proxyUrl);
+                if (response.ok) {
+                    blob = await response.blob();
+                    break; // Success!
+                }
+            } catch (error) {
+                console.warn("Proxy fetch failed, trying next.", error);
+                lastError = error;
+            }
+        }
+
+        if (blob) {
+            try {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = fileName || 'imagen.jpg';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            } catch (downloadError) {
+                console.error("Error creating download link from blob:", downloadError);
+                alert("No se pudo iniciar la descarga del archivo.");
+            }
+        } else {
+            console.error("Error al descargar la imagen:", lastError);
+            // Fallback: If all proxies fail, open the image in a new tab.
+            alert("No se pudo descargar la imagen directamente. Se abrirá en una nueva pestaña para que puedas guardarla manualmente.");
+            window.open(imageUrl, '_blank');
         }
     };
 
