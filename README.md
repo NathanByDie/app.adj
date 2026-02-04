@@ -192,6 +192,10 @@ En dispositivos móviles, también puedes **deslizar el dedo hacia la izquierda 
 - **Notas de Voz:** Mantén presionado el icono del micrófono para grabar una nota de voz. Suéltalo para enviarla.
 - **Reaccionar:** Mantén presionado un mensaje para que aparezca el menú de reacciones (👍, ❤️, etc.).
 - **Responder:** Desliza un mensaje hacia la derecha para citarlo en tu respuesta.
+- **Análisis de Enlaces (Chatbot):** Pega un enlace en el chat con el bot "SOPORTE" para obtener un análisis.
+    - **Enlaces de YouTube:** El bot buscará información sobre el video y te dará un resumen musical.
+    - **Enlaces de Acordes (LaCuerda, etc.):** El bot extraerá la canción y te dará un análisis de su estructura, armonía y estilo.
+    - **Otros Enlaces:** El bot te proporcionará un resumen del contenido de la página.
 
 ### f. Tareas Administrativas (Solo Admins)
 
@@ -324,3 +328,28 @@ Una tonalidad define el grupo de notas sobre las que se construye una canción, 
     - **V:** Sol Mayor (Sol-Si-Re)
     - **vi:** La menor (La-Do-Mi) - *Este es el relativo menor.*
     - **vii°:** Si disminuido (Si-Re-Fa)
+
+### h. Riffs, Adornos y Solos
+Más allá de los acordes, estos elementos dan vida y carácter a una canción.
+
+- **Principios Generales:**
+    - **Usa la Escala:** Todos estos elementos deben basarse en las notas de la escala de la tonalidad de la canción. La **escala pentatónica** (5 notas) es una herramienta excelente y versátil para casi cualquier género popular.
+    - **Complementa la Voz:** Los riffs y adornos no deben competir con el cantante. Generalmente se tocan en los silencios o espacios que deja la melodía vocal.
+
+- **Riffs (Frases Repetitivas):**
+    - Un riff es una idea musical corta, reconocible y pegadiza que se repite.
+    - **Pop/Rock:** Suelen basarse en la escala pentatónica o en las notas principales de los acordes (tónica, tercera, quinta). *Ejemplo para un riff en Do Mayor:* "Puedes crear un riff de guitarra simple usando las notas Sol, La, Sol, Do, y repetirlo para darle un gancho a la canción".
+    - **Cumbia/Funk:** El riff es más rítmico. Puede usar una o dos notas con un patrón sincopado que complemente la percusión o el bajo.
+
+- **Adornos (Embellishments/Fill-ins):**
+    - Son pequeñas frases melódicas que "adornan" la música y conectan secciones o acordes.
+    - **Guitarra (Balada/Folklore):** Se pueden usar arpegios (tocar las notas de un acorde una por una) o pequeñas frases de la escala para conectar el final de una línea vocal con el inicio de la siguiente. *Ejemplo:* "Si estás en un acorde de Sol y vas a pasar a un Do, puedes hacer un adorno rápido con las notas Si-La-Sol para aterrizar en el Do".
+    - **Piano (Pop/Gospel):** La mano derecha puede tocar arpegios, inversiones de acordes o pequeñas melodías de respuesta mientras la mano izquierda mantiene el ritmo con los acordes base.
+
+- **Solos Instrumentales:**
+    - Un solo es una sección donde un instrumento toma el protagonismo. Debe contar una pequeña historia: empezar, desarrollarse y concluir.
+    - **Base Armónica:** Se toca sobre la misma progresión de acordes de la estrofa o el estribillo.
+    - **Herramienta Principal (Escalas):**
+        - **Escala Pentatónica:** Es la más segura y efectiva. Para una tonalidad de **La menor**, la pentatónica menor es `La-Do-Re-Mi-Sol`. Para **Do Mayor**, la pentatónica mayor es `Do-Re-Mi-Sol-La`. Es ideal para rock, pop, blues y folklore.
+        - **Escala Mayor/Menor Completa:** Ofrece más opciones de notas para un sonido más melódico y detallado.
+    - **Cómo Sugerir un Solo:** El bot debe describir la *sensación* y la estructura, no solo listar notas. *Ejemplo de instrucción:* "Para el solo sobre Lam-Fa-Do-Sol, podrías empezar con notas largas y emotivas de la pentatónica de La menor. Luego, aumenta la intensidad con frases más rápidas y rítmicas. Termina con una nota aguda y sostenida, como un Mi alto, para crear un clímax antes de volver al estribillo".

@@ -572,7 +572,10 @@ const SettingsView = ({
                                   <span>{cat.name}</span>
                               )}
                               <button onClick={() => setEditingCategory({id: cat.id, name: cat.name})} className={`p-1 rounded-md transition-colors ${darkMode ? 'hover:bg-white/10 text-slate-400' : 'hover:bg-black/5 text-slate-500'}`}><EditIcon /></button>
-                              <button onClick={() => setCategoryConfirmModal({ title: 'Eliminar Categoría', message: `¿Seguro que quieres eliminar "${cat.name}"? Esta acción no se puede deshacer.`, action: () => { handleDeleteCategory(cat.id); setCategoryConfirmModal(null); }, type: 'danger' })} className={`p-1 rounded-md transition-colors ${darkMode ? 'hover:bg-red-500/10 text-red-400/70' : 'hover:bg-red-500/5 text-red-500/70'}`}>
+                              <button onClick={() => { 
+                                  triggerHapticFeedback('error');
+                                  setCategoryConfirmModal({ title: 'Eliminar Categoría', message: `¿Seguro que quieres eliminar "${cat.name}"? Esta acción no se puede deshacer.`, action: () => { handleDeleteCategory(cat.id); setCategoryConfirmModal(null); }, type: 'danger' })
+                              }} className={`p-1 rounded-md transition-colors ${darkMode ? 'hover:bg-red-500/10 text-red-400/70' : 'hover:bg-red-500/5 text-red-500/70'}`}>
                                   <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"/></svg>
                               </button>
                           </div>
@@ -911,6 +914,7 @@ const App = () => {
         }
 
         if (currentState?.overlay?.startsWith('room')) {
+            triggerHapticFeedback('error');
             setExitRoomConfirmModal({
                 title: 'Salir de la Sala',
                 message: '¿Estás seguro de que quieres salir de la sala en vivo?',
@@ -1399,6 +1403,7 @@ const App = () => {
                       openOverlay({ overlay: 'editor' });
                   }}
                   onDeleteAccountRequest={() => {
+                      triggerHapticFeedback('error');
                       setDeleteAccountConfirmModal({
                           title: 'Eliminar Cuenta',
                           message: '¿Estás seguro de que quieres eliminar tu cuenta? Esta acción es permanente y todos tus datos se perderán.',
@@ -1426,6 +1431,7 @@ const App = () => {
                   currentUser={user}
                   isAdmin={user.role === 'admin'}
                   onExitRequest={() => {
+                      triggerHapticFeedback('error');
                       setExitRoomConfirmModal({
                         title: 'Salir de la Sala',
                         message: '¿Estás seguro de que quieres salir de la sala en vivo?',
@@ -1452,15 +1458,18 @@ const App = () => {
                   song={viewerSong}
                   onBack={goBack}
                   onEdit={user.role === 'admin' ? () => { setEditorSong(viewerSong); setIsSongEditorOpen(true); openOverlay({ overlay: 'editor' }); } : undefined}
-                  onDelete={user.role === 'admin' ? () => setDeleteSongConfirmModal({
-                      title: "Eliminar Música",
-                      message: `¿Estás seguro de que quieres eliminar "${viewerSong.title}"? Esta acción es permanente.`,
-                      action: async () => {
-                          await deleteDoc(doc(db, 'songs', viewerSong.id));
-                          setDeleteSongConfirmModal(null);
-                          goBack();
-                      }
-                  }) : undefined}
+                  onDelete={user.role === 'admin' ? () => {
+                      triggerHapticFeedback('error');
+                      setDeleteSongConfirmModal({
+                          title: "Eliminar Música",
+                          message: `¿Estás seguro de que quieres eliminar "${viewerSong.title}"? Esta acción es permanente.`,
+                          action: async () => {
+                              await deleteDoc(doc(db, 'songs', viewerSong.id));
+                              setDeleteSongConfirmModal(null);
+                              goBack();
+                          }
+                      });
+                  } : undefined}
                   darkMode={darkMode}
               />
           )}
@@ -1547,6 +1556,7 @@ const App = () => {
                        }
                   }}
                   onDeleteAccountRequest={() => {
+                      triggerHapticFeedback('error');
                       setDeleteAccountConfirmModal({
                           title: 'Eliminar Cuenta',
                           message: '¿Estás seguro de que quieres eliminar tu cuenta? Esta acción es permanente y todos tus datos se perderán.',

@@ -17,7 +17,9 @@
     "@capacitor/app": "^6.0.0",
     "@capacitor/cli": "^6.0.0",
     "@capacitor/core": "^6.0.0",
-    "@capacitor/push-notifications": "^6.0.0"
+    "@capacitor/push-notifications": "^6.0.0",
+    "react-markdown": "9",
+    "remark-gfm": "4"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

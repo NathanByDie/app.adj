@@ -34,7 +34,46 @@
                 amarillo: '#facc15',
                 azul: '#3b82f6',
               }
-            }
+            },
+            typography: ({ theme }) => ({
+              DEFAULT: {
+                css: {
+                  '--tw-prose-body': theme('colors.slate[600]'),
+                  '--tw-prose-headings': theme('colors.slate[900]'),
+                  '--tw-prose-lead': theme('colors.slate[600]'),
+                  '--tw-prose-links': theme('colors.blue[600]'),
+                  '--tw-prose-bold': theme('colors.slate[900]'),
+                  '--tw-prose-counters': theme('colors.slate[500]'),
+                  '--tw-prose-bullets': theme('colors.slate[300]'),
+                  '--tw-prose-hr': theme('colors.slate[200]'),
+                  '--tw-prose-quotes': theme('colors.slate[900]'),
+                  '--tw-prose-quote-borders': theme('colors.slate[200]'),
+                  '--tw-prose-captions': theme('colors.slate[500]'),
+                  '--tw-prose-code': theme('colors.slate[900]'),
+                  '--tw-prose-pre-code': theme('colors.slate[200]'),
+                  '--tw-prose-pre-bg': theme('colors.slate[800]'),
+                  '--tw-prose-th-borders': theme('colors.slate[300]'),
+                  '--tw-prose-td-borders': theme('colors.slate[200]'),
+
+                  '--tw-prose-invert-body': theme('colors.slate[300]'),
+                  '--tw-prose-invert-headings': theme('colors.white'),
+                  '--tw-prose-invert-lead': theme('colors.slate[400]'),
+                  '--tw-prose-invert-links': theme('colors.blue[400]'),
+                  '--tw-prose-invert-bold': theme('colors.white'),
+                  '--tw-prose-invert-counters': theme('colors.slate[400]'),
+                  '--tw-prose-invert-bullets': theme('colors.slate[600]'),
+                  '--tw-prose-invert-hr': theme('colors.slate[700]'),
+                  '--tw-prose-invert-quotes': theme('colors.slate[100]'),
+                  '--tw-prose-invert-quote-borders': theme('colors.slate[700]'),
+                  '--tw-prose-invert-captions': theme('colors.slate[400]'),
+                  '--tw-prose-invert-code': theme('colors.white'),
+                  '--tw-prose-invert-pre-code': theme('colors.slate[300]'),
+                  '--tw-prose-invert-pre-bg': 'rgba(0, 0, 0, 0.5)',
+                  '--tw-prose-invert-th-borders': theme('colors.slate[600]'),
+                  '--tw-prose-invert-td-borders': theme('colors.slate[700]'),
+                },
+              },
+            }),
           }
         }
       }
@@ -312,7 +351,9 @@
     "@capacitor/app": "https://esm.sh/@capacitor/app@^6.0.0",
     "@capacitor/cli": "https://esm.sh/@capacitor/cli@^6.0.0",
     "@capacitor/core": "https://esm.sh/@capacitor/core@^6.0.0",
-    "@capacitor/push-notifications": "https://esm.sh/@capacitor/push-notifications@^6.0.0"
+    "@capacitor/push-notifications": "https://esm.sh/@capacitor/push-notifications@^6.0.0",
+    "react-markdown": "https://esm.sh/react-markdown@9",
+    "remark-gfm": "https://esm.sh/remark-gfm@4"
   }
 }
 </script>

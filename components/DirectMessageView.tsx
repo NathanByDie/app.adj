@@ -1,5 +1,5 @@
 // FIX: Removed extraneous content from another file that was mistakenly pasted at the end of this file. This resolves multiple duplicate import errors.
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
 import { User as AppUser, DirectMessage } from '../types';
 import { Firestore, collection, query, orderBy, onSnapshot, serverTimestamp, writeBatch, doc, setDoc, increment, updateDoc, getDoc, runTransaction, arrayUnion, arrayRemove, DocumentReference, addDoc } from 'firebase/firestore';
 import { FirebaseStorage, ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -14,6 +14,9 @@ import VideoViewer from './VideoViewer';
 import { saveMessagesToCache, getMessagesFromCache } from '../services/cache';
 import { SecureMessenger } from '../services/security';
 import { UsersIcon } from '../constants';
+import { importFromLaCuerda } from '../services/importer';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 // --- CONSTANTES Y CONFIGURACIÓN DEL CHATBOT ---
 const CHATBOT_EMAIL = 'nathancodnext@gmail.com';
@@ -97,33 +100,6 @@ const formatLastSeen = (timestamp: number) => {
     startOfYesterday.setDate(startOfYesterday.getDate() - 1);
     if (lastSeenDate >= startOfYesterday) return `ayer a las ${lastSeenTime}`;
     return `el ${lastSeenDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}`;
-};
-
-const LinkRenderer: React.FC<{ text: string }> = ({ text }) => {
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    const parts = text.split(urlRegex);
-
-    return (
-        <>
-            {parts.map((part, index) => {
-                if (part.match(urlRegex)) {
-                    return (
-                        <a
-                            key={index}
-                            href={part}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-500 dark:text-blue-400 underline hover:text-blue-600 dark:hover:text-blue-300"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            {part}
-                        </a>
-                    );
-                }
-                return <span key={index}>{part}</span>;
-            })}
-        </>
-    );
 };
 
 const SwipeableDirectMessage: React.FC<{
@@ -224,7 +200,13 @@ const SwipeableDirectMessage: React.FC<{
             );
             case 'audio': return <CustomAudioPlayer src={cachedMediaUrl || msg.mediaUrl || ''} darkMode={darkMode} isSender={isMe} />;
             case 'file': return <div className="flex items-center gap-2"><p className="font-bold">{msg.fileName}</p><span className="text-xs opacity-70">{formatFileSize(msg.fileSize || 0)}</span></div>
-            default: return <p className="text-sm font-medium leading-tight whitespace-pre-wrap"><LinkRenderer text={msg.text || ''} /></p>;
+            default: return (
+                <div className={`prose prose-sm dark:prose-invert prose-p:mb-2 prose-ul:my-2 prose-li:mb-1 prose-strong:font-black ${isMe ? 'prose-strong:text-white' : ''}`}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {msg.text || ''}
+                    </ReactMarkdown>
+                </div>
+            );
         }
     };
 
@@ -289,6 +271,7 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
     const [imageToEdit, setImageToEdit] = useState<File | null>(null);
     const [videoToEdit, setVideoToEdit] = useState<File | null>(null);
     const [viewingVideoUrl, setViewingVideoUrl] = useState<string | null>(null);
+    const isInitialLoad = useRef(true);
 
     // --- Chatbot State ---
     const [projectContext, setProjectContext] = useState<string | null>(null);
@@ -339,9 +322,16 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
         }
     };
 
+    const scrollToBottom = useCallback((smooth = true) => {
+        messagesEndRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'end' });
+    }, []);
+
     useEffect(() => {
-        if (isPartnerTyping) scrollToBottom(true);
-    }, [isPartnerTyping]);
+        if (isPartnerTyping) {
+            // Usamos un timeout pequeño para asegurar que el scroll ocurra después del render del indicador
+            setTimeout(() => scrollToBottom(true), 100);
+        }
+    }, [isPartnerTyping, scrollToBottom]);
 
     useEffect(() => {
         let isMounted = true;
@@ -389,14 +379,19 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
         return () => { isMounted = false; unsubscribe(); };
     }, [chatId, db]);
 
-    const scrollToBottom = useCallback((smooth = true) => {
-        setTimeout(() => {
-            messagesEndRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'end' });
-        }, 50);
-    }, []);
+    useLayoutEffect(() => {
+        if (messages.length > 0) {
+            if (isInitialLoad.current) {
+                scrollToBottom(false); // Scroll instantáneo en la carga inicial
+                isInitialLoad.current = false;
+            } else {
+                scrollToBottom(true); // Scroll suave para nuevos mensajes
+            }
+        }
+    }, [messages, scrollToBottom]);
 
     useEffect(() => {
-        scrollToBottom(false);
+        // Marcado como leído
         const myChatInfoRef = doc(db, 'user_chats', currentUser.id, 'chats', chatId);
         updateDoc(myChatInfoRef, { unreadCount: 0 }).catch(() => {});
     }, [messages.length, chatId, currentUser.id, db]);
@@ -449,45 +444,73 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
     };
     
     const handleSendToChatbot = async (text: string) => {
-        // 1. Send user message and display it
-        await sendUserMessage('text', text);
-    
-        // 2. Create a "Thinking..." placeholder message
-        const thinkingMsgRef = doc(collection(db, 'chats', chatId, 'messages'));
-        await setDoc(thinkingMsgRef, {
-            senderId: partner.id,
-            timestamp: serverTimestamp(),
-            read: false,
-            type: 'text',
-            text: 'Pensando...',
-            encrypted: false,
-        });
-    
-        try {
-            // 3. Prepare conversation history
-            const conversationHistory = messages
-                .slice(-6) // Get last 6 messages for context
-                .map(msg => {
-                    const sender = msg.senderId === currentUser.id ? 'Usuario' : 'SOPORTE';
-                    return `${sender}: "${msg.text}"`;
-                })
-                .join('\n');
+        const urlRegex = /(https?:\/\/[^\s]+)/;
+        const urlMatch = text.match(urlRegex);
 
-            // 4. Trigger the GenAI extension with augmented prompt
-            const generateCollectionRef = collection(db, 'generate');
-            
-            const finalPrompt = projectContext 
-                ? `
+        let finalPrompt = '';
+        let thinkingText = 'Pensando...';
+        
+        if (urlMatch) {
+            const url = urlMatch[0];
+            thinkingText = 'Analizando enlace...';
+
+            if (url.includes('youtube.com') || url.includes('youtu.be')) {
+                finalPrompt = `**ANÁLISIS DE VIDEO MUSICAL:**
+                Actúa como un experto musicólogo. El usuario ha compartido el siguiente enlace de YouTube: ${url}.
+                Usa tu herramienta de búsqueda para encontrar información sobre este video (título, artista, contexto).
+                Luego, proporciona un análisis musical detallado basado en la información que encuentres en la web.
+                - Si es una canción, describe su estilo, instrumentación y sentimiento.
+                - Si es un tutorial, resume los puntos y técnicas clave que se enseñan.
+                - Si es una presentación en vivo, describe la energía y la puesta en escena.`;
+            } else if (url.includes('lacuerda.net') || url.includes('cifraclub') || url.includes('ultimate-guitar')) {
+                try {
+                    const songData = await importFromLaCuerda(url);
+                    finalPrompt = `**ANÁLISIS DE CANCIÓN WEB:**
+                    Actúa como un profesor de teoría musical. He extraído la siguiente canción de una página web:
+                    **Título:** ${songData.title}
+                    **Contenido (letra y acordes):**
+                    ${songData.content}
+                    
+                    Por favor, realiza un análisis completo:
+                    1.  **Estructura:** Identifica las partes de la canción (ej. Estrofa, Estribillo, Puente).
+                    2.  **Progresión Armónica:** Describe la progresión de acordes principal. Si puedes, usa números romanos (ej. I-V-vi-IV).
+                    3.  **Sentimiento y Estilo:** Explica qué ambiente o emoción crean los acordes y el ritmo.
+                    4.  **Sugerencia Creativa:** Propón una idea para re-interpretar la canción en un estilo diferente (ej. "Esta balada podría sonar genial como una cumbia lenta...").`;
+                } catch (error: any) {
+                    finalPrompt = `El usuario intentó compartir un enlace de una página de acordes, pero falló la importación: ${error.message}. Informa al usuario del error y pregúntale si puede copiar y pegar la letra y acordes directamente.`;
+                }
+            } else {
+                finalPrompt = `**ANÁLISIS DE PÁGINA WEB:**
+                El usuario ha compartido el siguiente enlace: ${url}.
+                Usa tu herramienta de búsqueda para acceder y analizar el contenido de esta página.
+                Proporciona un resumen conciso y claro de los puntos más importantes que encuentres.`;
+            }
+
+        } else {
+            // Lógica existente para preguntas generales
+            const conversationHistory = messages.slice(-6).map(msg => `${msg.senderId === currentUser.id ? 'Usuario' : 'SOPORTE'}: "${msg.text}"`).join('\n');
+            let greetingInstruction = 'Ve directo a la respuesta sin un saludo inicial.';
+            const lastMessage = messages.length > 1 ? messages[messages.length - 2] : null;
+
+            if (!lastMessage) {
+                greetingInstruction = `Inicia la conversación saludando amigablemente a ${currentUser.username}. Por ejemplo: "¡Hola, ${currentUser.username}! Soy tu asistente."`;
+            } else if (lastMessage.timestamp?.toDate) {
+                const hoursSince = (new Date().getTime() - lastMessage.timestamp.toDate().getTime()) / (1000 * 60 * 60);
+                if (hoursSince > 3) {
+                    greetingInstruction = `Ha pasado un tiempo. Saluda amigablemente a ${currentUser.username} antes de responder. Por ejemplo: "¡Hola de nuevo, ${currentUser.username}!"`;
+                }
+            }
+
+            finalPrompt = `
 **ROL Y OBJETIVO:**
 Actúa como "SOPORTE y ASISTENTE CREATIVO". Tu objetivo es ayudar al usuario con la app "ADJStudios" y también colaborar en la creación musical.
 
 **INSTRUCCIONES CLAVE:**
-- **Rol Dual:** Eres tanto un soporte técnico como un **asistente creativo musical**. Si el usuario pregunta sobre la app, responde desde el contexto. Si pide ayuda para crear música, utiliza la guía de composición y géneros para colaborar.
+- **SALUDO CONTEXTUAL:** ${greetingInstruction}
+- **NUEVAS CAPACIDADES:** Ahora puedes analizar enlaces de YouTube para obtener información musical y analizar páginas web con acordes. Menciona esta capacidad si es relevante.
+- **Rol Dual:** Eres tanto un soporte técnico como un **asistente creativo musical**.
 - **Fuentes de Verdad:** Tu única fuente de verdad es el 'CONTEXTO' (documentación) y el 'HISTORIAL' de la conversación. No inventes funcionalidades ni uses conocimiento externo.
-- **Sé Proactivo y Colaborativo:** No esperes a que el usuario te dé toda la información. Haz preguntas para guiarlo, como '¿Qué sentimiento quieres transmitir?' o '¿Tienes alguna idea para empezar?'. Ofrece ejemplos cortos de letras o acordes.
-- **Conversación Natural:** Sé amigable. Puedes usar el nombre del usuario, "${currentUser.username}", para personalizar, pero evita ser repetitivo.
-- **Utiliza el Contexto Musical:** Basa tus sugerencias de acordes, letras y estructura en la 'Guía de Composición' y la sección de 'Géneros Musicales' del contexto. Adapta las progresiones de acordes (ej. I-V-vi-IV) al género y sentimiento que el usuario pida.
-- **Modifica y Refina:** Si el usuario te da una letra, puedes sugerir mejoras. Si te da acordes, puedes proponer variaciones. Puedes reescribir y ajustar el contenido que te den.
+- **Conversación Natural:** Sé amigable, pero evita ser repetitivo.
 
 --- HISTORIAL DE LA CONVERSACIÓN RECIENTE ---
 ${conversationHistory}
@@ -498,66 +521,58 @@ ${projectContext}
 --- FIN DEL CONTEXTO ---
 
 **PREGUNTA DEL USUARIO:**
-"${text}"
-`
-                : `Estás hablando con ${currentUser.username}. Responde a su pregunta: "${text}"`;
-
+"${text}"`;
+        }
+        
+        // --- Ejecución ---
+        await sendUserMessage('text', text);
+    
+        const thinkingMsgRef = doc(collection(db, 'chats', chatId, 'messages'));
+        await setDoc(thinkingMsgRef, {
+            senderId: partner.id,
+            timestamp: serverTimestamp(),
+            read: false,
+            type: 'text',
+            text: thinkingText,
+            encrypted: false,
+        });
+    
+        try {
+            const generateCollectionRef = collection(db, 'generate');
             const newDocRef = await addDoc(generateCollectionRef, {
                 userId: currentUser.id,
                 prompt: finalPrompt,
                 createTime: serverTimestamp(),
             });
     
-            // 5. Listen for the response
             const unsubscribe = onSnapshot(doc(db, 'generate', newDocRef.id), 
                 async (snap) => {
                     const data = snap.data();
                     if (!data) return;
-
                     const responseText = data.response || data.output;
                     const statusState = data.status?.state;
 
                     if (statusState === 'COMPLETED' || statusState === 'ERRORED') {
                         unsubscribe(); 
-
                         if (statusState === 'COMPLETED' && responseText) {
                             const encryptedResponse = await SecureMessenger.encrypt(responseText, chatId);
-                            await updateDoc(thinkingMsgRef, {
-                                text: encryptedResponse,
-                                encrypted: true,
-                                timestamp: serverTimestamp(),
-                            });
-                            
+                            await updateDoc(thinkingMsgRef, { text: encryptedResponse, encrypted: true, timestamp: serverTimestamp() });
                             const myChatInfoRef = doc(db, 'user_chats', currentUser.id, 'chats', chatId);
-                            await setDoc(myChatInfoRef, {
-                                lastMessageText: '🔒 Texto cifrado',
-                                lastMessageTimestamp: serverTimestamp(),
-                                lastMessageSenderId: partner.id,
-                            }, { merge: true });
-
+                            await setDoc(myChatInfoRef, { lastMessageText: '🔒 Texto cifrado', lastMessageTimestamp: serverTimestamp(), lastMessageSenderId: partner.id }, { merge: true });
                         } else {
-                            await updateDoc(thinkingMsgRef, {
-                                text: data.status?.error || 'El asistente encontró un error.',
-                                encrypted: false,
-                            });
+                            await updateDoc(thinkingMsgRef, { text: data.status?.error || 'El asistente encontró un error.', encrypted: false });
                         }
                     }
                 },
                 (error) => {
                     console.error("Error listening to chatbot response:", error);
                     unsubscribe();
-                    updateDoc(thinkingMsgRef, {
-                        text: 'Error al leer la respuesta del bot.',
-                        encrypted: false,
-                    });
+                    updateDoc(thinkingMsgRef, { text: 'Error al leer la respuesta del bot.', encrypted: false });
                 }
             );
         } catch (error) {
             console.error("Failed to trigger GenAI extension:", error);
-            await updateDoc(thinkingMsgRef, {
-                text: 'Error al contactar al bot.',
-                encrypted: false,
-            });
+            await updateDoc(thinkingMsgRef, { text: 'Error al contactar al bot.', encrypted: false });
         }
     };
 
@@ -582,7 +597,6 @@ ${projectContext}
         setMessages(prev => [...prev, optimisticMessage]);
         setInputContent('');
         setReplyingTo(null);
-        scrollToBottom(true);
         
         try {
             await writeMessageToFirestore(currentUser.id, partner.id, { ...messageData, type, text: text || '', encrypted: type === 'text' }, newMsgRef);

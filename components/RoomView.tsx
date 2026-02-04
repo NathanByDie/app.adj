@@ -361,6 +361,7 @@ const RoomView: React.FC<RoomViewProps> = ({
   const lastSyncedHostSongId = useRef<string | null>(null);
 
   const transferHost = (username: string) => {
+    triggerHapticFeedback('error');
     setConfirmModal({
         title: 'Transferir Anfitrión',
         message: `¿Estás seguro de que quieres hacer a ${username} el nuevo anfitrión? Perderás tus privilegios de anfitrión.`,
@@ -633,8 +634,17 @@ const RoomView: React.FC<RoomViewProps> = ({
     });
   };
   
-  const removeSongFromTemp = (songId: string) => {
-    setTempRepertoire(prev => prev.filter(id => id !== songId));
+  const removeSongFromTemp = (song: Song) => {
+    triggerHapticFeedback('error');
+    setConfirmModal({
+        title: "Quitar del Repertorio",
+        message: `¿Estás seguro de que quieres quitar "${song.title}" del repertorio de esta sala?`,
+        action: () => {
+            setTempRepertoire(prev => prev.filter(id => id !== song.id));
+            setConfirmModal(null);
+        },
+        type: 'warning',
+    });
   };
   
   const handleDragStart = (index: number) => {
@@ -838,6 +848,7 @@ const RoomView: React.FC<RoomViewProps> = ({
   };
   
   const handleDeleteRequest = (song: Song) => {
+    triggerHapticFeedback('error');
     setConfirmModal({
         title: "Eliminar Música",
         message: `¿Estás seguro de que quieres eliminar "${song.title}"? Esta acción es permanente.`,
@@ -948,7 +959,7 @@ const RoomView: React.FC<RoomViewProps> = ({
                                             <p className="text-xs font-bold truncate">{song.title}</p>
                                         </div>
                                     </div>
-                                    <button onClick={() => removeSongFromTemp(songId)} className="p-1 text-red-500 active:scale-90"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"/></svg></button>
+                                    <button onClick={() => removeSongFromTemp(song)} className="p-1 text-red-500 active:scale-90"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"/></svg></button>
                                     {dropIndicator?.index === index && dropIndicator.position === 'after' && <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-misionero-azul"></div>}
                                 </div>
                             )
