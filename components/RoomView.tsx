@@ -1100,7 +1100,7 @@ const RoomView: React.FC<RoomViewProps> = ({
                 onDelete={canModify ? () => handleDeleteRequest(selectedSong) : undefined}
             />
         )}
-        {showParticipants && <ParticipantsPanel room={room} onlineParticipants={onlineParticipants} currentUser={currentUser} participantDetails={participantDetails} canModify={canModify} kickUser={kickUser} banUser={banUser} onClose={handleCloseSubView} onViewProfile={onViewProfile} darkMode={darkMode} transferHost={transferHost} />}
+        {showParticipants && <ParticipantsPanel room={room} onlineParticipants={onlineParticipants} currentUser={currentUser} participantDetails={participantDetails} canModify={isTheHost} kickUser={kickUser} banUser={banUser} onClose={handleCloseSubView} onViewProfile={onViewProfile} darkMode={darkMode} transferHost={transferHost} />}
         {isChatOpen && <ChatPanel messages={liveChat} currentUser={currentUser} onClose={handleCloseSubView} chatMessage={chatMessage} setChatMessage={setChatMessage} handleSendChatMessage={handleSendChatMessage} chatScrollRef={chatScrollRef} chatInputRef={chatInputRef} replyingTo={replyingTo} setReplyingTo={setReplyingTo} darkMode={darkMode} typingUsers={typingUsers} updateTypingStatus={updateTypingStatus} />}
         {/* FIX: Pass setAddSongFilter as the setFilter prop */}
         {isAddSongDrawerOpen && <AddSongDrawer allSongs={songsNotInRepertoire} onToggle={toggleSongInTemp} selectedIds={tempRepertoire} onClose={() => setIsAddSongDrawerOpen(false)} filter={addSongFilter} setFilter={setAddSongFilter} categories={categories} darkMode={darkMode} />}
