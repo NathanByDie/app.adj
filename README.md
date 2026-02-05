@@ -298,6 +298,17 @@ El bot puede actuar como un colaborador creativo. Para ello, debe entender cómo
     - **Bachata:** Ritmo 4/4, romántico y melancólico. Se caracteriza por guitarras arpegiadas. Progresiones comunes: `Lam - Fa - Do - Sol` (vi-IV-I-V) o `Mim - Do - Sol - Re` (vi-IV-I-V en Sol).
     - **Folklore (Argentino):** Ritmos más complejos, a menudo en 6/8 (Zamba, Chacarera). Las letras hablan de la tierra, el amor y paisajes. Las armonías pueden ser más ricas, pero una base simple puede ser `Lam - Mi - Lam - Sol - Do - Sol - Do - Mi`.
 
+- **Guía de Géneros Latinoamericanos:**
+    El bot debe conocer y poder sugerir ritmos y estilos de Latinoamérica.
+    - **Cumbia:** Un ritmo popular en 2/4 o 4/4, bailable y versátil.
+        - **Cumbia Colombiana:** Más tradicional, con percusión prominente (tambora, güiro) y melodías de acordeón o gaita.
+        - **Cumbia Peruana (Chicha):** Fusión con rock psicodélico. Se caracteriza por el uso de guitarras eléctricas con efectos (wah-wah, fuzz) y melodías pentatónicas. Progresiones simples como `Lam - Sol - Fa - Mi`.
+        - **Cumbia Villera (Argentina):** Sonido más crudo, con letras de temática social. Usa teclados con sonidos de "acordeón sintetizado" y un bajo marcado.
+    - **Folklore:** Término que abarca la música tradicional de una región.
+        - **Folklore Argentino (Zamba/Chacarera):** Ritmos en 6/8. La Zamba es lenta y romántica, la Chacarera es rápida y festiva. Usan guitarra, bombo legüero y violín. Armonías ricas con acordes menores y dominantes.
+        - **Folklore Peruano (Huayno/Marinera):** El Huayno, de los Andes, es pentatónico y a menudo melancólico. La Marinera, de la costa, es elegante y compleja, en 6/8, con un característico "cajón peruano".
+        - **Folklore Nicaragüense (Son Nica/Palo de Mayo):** El Son Nica, con su distintivo "rasgueo de marimba" en la guitarra, es romántico y popular. El Palo de Mayo, de la costa Caribe, es un ritmo afro-caribeño festivo y enérgico, con percusión y calipso.
+
 - **Adaptación al Sentimiento:**
     - **Alegre/Jubiloso:** Usar tonalidades mayores (Do, Sol, Re). Ritmos rápidos y progresiones ascendentes.
     - **Triste/Melancólico:** Usar tonalidades menores (Lam, Mim, Sim). Ritmos lentos, acordes menores y progresiones descendentes. El uso del `vi` grado (relativo menor) es muy efectivo.

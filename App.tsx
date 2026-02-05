@@ -1083,7 +1083,7 @@ const App = () => {
   }, [songs, openSongViewer]);
 
 
-  // Authentication and Presence Effect
+  // Authentication and User State Effect
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
         if (firebaseUser) {
@@ -1109,29 +1109,59 @@ const App = () => {
                 await setDoc(userRef, appUser);
                 setUser(appUser);
             }
-            const rtdbRef = ref(rtdb, `.info/connected`);
-            onValue(rtdbRef, (snap) => {
-                if (snap.val() === true) {
-                    const con = ref(rtdb, `status/${firebaseUser.uid}`);
-                    onDisconnect(con).set({ state: 'offline', last_changed: serverTimestamp() });
-                    set(con, { state: 'online', last_changed: serverTimestamp() });
-
-                    // Robust Room Presence Management
-                    if (currentRoom) {
-                       const roomPresenceRef = ref(rtdb, `rooms/${currentRoom.id}/participants/${appUser.username}`);
-                       onDisconnect(roomPresenceRef).remove();
-                       set(roomPresenceRef, true);
-                    }
-                }
-            });
         } else {
+            // LOGOUT: Reset all session-related state to prevent data leakage
             setUser(null);
             setFavorites([]);
+            setView('feed');
+            setCurrentRoom(null);
+            if (roomSubscription.current) {
+                roomSubscription.current();
+                roomSubscription.current = null;
+            }
+            setViewerSong(null);
+            setEditorSong(null);
+            setIsSongEditorOpen(false);
+            setDirectMessagePartner(null);
+            setProfileUserId(null);
+            setUserChats([]);
+            setSearchQuery('');
+            setActiveFilter('Todos');
         }
         setAuthLoading(false);
     });
     return () => unsubscribe();
-  }, [currentRoom]); // Re-run when currentRoom changes to set correct onDisconnect
+  }, []); // Empty dependency array ensures this only runs once and correctly handles cleanup.
+
+  // Presence Management Effect (separated for clarity and correctness)
+  useEffect(() => {
+      if (!user) return;
+
+      let onConnectedValue: any;
+      const rtdbRef = ref(rtdb, `.info/connected`);
+      
+      onConnectedValue = onValue(rtdbRef, (snap) => {
+          if (snap.val() !== true) return;
+
+          // General online status
+          const con = ref(rtdb, `status/${user.id}`);
+          onDisconnect(con).set({ state: 'offline', last_changed: serverTimestamp() });
+          set(con, { state: 'online', last_changed: serverTimestamp() });
+
+          // Room-specific presence
+          if (currentRoom) {
+             const roomPresenceRef = ref(rtdb, `rooms/${currentRoom.id}/participants/${user.username}`);
+             onDisconnect(roomPresenceRef).remove();
+             set(roomPresenceRef, true);
+          }
+      });
+
+      return () => {
+          if (onConnectedValue) onConnectedValue(); // Detach listener
+          const con = ref(rtdb, `status/${user.id}`);
+          removeRtdb(con);
+      };
+  }, [user, currentRoom, rtdb]);
 
   // Theme Effect
   useEffect(() => {
@@ -1446,16 +1476,34 @@ const App = () => {
                   }}
                   adminUsers={adminUsers}
                   handleAddAdmin={async (email: string) => {
-                      const q = query(collection(db, 'users'), where('email', '==', email));
-                      const snap = await getDocs(q);
-                      if (!snap.empty) {
-                          await updateDoc(doc(db, 'users', snap.docs[0].id), { role: 'admin' });
-                      } else {
-                          alert("Usuario no encontrado");
+                      const trimmedEmail = email.trim();
+                      if (!trimmedEmail) {
+                          alert("Por favor, introduce un correo electrónico.");
+                          return;
+                      }
+                      try {
+                          const q = query(collection(db, 'users'), where('email', '==', trimmedEmail));
+                          const snap = await getDocs(q);
+                          if (!snap.empty) {
+                              const userDoc = snap.docs[0];
+                              await updateDoc(doc(db, 'users', userDoc.id), { role: 'admin' });
+                              alert(`${userDoc.data().username} ahora es administrador.`);
+                          } else {
+                              alert("Usuario no encontrado.");
+                          }
+                      } catch (error) {
+                          console.error("Error al añadir admin:", error);
+                          alert("Ocurrió un error al añadir el administrador. Revisa los permisos o si falta un índice de Firestore en la consola.");
                       }
                   }}
                   handleRevokeAdmin={async (admin: AppUser) => {
-                      await updateDoc(doc(db, 'users', admin.id), { role: 'member' });
+                      try {
+                          await updateDoc(doc(db, 'users', admin.id), { role: 'member' });
+                          alert(`${admin.username} ya no es administrador.`);
+                      } catch (error) {
+                          console.error("Error al revocar admin:", error);
+                          alert("Ocurrió un error al revocar los permisos de administrador. Revisa los permisos en la consola de Firebase.");
+                      }
                   }}
                   handleSignOut={() => signOut(auth)}
                   openSongEditor={(song: Song | null) => {
@@ -1586,6 +1634,7 @@ const App = () => {
 
           {directMessagePartner && (
               <DirectMessageView 
+                  key={`${user.id}_${directMessagePartner.id}`}
                   currentUser={user}
                   partner={directMessagePartner}
                   onBack={goBack}
@@ -1597,6 +1646,13 @@ const App = () => {
                       goBack(); // Close DM view
                       navigateTo('room');
                       await handleJoinRoom(code);
+                  }}
+                  songs={songs}
+                  onOpenSong={(songId: string) => {
+                      const songToOpen = songs.find(s => s.id === songId);
+                      if (songToOpen) {
+                          openSongViewer(songToOpen);
+                      }
                   }}
               />
           )}

@@ -1,6 +1,6 @@
 // FIX: Removed extraneous content from another file that was mistakenly pasted at the end of this file. This resolves multiple duplicate import errors.
 import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
-import { User as AppUser, DirectMessage } from '../types';
+import { User as AppUser, DirectMessage, Song } from '../types';
 import { Firestore, collection, query, orderBy, onSnapshot, serverTimestamp, writeBatch, doc, setDoc, increment, updateDoc, getDoc, runTransaction, arrayUnion, arrayRemove, DocumentReference, addDoc } from 'firebase/firestore';
 import { FirebaseStorage, ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { ref as refRtdb, onValue as onValueRtdb, set as setRtdb, remove as removeRtdb, onDisconnect } from 'firebase/database';
@@ -80,6 +80,8 @@ interface DirectMessageViewProps {
     partnerStatus: { state: 'online' } | { state: 'offline', last_changed: number } | undefined;
     onViewProfile: (userId: string) => void;
     onJoinRoom: (code: string) => void;
+    songs: Song[];
+    onOpenSong: (songId: string) => void;
 }
 
 const generateChatId = (uid1: string, uid2: string): string => [uid1, uid2].sort().join('_');
@@ -108,8 +110,10 @@ const SwipeableDirectMessage: React.FC<{
     onViewImage: (url: string) => void,
     onViewVideo: (url: string) => void,
     onImageLoad?: () => void,
-    onJoinRoom: (code: string) => void
-}> = ({ msg, currentUser, partner, darkMode, onReply, onLongPress, onViewImage, onViewVideo, onImageLoad, onJoinRoom }) => {
+    onJoinRoom: (code: string) => void,
+    onOpenSong: (songId: string) => void,
+    songs: Song[]
+}> = ({ msg, currentUser, partner, darkMode, onReply, onLongPress, onViewImage, onViewVideo, onImageLoad, onJoinRoom, onOpenSong, songs }) => {
     const isMe = msg.senderId === currentUser.id;
     const [translateX, setTranslateX] = useState(0);
     const touchStartCoords = useRef<{x: number, y: number} | null>(null);
@@ -200,13 +204,33 @@ const SwipeableDirectMessage: React.FC<{
             );
             case 'audio': return <CustomAudioPlayer src={cachedMediaUrl || msg.mediaUrl || ''} darkMode={darkMode} isSender={isMe} />;
             case 'file': return <div className="flex items-center gap-2"><p className="font-bold">{msg.fileName}</p><span className="text-xs opacity-70">{formatFileSize(msg.fileSize || 0)}</span></div>
-            default: return (
-                <div className={`prose prose-sm dark:prose-invert prose-p:mb-2 prose-ul:my-2 prose-li:mb-1 prose-strong:font-black ${isMe ? 'prose-strong:text-white' : ''}`}>
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {msg.text || ''}
-                    </ReactMarkdown>
-                </div>
-            );
+            default:
+                const songRegex = /\[VIEW_SONG\]\s*\{?([a-zA-Z0-9]+)\}?/;
+                const songMatch = msg.text?.match(songRegex);
+                const textToShow = msg.text?.replace(songRegex, '').trim();
+                const songId = songMatch ? songMatch[1] : null;
+                const song = songId ? songs.find(s => s.id === songId) : null;
+
+                return (
+                    <div>
+                        <div className={`prose prose-sm dark:prose-invert prose-p:mb-2 prose-ul:my-2 prose-li:mb-1 prose-strong:font-black ${isMe ? 'prose-strong:text-white' : ''}`}>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {textToShow || ''}
+                            </ReactMarkdown>
+                        </div>
+                        {song && (
+                             <div className={`mt-2 rounded-lg overflow-hidden border ${darkMode ? 'border-slate-700' : 'border-slate-200'}`}>
+                                <div className="p-3">
+                                    <p className="font-black text-sm">{song.title}</p>
+                                    <p className="text-xs opacity-80">{song.author}</p>
+                                </div>
+                                <button onClick={() => onOpenSong(song.id)} className={`w-full text-center py-3 font-bold text-sm ${isMe ? 'bg-white/10 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>
+                                    Abrir Canción
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                );
         }
     };
 
@@ -249,7 +273,7 @@ const SwipeableDirectMessage: React.FC<{
     );
 };
 
-const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, partner, onBack, db, rtdb, storage, darkMode, partnerStatus, onViewProfile, onJoinRoom }) => {
+const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, partner, onBack, db, rtdb, storage, darkMode, partnerStatus, onViewProfile, onJoinRoom, songs, onOpenSong }) => {
     const [messages, setMessages] = useState<DirectMessage[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const chatId = useMemo(() => generateChatId(currentUser.id, partner.id), [currentUser.id, partner.id]);
@@ -275,7 +299,8 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
 
     // --- Chatbot State ---
     const [projectContext, setProjectContext] = useState<string | null>(null);
-    const isChatbot = partner.email === CHATBOT_EMAIL;
+    const [isBotThinking, setIsBotThinking] = useState(false);
+    const isChatbot = partner.email === CHATBOT_EMAIL || partner.username === "SOPORTE";
 
     // Efecto para cargar el contexto del proyecto (README) para el chatbot
     useEffect(() => {
@@ -334,6 +359,7 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
     }, [isPartnerTyping, scrollToBottom]);
 
     useEffect(() => {
+        setMessages([]); // Limpiar mensajes anteriores al cambiar de chat
         let isMounted = true;
         getMessagesFromCache(chatId).then(async (cachedMessages) => {
             if (isMounted && cachedMessages.length > 0) {
@@ -444,6 +470,7 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
     };
     
     const handleSendToChatbot = async (text: string) => {
+        setIsBotThinking(true);
         const urlRegex = /(https?:\/\/[^\s]+)/;
         const urlMatch = text.match(urlRegex);
 
@@ -487,19 +514,28 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
             }
 
         } else {
-            // Lógica existente para preguntas generales
-            const conversationHistory = messages.slice(-6).map(msg => `${msg.senderId === currentUser.id ? 'Usuario' : 'SOPORTE'}: "${msg.text}"`).join('\n');
-            let greetingInstruction = 'Ve directo a la respuesta sin un saludo inicial.';
-            const lastMessage = messages.length > 1 ? messages[messages.length - 2] : null;
+             const songListContext = songs.length > 0 
+                ? songs.map(s => `ID: ${s.id}, Título: "${s.title}", Autor: "${s.author}", Contenido:\n${s.content}`).join('\n\n')
+                : "El repertorio de la aplicación está actualmente vacío.";
 
-            if (!lastMessage) {
-                greetingInstruction = `Inicia la conversación saludando amigablemente a ${currentUser.username}. Por ejemplo: "¡Hola, ${currentUser.username}! Soy tu asistente."`;
-            } else if (lastMessage.timestamp?.toDate) {
-                const hoursSince = (new Date().getTime() - lastMessage.timestamp.toDate().getTime()) / (1000 * 60 * 60);
-                if (hoursSince > 3) {
-                    greetingInstruction = `Ha pasado un tiempo. Saluda amigablemente a ${currentUser.username} antes de responder. Por ejemplo: "¡Hola de nuevo, ${currentUser.username}!"`;
+
+            const conversationHistory = messages.slice(-6).map(msg => `${msg.senderId === currentUser.id ? currentUser.username : 'SOPORTE'}: "${msg.text}"`).join('\n');
+            
+            let greetingInstruction = 'Ve directo a la respuesta sin un saludo inicial.';
+            const hasPreviousBotMessages = messages.some(m => m.senderId === partner.id);
+
+            if (!hasPreviousBotMessages) {
+                greetingInstruction = `Esta es la primera interacción. El nombre del usuario con el que hablas es "${currentUser.username}". Salúdalo amigablemente por su nombre.`;
+            } else {
+                const lastBotMessage = [...messages].reverse().find(m => m.senderId === partner.id);
+                if (lastBotMessage?.timestamp?.toDate) {
+                    const hoursSince = (new Date().getTime() - lastBotMessage.timestamp.toDate().getTime()) / (1000 * 60 * 60);
+                    if (hoursSince > 3) {
+                        greetingInstruction = `Ha pasado un tiempo desde la última conversación. Vuelve a saludar al usuario por su nombre, "${currentUser.username}", antes de responder.`;
+                    }
                 }
             }
+
 
             finalPrompt = `
 **ROL Y OBJETIVO:**
@@ -507,14 +543,21 @@ Actúa como "SOPORTE y ASISTENTE CREATIVO". Tu objetivo es ayudar al usuario con
 
 **INSTRUCCIONES CLAVE:**
 - **SALUDO CONTEXTUAL:** ${greetingInstruction}
-- **NUEVAS CAPACIDADES:** Ahora puedes analizar enlaces de YouTube para obtener información musical y analizar páginas web con acordes. Menciona esta capacidad si es relevante.
+- **BÚSQUEDA EXTERNA:** Si la pregunta no puede ser respondida con el CONTEXTO o el HISTORIAL, utiliza tus capacidades de búsqueda en Google o YouTube para encontrar la información más relevante.
+- **MANEJO DEL REPERTORIO:**
+    - Si el usuario pide los acordes o la letra de una canción específica (ej. "dame los acordes de..."), encuentra la canción en el 'REPERTORIO' y responde **ÚNICAMENTE con el contenido de la canción**, formateado en Markdown.
+    - Si el usuario pide ver, abrir o pregunta algo más general sobre una canción (ej. "quiero ver...", "háblame de..."), encuentra la canción en el 'REPERTORIO' y responde con un mensaje corto de confirmación y, en una nueva línea, el comando especial: \`[VIEW_SONG]{song_id}\`. Es vital que uses el ID exacto de la canción del repertorio.
 - **Rol Dual:** Eres tanto un soporte técnico como un **asistente creativo musical**.
-- **Fuentes de Verdad:** Tu única fuente de verdad es el 'CONTEXTO' (documentación) y el 'HISTORIAL' de la conversación. No inventes funcionalidades ni uses conocimiento externo.
+- **Fuentes de Verdad:** Tus fuentes de verdad son el 'CONTEXTO' (documentación), el 'REPERTORIO' y el 'HISTORIAL'. No inventes funcionalidades.
 - **Conversación Natural:** Sé amigable, pero evita ser repetitivo.
 
 --- HISTORIAL DE LA CONVERSACIÓN RECIENTE ---
 ${conversationHistory}
 --- FIN DEL HISTORIAL ---
+
+--- REPERTORIO DE CANCIONES ACTUAL ---
+${songListContext}
+--- FIN DEL REPERTORIO ---
 
 --- CONTEXTO DEL PROYECTO Y GUÍA MUSICAL ---
 ${projectContext}
@@ -554,6 +597,7 @@ ${projectContext}
 
                     if (statusState === 'COMPLETED' || statusState === 'ERRORED') {
                         unsubscribe(); 
+                        setIsBotThinking(false);
                         if (statusState === 'COMPLETED' && responseText) {
                             const encryptedResponse = await SecureMessenger.encrypt(responseText, chatId);
                             await updateDoc(thinkingMsgRef, { text: encryptedResponse, encrypted: true, timestamp: serverTimestamp() });
@@ -565,13 +609,15 @@ ${projectContext}
                     }
                 },
                 (error) => {
-                    console.error("Error listening to chatbot response:", error);
+                    console.error("Error al escuchar la respuesta del chatbot:", error);
                     unsubscribe();
-                    updateDoc(thinkingMsgRef, { text: 'Error al leer la respuesta del bot.', encrypted: false });
+                    setIsBotThinking(false);
+                    updateDoc(thinkingMsgRef, { text: 'Error al leer la respuesta del bot. Revisa los permisos de lectura en la colección "generate".', encrypted: false });
                 }
             );
         } catch (error) {
             console.error("Failed to trigger GenAI extension:", error);
+            setIsBotThinking(false);
             await updateDoc(thinkingMsgRef, { text: 'Error al contactar al bot.', encrypted: false });
         }
     };
@@ -607,6 +653,7 @@ ${projectContext}
     };
     
     const handleSendMessage = (type: DirectMessage['type'], text?: string, mediaUrl?: string, mediaType?: string, fileName?: string, fileSize?: number) => {
+        if (isBotThinking) return;
         if (isChatbot && type === 'text' && text) {
             handleSendToChatbot(text);
         } else {
@@ -770,7 +817,7 @@ ${projectContext}
             
             <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4 custom-scroll">
                 {isLoading ? <div className="flex justify-center items-center h-full"><div className="w-6 h-6 border-2 border-misionero-azul/30 border-t-misionero-azul rounded-full animate-spin"></div></div> : messages.map(msg => (
-                    <SwipeableDirectMessage key={msg.id} msg={msg} currentUser={currentUser} partner={partner} darkMode={darkMode} onReply={setReplyingTo} onLongPress={(msg, target) => setSelectedMessageForAction({ msg, position: target.getBoundingClientRect() })} onViewImage={setViewingImageUrl} onViewVideo={setViewingVideoUrl} onImageLoad={scrollToBottom} onJoinRoom={onJoinRoom} />
+                    <SwipeableDirectMessage key={msg.id} msg={msg} currentUser={currentUser} partner={partner} darkMode={darkMode} onReply={setReplyingTo} onLongPress={(msg, target) => setSelectedMessageForAction({ msg, position: target.getBoundingClientRect() })} onViewImage={setViewingImageUrl} onViewVideo={setViewingVideoUrl} onImageLoad={scrollToBottom} onJoinRoom={onJoinRoom} onOpenSong={onOpenSong} songs={songs} />
                 ))}
                 
                 <div ref={messagesEndRef} />
@@ -778,7 +825,7 @@ ${projectContext}
 
             <div className={`p-3 border-t shrink-0 ${darkMode ? 'border-slate-800 bg-black' : 'border-slate-100 bg-slate-50'} pb-[calc(0.75rem+env(safe-area-inset-bottom))]`}>
                 {replyingTo && <div className={`flex items-center justify-between px-4 py-2 mb-2 rounded-xl text-xs font-medium border-l-4 border-misionero-azul ${darkMode ? 'bg-slate-900 text-slate-300' : 'bg-slate-50 text-slate-600'}`}><div className="min-w-0"><span className="text-[8px] font-black uppercase text-misionero-azul">Respondiendo a {replyingTo.senderId === currentUser.id ? "ti mismo" : partner.username}</span><p className="truncate">{replyingTo.text}</p></div><button onClick={() => setReplyingTo(null)} className="p-1"><XIcon/></button></div>}
-                <div className="flex gap-2 items-end">
+                <div className={`flex gap-2 items-end transition-opacity ${isBotThinking ? 'opacity-50 cursor-not-allowed' : ''}`}>
                     {isRecording ? (
                         <>
                             <div className="flex-1 flex items-center justify-between rounded-2xl px-4 py-3 bg-red-500/10 text-red-500 animate-pulse"><div className="flex items-center gap-2"><div className="w-2.5 h-2.5 bg-red-500 rounded-full"></div><span className="font-bold text-sm">Grabando...</span></div><span className="font-mono text-sm">{Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}</span></div>
@@ -787,10 +834,10 @@ ${projectContext}
                         </>
                     ) : (
                         <>
-                            {!isChatbot && <button className={`p-3 rounded-full active:scale-90 transition-colors ${darkMode ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100'}`} onClick={() => fileInputRef.current?.click()}><PlusIcon/></button>}
+                            {!isChatbot && <button disabled={isBotThinking} className={`p-3 rounded-full active:scale-90 transition-colors ${darkMode ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100'}`} onClick={() => fileInputRef.current?.click()}><PlusIcon/></button>}
                             <input type="file" ref={fileInputRef} hidden onChange={handleFileSelect} accept="image/*,audio/*,video/*,.pdf,.doc,.docx" />
-                            <textarea value={inputContent} onChange={e => { setInputContent(e.target.value); updateTypingStatus(true); }} placeholder="Escribe un mensaje..." className={`flex-1 min-w-0 rounded-2xl px-4 py-3 text-sm font-bold outline-none border transition-all resize-none max-h-32 ${darkMode ? 'bg-black border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`} rows={1} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (inputContent.trim()) handleSendMessage('text', inputContent); } }} />
-                            {inputContent ? (<button onClick={() => {if (inputContent.trim()) handleSendMessage('text', inputContent)}} className="bg-misionero-verde text-white font-black w-12 h-12 rounded-2xl shadow-md active:scale-95 transition-transform flex items-center justify-center shrink-0"><SendIcon/></button>) : (!isChatbot && <button onClick={startRecording} className="p-3.5 rounded-full bg-misionero-rojo text-white shadow-md active:scale-95"><MicIcon/></button>)}
+                            <textarea disabled={isBotThinking} value={inputContent} onChange={e => { setInputContent(e.target.value); updateTypingStatus(true); }} placeholder={isBotThinking ? "Esperando respuesta..." : "Escribe un mensaje..."} className={`flex-1 min-w-0 rounded-2xl px-4 py-3 text-sm font-bold outline-none border transition-all resize-none max-h-32 ${darkMode ? 'bg-black border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`} rows={1} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (inputContent.trim()) handleSendMessage('text', inputContent); } }} />
+                            {inputContent ? (<button disabled={isBotThinking} onClick={() => {if (inputContent.trim()) handleSendMessage('text', inputContent)}} className="bg-misionero-verde text-white font-black w-12 h-12 rounded-2xl shadow-md active:scale-95 transition-transform flex items-center justify-center shrink-0"><SendIcon/></button>) : (!isChatbot && <button disabled={isBotThinking} onClick={startRecording} className="p-3.5 rounded-full bg-misionero-rojo text-white shadow-md active:scale-95"><MicIcon/></button>)}
                         </>
                     )}
                 </div>
