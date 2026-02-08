@@ -1,3 +1,23 @@
+<script type="importmap">
+{
+  "imports": {
+    "@capacitor/app": "https://esm.sh/@capacitor/app@^8.0.0",
+    "react": "https://esm.sh/react@^18.2.0",
+    "react/": "https://esm.sh/react@^18.2.0/",
+    "@capacitor/core": "https://esm.sh/@capacitor/core@^8.0.2",
+    "react-markdown": "https://esm.sh/react-markdown@^10.1.0",
+    "firebase/": "https://esm.sh/firebase@^12.9.0/",
+    "@capacitor/haptics": "https://esm.sh/@capacitor/haptics@^8.0.0",
+    "react-dom/": "https://esm.sh/react-dom@^18.2.0/",
+    "remark-gfm": "https://esm.sh/remark-gfm@^4.0.1",
+    "idb": "https://esm.sh/idb@^8.0.3",
+    "@capacitor/cli": "https://esm.sh/@capacitor/cli@^8.0.2",
+    "@capacitor/push-notifications": "https://esm.sh/@capacitor/push-notifications@^8.0.0",
+    "@google/genai": "https://esm.sh/@google/genai@^1.40.0"
+  }
+}
+</script>
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -14,6 +34,7 @@
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script>
       const theme = localStorage.getItem('theme') || 'system';
@@ -162,203 +183,51 @@
         }
 
         .login-text-shadow {
-          text-shadow: 0px 2px 4px rgba(0, 0, 0, 0.5);
+          text-shadow: 0px 2px 8px rgba(0, 0, 0, 0.3);
         }
 
-        /* View transition animations */
-        @keyframes view-fade-in { from { opacity: 0; } to { opacity: 1; } }
-        .animate-view-fade-in { animation: view-fade-in 0.3s ease-out; }
-
-        @keyframes slide-in-from-right { from { transform: translateX(30%); opacity: 0.5; } to { transform: translateX(0); opacity: 1; } }
-        @keyframes slide-in-from-left { from { transform: translateX(-30%); opacity: 0.5; } to { transform: translateX(0); opacity: 1; } }
-        .animate-slide-in-from-right { animation: slide-in-from-right 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
-        .animate-slide-in-from-left { animation: slide-in-from-left 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
-
-
-        /* Liquid Glass UI */
         .glass-ui {
-            position: relative;
-            background: rgba(255, 255, 255, 0.3);
-            -webkit-backdrop-filter: blur(10px);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
-            overflow: hidden;
-            transition: background-color 0.4s, border-color 0.4s;
+          background-color: rgba(255, 255, 255, 0.7);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          border: 1px solid rgba(255, 255, 255, 0.2);
         }
-
         .dark .glass-ui {
-            background: rgba(41, 51, 78, 0.3);
-            border-color: rgba(255, 255, 255, 0.1);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.35);
+          background-color: rgba(20, 20, 20, 0.7);
+          border: 1px solid rgba(255, 255, 255, 0.08);
         }
+        .glass-interactive:active {
+          transform: scale(0.96);
+          transition: transform 0.1s;
+        }
+        .no-pull { overscroll-behavior: contain; }
 
-        .glass-ui::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.2);
-            pointer-events: none;
-            border-radius: inherit;
-        }
+        @keyframes view-fade-in { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slide-in-from-right { from { transform: translateX(30px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes slide-in-from-left { from { transform: translateX(-30px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        .animate-view-fade-in { animation: view-fade-in 0.3s ease-out; }
+        .animate-slide-in-from-right { animation: slide-in-from-right 0.3s cubic-bezier(0.25, 1, 0.5, 1); }
+        .animate-slide-in-from-left { animation: slide-in-from-left 0.3s cubic-bezier(0.25, 1, 0.5, 1); }
         
-        .dark .glass-ui::before {
-            box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.05);
-        }
+        .neon-yellow { text-shadow: 0 0 4px #facc15, 0 0 8px #facc15, 0 0 12px #facc15; }
+        .neon-blue { text-shadow: 0 0 4px #3b82f6, 0 0 8px #3b82f6, 0 0 12px #3b82f6; }
 
-        .glass-ui::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 120%;
-            height: 120%;
-            background: linear-gradient(
-                to right,
-                rgba(255, 255, 255, 0) 0%,
-                rgba(255, 255, 255, 0.25) 50%,
-                rgba(255, 255, 255, 0) 100%
-            );
-            opacity: 0;
-            filter: blur(20px);
-            transform: translateX(-150%) translateY(-50%) rotate(35deg);
-            transition: transform 1s ease-out, opacity 0.5s;
-            pointer-events: none;
-        }
-
-        .glass-interactive:hover::after, .glass-interactive:focus-within::after {
-            opacity: 0.5;
-            transform: translateX(50%) translateY(-50%) rotate(35deg);
-        }
-        
-        .dark .glass-interactive:hover::after, .dark .glass-interactive:focus-within::after {
-          opacity: 0.2;
-        }
-        
-        /* Glass Toggle */
-        .glass-toggle {
-            position: relative;
-            width: 56px;
-            height: 28px;
-            border-radius: 9999px;
-            cursor: pointer;
-            transition: background-color 0.4s ease;
-        }
-        .glass-toggle-thumb {
-            position: absolute;
-            top: 2px;
-            left: 2px;
-            width: 24px;
-            height: 24px;
-            background-color: white;
-            border-radius: 50%;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .glass-toggle[data-checked='true'] .glass-toggle-thumb {
-            transform: translateX(28px);
-        }
-        .glass-toggle-fill {
-            position: absolute;
-            inset: 0;
-            border-radius: 9999px;
-            overflow: hidden;
-        }
-        .glass-toggle-fill-inner {
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, #22c55e, #84cc16);
-            transform: scaleX(0);
-            transform-origin: left;
-            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .glass-toggle[data-checked='true'] .glass-toggle-fill-inner {
-            transform: scaleX(1);
-        }
-        
-        /* NEON CHORDS - SOFTER */
-        .neon-blue {
-            text-shadow: 0 0 2px rgba(59, 130, 246, 0.4), 0 0 8px rgba(59, 130, 246, 0.2);
-        }
-        
-        .neon-yellow {
-             text-shadow: 0 0 2px rgba(250, 204, 21, 0.5), 0 0 8px rgba(250, 204, 21, 0.2);
-        }
-        
-        /* LIVE REACTIONS */
-        @keyframes float-up {
-            from {
-                transform: translateY(0);
-                opacity: 1;
-            }
-            to {
-                transform: translateY(-200px);
-                opacity: 0;
-            }
-        }
-        .animate-float-up {
-            animation: float-up 3s ease-out forwards;
-        }
-
-        /* TYPING INDICATOR */
-        @keyframes wave-typing {
-            0%, 60%, 100% { transform: translateY(0); }
-            30% { transform: translateY(-6px); }
-        }
         .typing-dot {
             width: 6px;
             height: 6px;
             background-color: currentColor;
             border-radius: 50%;
-            animation: wave-typing 1.2s ease-in-out infinite;
+            animation: typing-bounce 1.2s infinite ease-in-out;
         }
 
-        /* HIGHLIGHT FOR REPLY NAVIGATION */
-        @keyframes highlight-flash {
-          0% { background-color: rgba(59, 130, 246, 0.3); }
-          100% { background-color: transparent; }
+        @keyframes typing-bounce {
+            0%, 60%, 100% { transform: translateY(0); }
+            30% { transform: translateY(-4px); }
         }
-        .animate-highlight-flash {
-          animation: highlight-flash 1.5s ease-out;
-        }
-
     </style>
-    <script>
-      let lastTouchY = 0;
-      document.addEventListener('touchstart', (e) => {
-        lastTouchY = e.touches[0].clientY;
-      }, { passive: false });
-
-      document.addEventListener('touchmove', (e) => {
-        const touchY = e.touches[0].clientY;
-        const touchDirection = touchY > lastTouchY ? 'down' : 'up';
-        if (window.scrollY === 0 && touchDirection === 'down') {}
-        lastTouchY = touchY;
-      }, { passive: true });
-    </script>
-<script type="importmap">
-{
-  "imports": {
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "react": "https://esm.sh/react@^19.2.3",
-    "firebase/": "https://esm.sh/firebase@^12.8.0/",
-    "idb": "https://esm.sh/idb@8",
-    "@google/genai": "https://esm.sh/@google/genai",
-    "@capacitor/app": "https://esm.sh/@capacitor/app@^6.0.0",
-    "@capacitor/cli": "https://esm.sh/@capacitor/cli@^6.0.0",
-    "@capacitor/core": "https://esm.sh/@capacitor/core@^6.0.0",
-    "@capacitor/push-notifications": "https://esm.sh/@capacitor/push-notifications@^6.0.0",
-    "react-markdown": "https://esm.sh/react-markdown@9",
-    "remark-gfm": "https://esm.sh/remark-gfm@4"
-  }
-}
-</script>
 </head>
 <body>
     <div id="root"></div>
+    <script type="module" src="./index.tsx"></script>
 </body>
 </html>

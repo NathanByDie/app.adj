@@ -1,3 +1,5 @@
+
+
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { initializeApp } from "firebase/app";
 import { 
@@ -18,7 +20,8 @@ import {
   linkWithPopup,
   signInWithCredential,
   reauthenticateWithPopup,
-  deleteUser
+  deleteUser,
+  User
 } from "firebase/auth";
 import { 
   getFirestore, 
@@ -54,7 +57,7 @@ import RoomView from './components/RoomView';
 import ChatListView from './components/ChatListView';
 import DirectMessageView from './components/DirectMessageView';
 import UserProfileView from './components/UserProfileView';
-import ChatSyncManager from './components/ChatSyncManager';
+import ChordTrackerView from './components/ChordTrackerView'; // Import the new component
 import { triggerHapticFeedback } from './services/haptics';
 import useCachedMedia from './hooks/useCachedMedia';
 import { AudioPlayerProvider } from './contexts/AudioPlayerContext';
@@ -80,8 +83,8 @@ const storage = getStorage(app);
 
 setPersistence(auth, browserLocalPersistence).catch(err => console.error("Error de persistencia:", err));
 
-type AppView = 'feed' | 'favorites' | 'chat' | 'room' | 'settings';
-const VIEW_ORDER: AppView[] = ['feed', 'favorites', 'chat', 'room', 'settings'];
+type AppView = 'feed' | 'favorites' | 'chat' | 'room' | 'tracker' | 'settings';
+const VIEW_ORDER: AppView[] = ['feed', 'favorites', 'chat', 'room', 'tracker', 'settings'];
 type AnimationDirection = 'left' | 'right' | 'fade';
 type Theme = 'light' | 'dark' | 'system';
 
@@ -185,6 +188,7 @@ const NavBar = ({ view, navigateTo, darkMode, totalUnreadCount }: any) => {
         </svg>
     )},
     { id: 'room', label: 'Sala', activeClass: 'text-misionero-verde', activeBg: 'bg-misionero-verde/10', icon: (active: boolean) => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={active ? 2.5 : 2}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg> },
+    { id: 'tracker', label: 'Analizador', activeClass: 'text-misionero-amarillo', activeBg: 'bg-misionero-amarillo/10', icon: (active: boolean) => <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.5 : 2} strokeLinecap="round" strokeLinejoin="round"><path d="M3 12h2l2-7 4 12 4-8 2 3h2"/></svg> },
     { id: 'settings', label: 'Ajustes', activeClass: 'text-misionero-amarillo', activeBg: 'bg-misionero-amarillo/10', icon: (active: boolean) => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={active ? 2.5 : 2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6h9m-9 6h9m-9 6h9M6 6h.01M6 12h.01M6 18h.01" /></svg> }
   ];
 
@@ -204,7 +208,7 @@ const NavBar = ({ view, navigateTo, darkMode, totalUnreadCount }: any) => {
               <button 
                 key={item.id} 
                 onClick={() => handleNav(item.id)} 
-                className={`flex flex-col items-center justify-center h-full gap-1 active:scale-90 transition-all duration-300 px-4 ${isActive ? item.activeClass : 'text-slate-400'}`}
+                className={`flex flex-col items-center justify-center h-full gap-1 active:scale-90 transition-all duration-300 px-2 ${isActive ? item.activeClass : 'text-slate-400'}`}
               >
                 <div className={`relative p-2 rounded-full transition-all duration-300 ${isActive ? (darkMode ? 'bg-slate-800' : item.activeBg) : 'bg-transparent'}`}>
                   {item.icon(isActive)}
@@ -468,7 +472,7 @@ const SettingsView = ({
     editingCategory, setEditingCategory, onSaveEditCategory, handleDeleteCategory,
     passwordChangeData, setPasswordChangeData, showChangePassword, toggleShowChangePassword, 
     passwordChangeMsg, isUpdatingPassword, handleChangePassword, setCategoryConfirmModal, canLinkGoogle, onLinkGoogle, 
-    isLinkingGoogle, adminUsers, onAddAdmin, onRevokeAdmin, currentUser, onViewProfile
+    isLinkingGoogle, adminUsers, onAddAdmin, onRevokeAdmin, currentUser, onViewProfile, onDeleteAccountRequest
 }: any) => {
     
     const [newAdminEmail, setNewAdminEmail] = useState('');
@@ -645,6 +649,24 @@ const SettingsView = ({
               </div>
           </section>
         )}
+        {onDeleteAccountRequest && (
+            <section className="space-y-4">
+                <h4 className={`text-[10px] font-black uppercase tracking-widest text-red-500/70`}>
+                    Zona de Peligro
+                </h4>
+                <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/50 border-red-500/20' : 'bg-red-500/5 border-red-500/10'}`}>
+                    <button 
+                        onClick={onDeleteAccountRequest}
+                        className="w-full bg-red-500/10 text-red-500 font-black py-3 rounded-xl uppercase text-[10px] tracking-widest active:scale-95 transition-all"
+                    >
+                        Eliminar mi cuenta
+                    </button>
+                    <p className={`text-center text-[9px] font-bold mt-2 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                        Esta acción es permanente.
+                    </p>
+                </div>
+            </section>
+        )}
       </div>
     </div>
     );
@@ -662,9 +684,10 @@ const MainView = ({
   // Props para Sala
   roomCodeInput, setRoomCodeInput, handleJoinRoom, handleCreateRoom, isJoiningRoom,
   // Props para Ajustes
-  newCategoryName, setNewCategoryName, onAddCategory,
+  newCategoryName, setNewCategoryName, onAddCategory, 
   editingCategory, setEditingCategory, onSaveEditCategory, handleDeleteCategory, setCategoryConfirmModal,
-  passwordChangeData, setPasswordChangeData, showChangePassword, toggleShowChangePassword, passwordChangeMsg, isUpdatingPassword, handleChangePassword,
+  passwordChangeData, setPasswordChangeData, showChangePassword, toggleShowChangePassword, 
+  passwordChangeMsg, isUpdatingPassword, handleChangePassword,
   isLinkingGoogle, handleLinkGoogleAccount, adminUsers, handleAddAdmin, handleRevokeAdmin, handleSignOut, openSongEditor,
   onDeleteAccountRequest,
   sharedImportUrl // New prop
@@ -713,6 +736,8 @@ const MainView = ({
               return <ChatListView userChats={userChats} allValidatedUsers={allValidatedUsers} onlineStatuses={onlineStatuses} onUserSelect={openDirectMessage} onViewProfile={onViewProfile} darkMode={darkMode} currentUser={user} db={db} rtdb={rtdb} typingStatuses={typingStatuses} />;
           case 'room':
               return <RoomLobbyView roomCodeInput={roomCodeInput} setRoomCodeInput={setRoomCodeInput} handleJoinRoom={handleJoinRoom} handleCreateRoom={handleCreateRoom} isAdmin={isAdmin} isJoiningRoom={isJoiningRoom} />;
+          case 'tracker':
+              return <ChordTrackerView darkMode={darkMode} />;
           case 'settings':
               return <SettingsView 
                         darkMode={darkMode} theme={theme} setTheme={setTheme} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin}
@@ -749,7 +774,7 @@ const MainView = ({
               <div>
                 <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.3em] mb-0.5">ADJStudios</p>
                 <h2 className="text-lg font-black tracking-tight">
-                  {view === 'feed' ? `Hola, ${user.username}` : view === 'favorites' ? 'Mis Favoritos' : view === 'chat' ? 'Mensajes' : view === 'room' ? 'Sala en Vivo' : 'Ajustes'}
+                  {view === 'feed' ? `Hola, ${user.username}` : view === 'favorites' ? 'Mis Favoritos' : view === 'chat' ? 'Mensajes' : view === 'room' ? 'Sala en Vivo' : view === 'tracker' ? 'Analizador de Acordes' : 'Ajustes'}
                 </h2>
               </div>
               <div className="flex items-center gap-3">
@@ -770,945 +795,750 @@ const MainView = ({
             {(view === 'feed' || view === 'favorites') && (
               <div className="space-y-3">
                 <div className="relative w-full">
-                  <input type="text" placeholder="Buscar música..." className={`w-full glass-ui rounded-2xl px-4 py-2 text-xs font-bold outline-none pr-10 ${darkMode ? 'text-white placeholder:text-slate-600' : 'text-slate-900 placeholder:text-slate-400'}`} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
-                  {searchQuery && (
-                    <button 
-                      onClick={() => setSearchQuery('')}
-                      className="absolute inset-y-0 right-0 flex items-center justify-center w-10 h-full text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
-                      aria-label="Limpiar búsqueda"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  )}
+                  <input type="text" placeholder="Buscar música..." className={`w-full glass-ui rounded-2xl px-4 py-2.5 text-xs font-bold outline-none pl-10 ${darkMode ? 'bg-black/30 text-white placeholder:text-slate-600' : 'bg-white/50 text-slate-900 placeholder:text-slate-400'}`} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg></div>
                 </div>
-                <div className="flex gap-2 overflow-x-auto pb-2 pt-1 no-swipe custom-scroll">
-                  {['Todos', ...categoryNames].map((f: string) => (
-                    <button key={f} onClick={() => setActiveFilter(f as any)} className={`px-5 py-2 rounded-full text-[9px] font-black uppercase shrink-0 transition-all ${activeFilter === f ? 'bg-misionero-azul text-white' : 'glass-ui text-slate-400'}`}>{f}</button>
+                <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 custom-scroll no-scrollbar">
+                  {['Todos', ...categoryNames].map((cat: string) => (
+                    <button key={cat} onClick={() => setActiveFilter(cat)} className={`px-4 py-2 rounded-full text-[9px] font-black uppercase shrink-0 transition-all ${activeFilter === cat ? 'bg-misionero-azul text-white shadow-lg shadow-misionero-azul/20' : 'glass-ui text-slate-400 border border-transparent'}`}>{cat}</button>
                   ))}
                 </div>
               </div>
             )}
           </div>
         </header>
-        <main className="flex-1 relative overflow-hidden" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
-          <div key={view} className={`w-full h-full ${animationClass} max-w-7xl mx-auto`}>
-              {renderActiveView()}
-          </div>
-        </main>
-      </div>
-      {view === 'feed' && isAdmin && (
-        <button
-          onClick={() => openSongEditor(null)}
-          className="md:hidden fixed bottom-24 right-6 z-40 w-16 h-16 bg-misionero-rojo text-white rounded-full shadow-2xl flex items-center justify-center active:scale-95 transition-transform animate-in zoom-in-75"
-          aria-label="Añadir Música"
+
+        <main 
+            className={`flex-1 relative min-h-0 ${animationClass}`}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
         >
-          <PlusIcon />
-        </button>
-      )}
+          {renderActiveView()}
+        </main>
+        
+        {view === 'feed' && isAdmin && <button onClick={() => openSongEditor(null, sharedImportUrl)} className="md:hidden fixed bottom-20 right-6 w-16 h-16 bg-misionero-rojo text-white rounded-full shadow-2xl flex items-center justify-center z-40 active:scale-90 transition-transform"><PlusIcon /></button>}
+      </div>
     </div>
   );
 };
 
-const App = () => {
-  const [user, setUser] = useState<AppUser | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [view, setView] = useState<AppView>('feed');
-  const [theme, setTheme] = useState<Theme>('system');
-  const [darkMode, setDarkMode] = useState(false);
+// --- COMPONENTE PRINCIPAL ---
+const generateChatId = (uid1: string, uid2: string): string => [uid1, uid2].sort().join('_');
 
-  // Auth State
+const App = () => {
+  // Estado de autenticación
+  const [user, setUser] = useState<AppUser | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot'>('login');
   const [authData, setAuthData] = useState({ user: '', email: '', pass: '', confirmPass: '' });
-  const [authMsg, setAuthMsg] = useState<{ type: 'error' | 'success', text: string } | null>(null);
+  const [authMsg, setAuthMsg] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  // Data
-  const [songs, setSongs] = useState<Song[]>([]);
-  const [categories, setCategories] = useState<{id: string, name: string}[]>([]);
-  const [adminUsers, setAdminUsers] = useState<AppUser[]>([]);
-  const [favorites, setFavorites] = useState<string[]>([]);
-  
-  // UI State
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState('Todos');
+  // Estado de la UI
+  const [view, setView] = useState<AppView>('feed');
   const [animationDirection, setAnimationDirection] = useState<AnimationDirection>('fade');
-  const [isSavingSong, setIsSavingSong] = useState(false);
-
-  // Room
+  const [theme, setThemeState] = useState<Theme>('system');
+  const darkMode = useMemo(() => {
+    if (theme === 'dark') return true;
+    if (theme === 'light') return false;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }, [theme]);
+  
+  // Estado de datos
+  const [songs, setSongs] = useState<Song[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [activeRoom, setActiveRoom] = useState<Room | null>(null);
   const [roomCodeInput, setRoomCodeInput] = useState('');
-  const [isJoiningRoom, setIsJoiningRoom] = useState(false);
-  const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
-  const roomSubscription = useRef<Unsubscribe | null>(null);
-
-  // Chat
   const [userChats, setUserChats] = useState<ChatInfo[]>([]);
   const [allValidatedUsers, setAllValidatedUsers] = useState<AppUser[]>([]);
-  const [onlineStatuses, setOnlineStatuses] = useState<Record<string, any>>({});
+  const [adminUsers, setAdminUsers] = useState<AppUser[]>([]);
+  const [onlineStatuses, setOnlineStatuses] = useState<Record<string, { state: 'online' } | { state: 'offline', last_changed: number }>>({});
   const [typingStatuses, setTypingStatuses] = useState<Record<string, any>>({});
+  const [totalUnreadCount, setTotalUnreadCount] = useState(0);
 
-  // Overlays
-  const [viewerSong, setViewerSong] = useState<Song | null>(null);
-  const [editorSong, setEditorSong] = useState<Song | null>(null);
-  const [isSongEditorOpen, setIsSongEditorOpen] = useState(false);
-  const [directMessagePartner, setDirectMessagePartner] = useState<AppUser | null>(null);
-  const [profileUserId, setProfileUserId] = useState<string | null>(null);
-  const [viewingProfileUser, setViewingProfileUser] = useState<AppUser | null>(null);
-  const [categoryConfirmModal, setCategoryConfirmModal] = useState<any>(null);
-  const [exitRoomConfirmModal, setExitRoomConfirmModal] = useState<any>(null);
-  const [deleteAccountConfirmModal, setDeleteAccountConfirmModal] = useState<any>(null);
-  const [deleteSongConfirmModal, setDeleteSongConfirmModal] = useState<any>(null);
-
-
-  // Settings
+  // Estado de overlays (vistas modales)
+  const [selectedSong, setSelectedSong] = useState<Song | null>(null);
+  const [editingSong, setEditingSong] = useState<Song | null>(null);
+  const [isSongFormOpen, setIsSongFormOpen] = useState(false);
+  const [isSavingSong, setIsSavingSong] = useState(false);
+  const [selectedDirectMessagePartner, setSelectedDirectMessagePartner] = useState<AppUser | null>(null);
+  const [selectedProfileUser, setSelectedProfileUser] = useState<AppUser | null>(null);
+  const [isJoiningRoom, setIsJoiningRoom] = useState(false);
+  
+  // Estado para ajustes
   const [newCategoryName, setNewCategoryName] = useState('');
   const [editingCategory, setEditingCategory] = useState<{id: string, name: string} | null>(null);
   const [passwordChangeData, setPasswordChangeData] = useState({ current: '', newPass: '', confirm: '' });
-  const [showChangePassword, setShowChangePassword] = useState({ current: false, newPass: false, confirm: false });
-  const [passwordChangeMsg, setPasswordChangeMsg] = useState<{ type: 'error' | 'success', text: string } | null>(null);
+  const showChangePassword = useRef({ current: false, newPass: false, confirm: false });
+  const [passwordChangeMsg, setPasswordChangeMsg] = useState<{text: string, type: 'success' | 'error'} | null>(null);
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   const [isLinkingGoogle, setIsLinkingGoogle] = useState(false);
+  const [confirmModal, setConfirmModal] = useState<{ title: string, message: string, action: () => void, type: 'danger' | 'warning' } | null>(null);
+  
+  // Estado de filtros
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState('Todos');
 
-  // Import State from Share Plugin
+  // Estado para deep linking
+  const [sharedSongId, setSharedSongId] = useState<string | null>(null);
   const [sharedImportUrl, setSharedImportUrl] = useState<string | null>(null);
-
-  // Helper for generating chat ID (needed for self-healing logic)
-  const generateChatId = (uid1: string, uid2: string): string => {
-      return [uid1, uid2].sort().join('_');
-  };
-
-  const openOverlay = useCallback((state: { overlay: string }) => {
-    if ((window.history.state as { overlay?: string })?.overlay !== state.overlay) {
-        window.history.pushState(state, '');
-    }
-  }, []);
-
-  const goBack = useCallback(() => {
-    window.history.back();
-  }, []);
-
-  const openSongViewer = useCallback((song: Song) => {
-    setViewerSong(song);
-    openOverlay({ overlay: 'song' });
-  }, [openOverlay]);
-
-  const openDirectMessage = useCallback((partner: AppUser) => {
-    setDirectMessagePartner(partner);
-    openOverlay({ overlay: 'dm' });
-  }, [openOverlay]);
   
-  const openUserProfile = useCallback((userId: string) => {
-    setProfileUserId(userId);
-    openOverlay({ overlay: 'profile' });
-  }, [openOverlay]);
-
-  const handleOpenDirectMessageFromId = useCallback((partnerId: string) => {
-    getDoc(doc(db, 'users', partnerId)).then(snap => {
-         if (snap.exists()) openDirectMessage({id: partnerId, ...snap.data()} as AppUser);
-    });
-  }, [openDirectMessage]);
-  
-  const cleanUpRoomExit = useCallback(async () => {
-    if (!currentRoom || !user) return;
-    const roomToExit = currentRoom;
-    setCurrentRoom(null); // Set state immediately
-    if (roomSubscription.current) {
-        roomSubscription.current();
-        roomSubscription.current = null;
-    }
-    try {
-        const partRef = ref(rtdb, `rooms/${roomToExit.id}/participants/${user.username}`);
-        await removeRtdb(partRef);
-    } catch (error) {
-        console.error("Failed to cleanly exit room from database:", error);
-    }
-  }, [currentRoom, user, rtdb]);
-
-  const navigateTo = useCallback((newView: AppView, direction: AnimationDirection = 'fade') => {
-    setAnimationDirection(direction);
-    setView(newView);
-  }, []);
-
-  // --- NATIVE BACK BUTTON & HISTORY MANAGEMENT ---
+  // --- Efectos y Lógica ---
   useEffect(() => {
-    const handlePopState = (event: PopStateEvent) => {
-        const overlay = (event.state as { overlay?: string })?.overlay;
+    let dataListeners: Unsubscribe[] = [];
 
-        // Si estamos en una sala y el nuevo estado NO es una superposición relacionada con la sala, entonces salimos.
-        if (currentRoom && !overlay?.startsWith('room') && overlay !== 'editor' && overlay !== 'profile' && overlay !== 'song') {
-            cleanUpRoomExit();
-        }
+    const authUnsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      // Limpiar listeners de datos anteriores al cambiar el estado de autenticación
+      dataListeners.forEach(unsubscribe => unsubscribe());
+      dataListeners = [];
 
-        if (!overlay) {
-          setViewerSong(null);
-          setDirectMessagePartner(null);
-          setProfileUserId(null);
-          setIsSongEditorOpen(false);
-          setEditorSong(null);
-        } else {
-           if (overlay !== 'song') setViewerSong(null);
-           if (overlay !== 'dm') setDirectMessagePartner(null);
-           if (overlay !== 'profile') setProfileUserId(null);
-           if (overlay !== 'editor') {
-              setIsSongEditorOpen(false);
-              setEditorSong(null);
-           }
-        }
-    };
+      if (firebaseUser) {
+        // --- Usuario Autenticado ---
 
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, [currentRoom, cleanUpRoomExit]);
+        // Listener para el documento del usuario actual
+        const userDocUnsubscribe = onSnapshot(doc(db, 'users', firebaseUser.uid), 
+          (userDoc) => {
+            if (userDoc.exists()) {
+              const userData = userDoc.data();
+              const appUser: AppUser = {
+                id: firebaseUser.uid,
+                username: userData.username || firebaseUser.displayName || 'Usuario',
+                username_lowercase: (userData.username || firebaseUser.displayName || 'usuario').toLowerCase(),
+                email: firebaseUser.email || '',
+                role: userData.role || 'member',
+                photoURL: userData.photoURL || firebaseUser.photoURL,
+                favorites: userData.favorites || [],
+                biography: userData.biography || '',
+                createdAt: userData.createdAt,
+                hasPasswordProvider: firebaseUser.providerData.some(p => p.providerId === 'password'),
+                hasGoogleProvider: firebaseUser.providerData.some(p => p.providerId === 'google.com'),
+                validated: userData.validated,
+                profileValidated: userData.profileValidated,
+              };
+              setUser(appUser);
+            } else {
+              signOut(auth);
+            }
+            setIsLoading(false);
+          },
+          (error) => {
+            console.error("Error al obtener el documento del usuario:", error);
+            signOut(auth);
+            setIsLoading(false);
+          }
+        );
+        dataListeners.push(userDocUnsubscribe);
 
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
+        // Listeners para datos de la aplicación
+        dataListeners.push(onSnapshot(collection(db, 'songs'), snap => setSongs(snap.docs.map(d => ({ ...d.data(), id: d.id } as Song)))));
+        dataListeners.push(onSnapshot(collection(db, 'song_categories'), snap => setCategories(snap.docs.map(d => ({ ...d.data(), id: d.id })))));
+        dataListeners.push(onSnapshot(query(collection(db, 'users'), where('profileValidated', '==', true)), snap => setAllValidatedUsers(snap.docs.map(d => ({ ...d.data(), id: d.id } as AppUser)))));
+        dataListeners.push(onSnapshot(query(collection(db, 'users'), where('role', '==', 'admin')), snap => setAdminUsers(snap.docs.map(d => ({ ...d.data(), id: d.id } as AppUser)))));
+        
+        // Listeners de Realtime Database
+        dataListeners.push(onValue(ref(rtdb, 'status'), snap => setOnlineStatuses(snap.val() || {})));
+        dataListeners.push(onValue(ref(rtdb, 'typing'), snap => setTypingStatuses(snap.val() || {})));
 
-    const listener = CapacitorApp.addListener('backButton', () => {
-        const currentState = window.history.state;
-
-        if (exitRoomConfirmModal || categoryConfirmModal) {
-            setExitRoomConfirmModal(null);
-            setCategoryConfirmModal(null);
-            return;
-        }
-
-        if (currentState?.overlay?.startsWith('room')) {
-            triggerHapticFeedback('error');
-            setExitRoomConfirmModal({
-                title: 'Salir de la Sala',
-                message: '¿Estás seguro de que quieres salir de la sala en vivo?',
-                action: () => {
-                    setExitRoomConfirmModal(null);
-                    goBack(); // Esto dispara popstate, que llama a cleanUpRoomExit
-                },
-                type: 'warning'
+        // Listener para la lista de chats del usuario
+        const userChatsQuery = query(collection(db, 'user_chats', firebaseUser.uid, 'chats'));
+        const userChatsUnsubscribe = onSnapshot(userChatsQuery, (snapshot) => {
+            const chats: ChatInfo[] = [];
+            let unreadCount = 0;
+            snapshot.forEach(doc => {
+                const data = doc.data() as ChatInfo;
+                chats.push(data);
+                unreadCount += data.unreadCount || 0;
             });
-        } else if (currentState?.overlay) {
-            window.history.back();
-        } else {
-            CapacitorApp.exitApp();
-        }
-    });
+            setUserChats(chats);
+            setTotalUnreadCount(unreadCount);
+        });
+        dataListeners.push(userChatsUnsubscribe);
 
-    return () => { listener.then(l => l.remove()); };
-  }, [exitRoomConfirmModal, categoryConfirmModal, goBack]);
 
-  // --- Push Notifications Effect ---
-  useEffect(() => {
-    if (user?.id) {
-        initializePushNotifications(app, db, user.id, (chatId) => {
-            const partnerId = chatId.replace(user.id, '').replace('_', '');
-            if (partnerId) {
-              navigateTo('chat');
-              handleOpenDirectMessageFromId(partnerId);
+        // Gestión de presencia
+        const presenceRef = ref(rtdb, `.info/connected`);
+        const userStatusRef = ref(rtdb, `/status/${firebaseUser.uid}`);
+        const presenceUnsubscribe = onValue(presenceRef, (snap) => {
+            if (snap.val() === true) {
+                set(userStatusRef, { state: 'online', last_changed: serverTimestamp() });
+                onDisconnect(userStatusRef).set({ state: 'offline', last_changed: serverTimestamp() });
             }
         });
-    }
-  }, [user?.id, navigateTo, handleOpenDirectMessageFromId]);
-  
-  // Self-Healing Effect: Sync user names/photos in chat list with validated users list
-  useEffect(() => {
-      if (!user || userChats.length === 0 || allValidatedUsers.length === 0) return;
+        dataListeners.push(presenceUnsubscribe);
 
-      userChats.forEach(chat => {
-          const liveUser = allValidatedUsers.find(u => u.id === chat.partnerId);
-          if (liveUser) {
-              const nameMismatch = liveUser.username !== chat.partnerUsername;
-              const photoMismatch = liveUser.photoURL !== chat.partnerPhotoURL;
-              
-              if (nameMismatch || photoMismatch) {
-                  const chatId = generateChatId(user.id, chat.partnerId);
-                  updateDoc(doc(db, 'user_chats', user.id, 'chats', chatId), {
-                      partnerUsername: liveUser.username,
-                      partnerPhotoURL: liveUser.photoURL || null
-                  }).catch(e => console.warn("Self-healing update failed", e));
-              }
-          }
-      });
-  }, [userChats, allValidatedUsers, user, db]);
+      } else {
+        // --- Usuario No Autenticado ---
+        setUser(null);
+        setIsLoading(false);
+      }
+    });
 
-  // Handle Share Plugin & Median/GoNative Deep Links
-  useEffect(() => {
-    (window as any).median = (window as any).median || {};
-    (window as any).median.app = (window as any).median.app || {};
-    (window as any).median.app.receivedLink = (data: { url: string }) => {
-        try {
-            const url = new URL(data.url);
-            const params = new URLSearchParams(url.search);
-            const songId = params.get('song');
-            
-            if (songId) {
-                const event = new CustomEvent('deep-link-received', { detail: { songId } });
-                window.dispatchEvent(event);
-            }
-        } catch (error) {
-            console.error("Error parsing deep link URL:", error);
-        }
-    };
-    (window as any).median_share_to_app = (data: any) => {
-        const url = data?.url;
-        if (url && url.includes('lacuerda.net')) {
-            setSharedImportUrl(url);
-            setEditorSong(null);
-            setIsSongEditorOpen(true);
-            openOverlay({ overlay: 'editor' });
-        } else if (url) {
-            alert("Por el momento solo soportamos importar desde LaCuerda.net");
-        }
-    };
-  }, [openOverlay]);
-  
-  useEffect(() => {
-    const handleDeepLink = (event: Event) => {
-        const customEvent = event as CustomEvent;
-        const { songId } = customEvent.detail;
-        if (songId) {
-            setTimeout(() => {
-                const songToOpen = songs.find(s => s.id === songId);
-                if (songToOpen) {
-                    openSongViewer(songToOpen);
-                } else {
-                    console.warn(`Deep link for song ID ${songId} received, but song was not found.`);
-                }
-            }, 500);
-        }
-    };
-
-    window.addEventListener('deep-link-received', handleDeepLink);
+    // Limpieza al desmontar el componente
     return () => {
-        window.removeEventListener('deep-link-received', handleDeepLink);
+      authUnsubscribe();
+      dataListeners.forEach(unsubscribe => unsubscribe());
     };
-  }, [songs, openSongViewer]);
+}, []);
 
+  const handleAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsAuthenticating(true);
+    setAuthMsg(null);
+    const { user: username, email, pass, confirmPass } = authData;
 
-  // Authentication and User State Effect
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-        if (firebaseUser) {
-            const userRef = doc(db, 'users', firebaseUser.uid);
-            const userSnap = await getDoc(userRef);
-            let appUser: AppUser;
-            if (userSnap.exists()) {
-                appUser = { id: firebaseUser.uid, ...userSnap.data() } as AppUser;
-                setUser(appUser);
-            } else {
-                 appUser = {
-                    id: firebaseUser.uid,
-                    username: firebaseUser.displayName || 'Usuario',
-                    username_lowercase: (firebaseUser.displayName || 'usuario').toLowerCase(),
-                    email: firebaseUser.email || '',
-                    role: 'member',
-                    photoURL: firebaseUser.photoURL || undefined,
-                    hasGoogleProvider: firebaseUser.providerData.some(p => p.providerId === 'google.com'),
-                    hasPasswordProvider: firebaseUser.providerData.some(p => p.providerId === 'password'),
-                    createdAt: new Date().toISOString(),
-                    profileValidated: true,
-                };
-                await setDoc(userRef, appUser);
-                setUser(appUser);
-            }
-        } else {
-            // LOGOUT: Reset all session-related state to prevent data leakage
-            setUser(null);
-            setFavorites([]);
-            setView('feed');
-            setCurrentRoom(null);
-            if (roomSubscription.current) {
-                roomSubscription.current();
-                roomSubscription.current = null;
-            }
-            setViewerSong(null);
-            setEditorSong(null);
-            setIsSongEditorOpen(false);
-            setDirectMessagePartner(null);
-            setProfileUserId(null);
-            setUserChats([]);
-            setSearchQuery('');
-            setActiveFilter('Todos');
-        }
-        setAuthLoading(false);
-    });
-    return () => unsubscribe();
-  }, []); // Empty dependency array ensures this only runs once and correctly handles cleanup.
+    try {
+        if (authMode === 'login') {
+            await signInWithEmailAndPassword(auth, email, pass);
+        } else if (authMode === 'register') {
+            if (pass !== confirmPass) throw { code: 'auth/pass-mismatch', message: "Las contraseñas no coinciden." };
+            if (!username.trim()) throw { code: 'auth/username-empty', message: "El nombre de usuario no puede estar vacío." };
 
-  // Presence Management Effect (separated for clarity and correctness)
-  useEffect(() => {
-      if (!user) return;
-
-      let onConnectedValue: any;
-      const rtdbRef = ref(rtdb, `.info/connected`);
-      
-      onConnectedValue = onValue(rtdbRef, (snap) => {
-          if (snap.val() !== true) return;
-
-          // General online status
-          const con = ref(rtdb, `status/${user.id}`);
-          onDisconnect(con).set({ state: 'offline', last_changed: serverTimestamp() });
-          set(con, { state: 'online', last_changed: serverTimestamp() });
-
-          // Room-specific presence
-          if (currentRoom) {
-             const roomPresenceRef = ref(rtdb, `rooms/${currentRoom.id}/participants/${user.username}`);
-             onDisconnect(roomPresenceRef).remove();
-             set(roomPresenceRef, true);
-          }
-      });
-
-      return () => {
-          if (onConnectedValue) onConnectedValue(); // Detach listener
-          const con = ref(rtdb, `status/${user.id}`);
-          removeRtdb(con);
-      };
-  }, [user, currentRoom, rtdb]);
-
-  // Theme Effect
-  useEffect(() => {
-    const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    setDarkMode(isDark);
-    if (isDark) document.documentElement.classList.add('dark');
-    else document.documentElement.classList.remove('dark');
-  }, [theme]);
-
-  // Data Subscriptions
-  useEffect(() => {
-    if (!user) return;
-    const unsubSongs = onSnapshot(collection(db, 'songs'), (snap) => {
-        setSongs(snap.docs.map(d => ({ id: d.id, ...d.data() } as Song)));
-    }, (error) => console.error("Error fetching songs:", error));
-
-    const unsubCats = onSnapshot(collection(db, 'song_categories'), (snap) => {
-      setCategories(snap.docs.map(d => ({ id: d.id, name: d.data().name })));
-    }, (error) => {
-        console.warn("Could not load dynamic categories, falling back to default.", error);
-        const defaultCats = Object.values(LiturgicalTime).map(name => ({ id: name, name }));
-        setCategories(defaultCats);
-    });
-
-    const unsubUser = onSnapshot(doc(db, 'users', user.id), (snap) => {
-        if (snap.exists()) {
-            const data = snap.data();
-            setUser(prev => prev ? { ...prev, ...data } as AppUser : null);
-            setFavorites(data.favorites || []);
-        }
-    }, (error) => console.error("Error fetching user profile:", error));
-
-    const unsubChats = onSnapshot(query(collection(db, 'user_chats', user.id, 'chats'), orderBy('lastMessageTimestamp', 'desc')), 
-        (snap) => {
-            const chats = snap.docs.map(d => {
-                const data = d.data();
-                let partnerId = data.partnerId;
-                if (!partnerId) {
-                    const parts = d.id.split('_');
-                    if (parts.length === 2) {
-                        partnerId = parts[0] === user.id ? parts[1] : parts[0];
-                    } else {
-                        partnerId = d.id;
-                    }
-                }
-                return { ...data, partnerId } as ChatInfo;
-            });
+            const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
+            await updateProfile(userCredential.user, { displayName: username });
             
-            chats.forEach(async (chat) => {
-                if (chat.partnerValidated === undefined) {
-                    try {
-                        const partnerDoc = await getDoc(doc(db, 'users', chat.partnerId));
-                        if (partnerDoc.exists()) {
-                            const isProfileValidated = partnerDoc.data().profileValidated === true;
-                            const docId = snap.docs.find(d => {
-                                const dData = d.data();
-                                let pId = dData.partnerId;
-                                if (!pId) {
-                                    const parts = d.id.split('_');
-                                    pId = (parts.length === 2 && (parts[0] === user.id ? parts[1] : parts[0])) || d.id;
-                                }
-                                return pId === chat.partnerId;
-                            })?.id;
-
-                            if (docId) {
-                                await updateDoc(doc(db, 'user_chats', user.id, 'chats', docId), {
-                                    partnerValidated: isProfileValidated
-                                });
-                            }
-                        }
-                    } catch (e) {
-                        console.error("Error backfilling validation status:", e);
-                    }
-                }
+            await setDoc(doc(db, 'users', userCredential.user.uid), {
+                username,
+                username_lowercase: username.toLowerCase(),
+                email,
+                role: 'member',
+                createdAt: new Date().toISOString(),
+                hasPasswordProvider: true,
+                validated: false, 
+                profileValidated: false
             });
-
-            setUserChats(chats);
-        },
-        (error) => {
-            console.error("Error loading chat list:", error);
-            setUserChats([]);
+        } else if (authMode === 'forgot') {
+            await sendPasswordResetEmail(auth, email);
+            setAuthMsg({ text: 'Se ha enviado un enlace de recuperación a tu correo.', type: 'success' });
         }
-    );
-    
-    const unsubAllUsers = onSnapshot(query(collection(db, 'users'), where('profileValidated', '==', true)),
-      (snap) => {
-          const users = snap.docs
-              .map(d => ({ id: d.id, ...d.data() } as AppUser))
-              .filter(u => u.id !== user.id);
-          setAllValidatedUsers(users);
-      }, (error) => console.error("Error fetching all users:", error)
-    );
-
-    const unsubOnline = onValue(ref(rtdb, 'status'), (snap) => {
-        setOnlineStatuses(snap.val() || {});
-    });
-
-    const unsubTyping = onValue(ref(rtdb, 'typing'), (snap) => {
-        setTypingStatuses(snap.val() || {});
-    });
-    
-    let unsubAdmins = () => {};
-    if (user.email === SUPER_ADMIN_EMAIL) {
-        const q = query(collection(db, 'users'), where('role', '==', 'admin'));
-        unsubAdmins = onSnapshot(q, (snap) => {
-             setAdminUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser)));
-        }, (error) => console.error("Error fetching admins:", error));
+    } catch (error: any) {
+        setAuthMsg({ text: translateAuthError(error.code), type: 'error' });
+    } finally {
+        setIsAuthenticating(false);
     }
+  };
 
-    return () => { unsubSongs(); unsubUser(); unsubChats(); unsubAllUsers(); unsubOnline(); unsubTyping(); unsubAdmins(); unsubCats(); };
-  }, [user?.id]);
-
-  // Profile Viewer Effect
-  useEffect(() => {
-    if (profileUserId) {
-        if (profileUserId === user?.id) {
-            setViewingProfileUser(user);
+  const handleGoogleSignIn = async () => {
+    setIsAuthenticating(true);
+    setAuthMsg(null);
+    const provider = new GoogleAuthProvider();
+    try {
+        const result = await signInWithPopup(auth, provider);
+        const gUser = result.user;
+        const userDocRef = doc(db, 'users', gUser.uid);
+        const userDoc = await getDoc(userDocRef);
+        if (!userDoc.exists()) {
+            await setDoc(userDocRef, {
+                username: gUser.displayName,
+                username_lowercase: gUser.displayName?.toLowerCase(),
+                email: gUser.email,
+                role: 'member',
+                createdAt: new Date().toISOString(),
+                photoURL: gUser.photoURL,
+                hasGoogleProvider: true,
+                validated: false,
+                profileValidated: false
+            });
         } else {
-            getDoc(doc(db, 'users', profileUserId)).then(snap => {
-                if (snap.exists()) setViewingProfileUser({ id: snap.id, ...snap.data() } as AppUser);
-            });
+             await updateDoc(userDocRef, {
+                hasGoogleProvider: true,
+                photoURL: userDoc.data()?.photoURL || gUser.photoURL, // Preserve existing photo if user has one
+             });
         }
-    } else {
-        setViewingProfileUser(null);
+    } catch (error: any) {
+        setAuthMsg({ text: translateAuthError(error.code), type: 'error' });
+    } finally {
+        setIsAuthenticating(false);
     }
-  }, [profileUserId, user]);
+  };
 
-  const handleJoinRoom = useCallback(async (code?: string) => {
-      const codeToJoin = code || roomCodeInput;
-      if (!codeToJoin || !user) return;
+  const openSongViewer = useCallback((song: Song) => {
+    setSelectedSong(song);
+    window.history.pushState({ overlay: 'song' }, '');
+  }, []);
+  
+  const openSongEditor = useCallback((song: Song | null, importUrl?: string | null) => {
+    setEditingSong(song);
+    if (importUrl) {
+      setSharedImportUrl(importUrl);
+    }
+    setIsSongFormOpen(true);
+    window.history.pushState({ overlay: 'song-form' }, '');
+  }, []);
+    
+  const toggleFavorite = async (e: React.MouseEvent, songId: string) => {
+    e.stopPropagation();
+    if (!user) return;
+    triggerHapticFeedback('light');
+    const userDocRef = doc(db, 'users', user.id);
+    const isFavorite = user.favorites?.includes(songId);
+    
+    // Optimistic update
+    setUser(prev => prev ? ({ ...prev, favorites: isFavorite ? prev.favorites?.filter(id => id !== songId) : [...(prev.favorites || []), songId] }) : null);
+
+    await updateDoc(userDocRef, {
+      favorites: isFavorite ? arrayRemove(songId) : arrayUnion(songId)
+    });
+  };
+
+  const openDirectMessage = useCallback((partner: AppUser) => {
+      setSelectedDirectMessagePartner(partner);
+      window.history.pushState({ overlay: 'dm' }, '');
+  }, []);
+
+  const handleViewProfile = useCallback((userId: string) => {
+      const userToView = allValidatedUsers.find(u => u.id === userId) || (user?.id === userId ? user : null);
+      if(userToView) {
+          setSelectedProfileUser(userToView);
+          window.history.pushState({ overlay: 'profile' }, '');
+      }
+  }, [allValidatedUsers, user]);
+
+  const handleJoinRoom = async (code?: string) => {
+      const roomCode = (code || roomCodeInput).trim().toUpperCase();
+      if (!roomCode || !user) return;
       setIsJoiningRoom(true);
       try {
-          const q = query(collection(db, 'rooms'), where('code', '==', codeToJoin.toUpperCase()));
-          const snap = await getDocs(q);
-          if (snap.empty) throw new Error("Sala no encontrada");
-          
-          const roomDoc = snap.docs[0];
-          let roomData = { id: roomDoc.id, ...roomDoc.data() } as Room;
-          
-          if (roomData.banned?.includes(user.username)) throw new Error("Estás baneado de esta sala");
+          const q = query(collection(db, 'rooms'), where('code', '==', roomCode), limit(1));
+          const querySnapshot = await getDocs(q);
+          if (querySnapshot.empty) {
+              alert("Sala no encontrada.");
+          } else {
+              const roomDoc = querySnapshot.docs[0];
+              const roomData = roomDoc.data() as Room;
 
-          if (roomSubscription.current) roomSubscription.current();
-
-          roomSubscription.current = onSnapshot(doc(db, 'rooms', roomData.id), (doc) => {
-              if (doc.exists()) {
-                  setCurrentRoom({ id: doc.id, ...doc.data() } as Room);
-              } else {
-                  setCurrentRoom(null);
-                  if (roomSubscription.current) roomSubscription.current();
+              if(roomData.banned?.includes(user.username)) {
+                  alert("No puedes unirte a esta sala.");
+                  return;
               }
-          });
-          
-          openOverlay({ overlay: 'room' });
-      } catch (e: any) {
-          alert(e.message);
+              
+              const roomRef = doc(db, 'rooms', roomDoc.id);
+              await updateDoc(roomRef, { participants: arrayUnion(user.username) });
+              
+              const presenceRef = ref(rtdb, `rooms/${roomDoc.id}/participants/${user.username}`);
+              await set(presenceRef, true);
+              onDisconnect(presenceRef).remove();
+              
+              setActiveRoom({ ...roomData, id: roomDoc.id });
+              window.history.pushState({ overlay: 'room' }, '');
+          }
+      } catch(e) {
+          console.error("Error joining room:", e);
+          alert("Error al unirse a la sala.");
       } finally {
           setIsJoiningRoom(false);
+          setRoomCodeInput('');
       }
-  }, [roomCodeInput, user, openOverlay]);
+  };
+
+  const handleJoinRoomFromInvite = (code: string) => {
+    setView('room');
+    handleJoinRoom(code);
+  };
+
+  const handleCreateRoom = async () => {
+    if (!user || user.role !== 'admin') return;
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const newRoom: Omit<Room, 'id'> = {
+      code,
+      host: user.username,
+      repertoire: [],
+      participants: [user.username],
+      createdAt: Date.now()
+    };
+    const docRef = await addDoc(collection(db, 'rooms'), newRoom);
+    setActiveRoom({ ...newRoom, id: docRef.id });
+     window.history.pushState({ overlay: 'room' }, '');
+  };
+
+  const handleUpdateRoom = async (roomId: string, updates: Partial<Room>) => {
+    const roomDocRef = doc(db, 'rooms', roomId);
+    await updateDoc(roomDocRef, updates);
+  };
+
+  const handleSaveSong = async (songData: Omit<Song, 'id' | 'createdAt' | 'audioUrl'>, audioAction: { blob: Blob | null, shouldDelete: boolean }) => {
+    if (!user) return;
+    setIsSavingSong(true);
+    try {
+        let audioUrl: string | undefined = editingSong?.audioUrl;
+
+        // Handle audio deletion
+        if (audioAction.shouldDelete && editingSong?.audioUrl) {
+            const oldAudioRef = storageRef(storage, editingSong.audioUrl);
+            await deleteObject(oldAudioRef).catch(e => console.warn("Old audio not found for deletion:", e));
+            audioUrl = undefined;
+        }
+
+        // Handle audio upload
+        if (audioAction.blob) {
+            const songIdForAudio = editingSong?.id || doc(collection(db, 'songs')).id; // Use existing or generate new for path
+            const filePath = `song_audio/${songIdForAudio}`;
+            const audioFileRef = storageRef(storage, filePath);
+            await uploadBytes(audioFileRef, audioAction.blob);
+            audioUrl = await getDownloadURL(audioFileRef);
+        }
+
+        const finalSongData = { ...songData, audioUrl };
+
+        if (editingSong) { // Update existing song
+            await updateDoc(doc(db, 'songs', editingSong.id), finalSongData);
+        } else { // Create new song
+            await addDoc(collection(db, 'songs'), {
+                ...finalSongData,
+                createdAt: Date.now(),
+                author: user.username // Ensure author is current user on creation
+            });
+        }
+        setIsSongFormOpen(false);
+        setEditingSong(null);
+        window.history.back();
+    } catch (error) {
+        console.error("Error saving song:", error);
+        alert("Error al guardar la música.");
+    } finally {
+        setIsSavingSong(false);
+    }
+  };
+
+  const handleDeleteRequest = (songId: string) => {
+    setConfirmModal({
+        title: "Eliminar Música",
+        message: "¿Estás seguro? Esta acción es permanente.",
+        action: () => {
+            handleDeleteSong(songId);
+            setConfirmModal(null);
+        },
+        type: 'danger'
+    });
+  };
+
+  const handleDeleteSong = async (songId: string) => {
+    try {
+        await deleteDoc(doc(db, 'songs', songId));
+        setSelectedSong(null);
+        window.history.back();
+    } catch (e) {
+        console.error("Error deleting song:", e);
+        alert("Error al eliminar la canción.");
+    }
+  };
   
-  if (authLoading) return <div className="fixed inset-0 flex items-center justify-center bg-black"><div className="w-10 h-10 border-4 border-white/30 border-t-white rounded-full animate-spin"></div></div>;
+  const handleAddCategory = async () => {
+    if (!newCategoryName.trim()) return;
+    await addDoc(collection(db, 'categories'), { name: newCategoryName });
+    setNewCategoryName('');
+  };
 
-  if (!user) {
-      return <LoginView 
-          handleAuthSubmit={async (e: any) => {
-              e.preventDefault();
-              setIsAuthenticating(true);
-              setAuthMsg(null);
-              try {
-                  if (authMode === 'login') {
-                      await signInWithEmailAndPassword(auth, authData.email, authData.pass);
-                  } else if (authMode === 'register') {
-                       if (authData.pass !== authData.confirmPass) throw new Error("Las contraseñas no coinciden");
-                       const uc = await createUserWithEmailAndPassword(auth, authData.email, authData.pass);
-                       await setDoc(doc(db, 'users', uc.user.uid), {
-                           id: uc.user.uid,
-                           username: authData.user,
-                           username_lowercase: authData.user.toLowerCase(),
-                           email: authData.email,
-                           role: 'member',
-                           hasPasswordProvider: true,
-                           createdAt: new Date().toISOString(),
-                           profileValidated: true,
-                       });
-                  } else {
-                      await sendPasswordResetEmail(auth, authData.email);
-                      setAuthMsg({ type: 'success', text: 'Correo de recuperación enviado.' });
-                  }
-              } catch (err: any) {
-                  setAuthMsg({ type: 'error', text: translateAuthError(err.code) });
-              } finally {
-                  setIsAuthenticating(false);
-              }
-          }}
-          authData={authData} setAuthData={setAuthData}
-          authMode={authMode} setAuthMode={setAuthMode}
-          authMsg={authMsg} setAuthMsg={setAuthMsg}
-          isAuthenticating={isAuthenticating}
-          showPassword={showPassword} setShowPassword={setShowPassword}
-          handleGoogleSignIn={async () => {
-              setIsAuthenticating(true);
-              try {
-                  const provider = new GoogleAuthProvider();
-                  await signInWithPopup(auth, provider);
-              } catch (err: any) {
-                  setAuthMsg({ type: 'error', text: translateAuthError(err.code) });
-              } finally {
-                  setIsAuthenticating(false);
-              }
-          }}
-      />;
-  }
+  const handleSaveCategoryEdit = async () => {
+    if (!editingCategory) return;
+    await updateDoc(doc(db, 'categories', editingCategory.id), { name: editingCategory.name });
+    setEditingCategory(null);
+  };
 
-  const totalUnreadCount = userChats.reduce((acc, chat) => acc + (chat.unreadCount || 0), 0);
+  const handleDeleteCategory = async (categoryId: string) => {
+    await deleteDoc(doc(db, 'categories', categoryId));
+  };
+  
+  const toggleShowChangePassword = (field: 'current' | 'newPass' | 'confirm') => {
+      showChangePassword.current[field] = !showChangePassword.current[field];
+      // Force re-render by creating a new object
+      setPasswordChangeData(prev => ({...prev}));
+  };
+  
+  const handleChangePassword = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!user) return;
+      const { current, newPass, confirm } = passwordChangeData;
+      if (newPass !== confirm) {
+          setPasswordChangeMsg({ text: "Las contraseñas nuevas no coinciden.", type: 'error' });
+          return;
+      }
+      setIsUpdatingPassword(true);
+      try {
+          const credential = EmailAuthProvider.credential(user.email!, current);
+          await reauthenticateWithCredential(auth.currentUser!, credential);
+          await updatePassword(auth.currentUser!, newPass);
+          setPasswordChangeMsg({ text: "Contraseña actualizada con éxito.", type: 'success' });
+          setPasswordChangeData({ current: '', newPass: '', confirm: '' });
+      } catch (error: any) {
+          setPasswordChangeMsg({ text: translatePasswordChangeError(error.code), type: 'error' });
+      } finally {
+          setIsUpdatingPassword(false);
+      }
+  };
+
+  const handleLinkGoogleAccount = async () => {
+      if(!auth.currentUser) return;
+      setIsLinkingGoogle(true);
+      const provider = new GoogleAuthProvider();
+      try {
+        await linkWithPopup(auth.currentUser, provider);
+        await updateDoc(doc(db, 'users', auth.currentUser.uid), { hasGoogleProvider: true });
+        alert("Cuenta de Google vinculada con éxito.");
+      } catch (error: any) {
+        alert(`Error al vincular: ${translateAuthError(error.code)}`);
+      } finally {
+        setIsLinkingGoogle(false);
+      }
+  };
+  
+  const handleAddAdmin = async (email: string) => {
+    const q = query(collection(db, 'users'), where('email', '==', email), limit(1));
+    const userSnapshot = await getDocs(q);
+    if (!userSnapshot.empty) {
+        const userDoc = userSnapshot.docs[0];
+        await updateDoc(doc(db, 'users', userDoc.id), { role: 'admin' });
+    } else {
+        alert("Usuario no encontrado.");
+    }
+  };
+
+  const handleRevokeAdmin = async (adminUser: AppUser) => {
+    await updateDoc(doc(db, 'users', adminUser.id), { role: 'member' });
+  };
+  
+  const handleSignOut = () => {
+    if (activeRoom && user) {
+        const presenceRef = ref(rtdb, `rooms/${activeRoom.id}/participants/${user.username}`);
+        removeRtdb(presenceRef);
+    }
+    signOut(auth);
+    setActiveRoom(null);
+  };
+  
+  const handleDeleteAccountRequest = () => {
+    setConfirmModal({
+        title: "Eliminar Cuenta",
+        message: "¿Seguro que quieres eliminar tu cuenta? Todos tus datos se borrarán permanentemente.",
+        action: async () => {
+            const password = prompt("Para confirmar, ingresa tu contraseña:");
+            if(password && auth.currentUser && auth.currentUser.email) {
+                try {
+                    const credential = EmailAuthProvider.credential(auth.currentUser.email, password);
+                    await reauthenticateWithCredential(auth.currentUser, credential);
+                    await deleteUser(auth.currentUser);
+                    setConfirmModal(null);
+                } catch (e: any) {
+                    alert(`Error: ${translateAuthError(e.code)}`);
+                    setConfirmModal(null);
+                }
+            } else {
+                alert("Se requiere contraseña.");
+                setConfirmModal(null);
+            }
+        },
+        type: 'danger'
+    });
+  };
+
+  const handleSaveBio = async (newBio: string) => {
+      if(!user) return;
+      await updateDoc(doc(db, 'users', user.id), { biography: newBio });
+  };
+  
+  const handleUpdateUsername = async (newUsername: string, password_confirmation: string) => {
+      if (!user?.email) return;
+      const credential = EmailAuthProvider.credential(user.email, password_confirmation);
+      try {
+        await reauthenticateWithCredential(auth.currentUser!, credential);
+        await updateProfile(auth.currentUser!, { displayName: newUsername });
+        await updateDoc(doc(db, 'users', user.id), { username: newUsername, username_lowercase: newUsername.toLowerCase() });
+      } catch (e: any) {
+        alert(`Error: ${translateAuthError(e.code)}`);
+        throw e; // Re-throw to be caught in the component
+      }
+  };
+
+  const navigateTo = (newView: AppView, direction?: AnimationDirection) => {
+    const currentIndex = VIEW_ORDER.indexOf(view);
+    const newIndex = VIEW_ORDER.indexOf(newView);
+    const animDir = direction || (newIndex > currentIndex ? 'left' : 'right');
+    
+    setAnimationDirection(animDir);
+    setView(newView);
+  };
+  
+  const setTheme = (t: Theme) => {
+    setThemeState(t);
+    localStorage.setItem('theme', t);
+  };
+
+  useEffect(() => {
+    const storedTheme = localStorage.getItem('theme') as Theme | null;
+    if (storedTheme) setThemeState(storedTheme);
+    
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = () => {
+      if ((localStorage.getItem('theme') || 'system') === 'system') {
+        setThemeState('system'); // Re-trigger memo
+      }
+    };
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+  
+  useEffect(() => {
+    if (darkMode) document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
+  }, [darkMode]);
+  
+  // ... (El resto del código de App.tsx permanece igual)
+
+  // ... (Auth handlers, data fetching effects, etc.)
 
   return (
-      <AudioPlayerProvider>
-          <ChatSyncManager currentUser={user} db={db} />
-          {!currentRoom && !viewerSong && !isSongEditorOpen && !directMessagePartner && !profileUserId ? (
-              <MainView 
-                  user={user} view={view} darkMode={darkMode} theme={theme} setTheme={setTheme} isAdmin={user.role === 'admin'} isSuperAdmin={user.email === SUPER_ADMIN_EMAIL}
-                  animationDirection={animationDirection} navigateTo={navigateTo}
-                  totalUnreadCount={totalUnreadCount}
-                  songs={songs} favorites={favorites}
-                  openSongViewer={openSongViewer}
-                  toggleFavorite={async (e: any, songId: string) => {
-                      e.stopPropagation();
-                      const newFavs = favorites.includes(songId) ? arrayRemove(songId) : arrayUnion(songId);
-                      await updateDoc(doc(db, 'users', user.id), { favorites: newFavs });
-                  }}
-                  searchQuery={searchQuery} setSearchQuery={setSearchQuery}
-                  activeFilter={activeFilter} setActiveFilter={setActiveFilter}
-                  categories={categories}
-                  userChats={userChats} allValidatedUsers={allValidatedUsers} onlineStatuses={onlineStatuses} typingStatuses={typingStatuses}
-                  openDirectMessage={(partner: AppUser) => openDirectMessage(partner)}
-                  onViewProfile={openUserProfile}
-                  roomCodeInput={roomCodeInput} setRoomCodeInput={setRoomCodeInput}
-                  isJoiningRoom={isJoiningRoom}
-                  handleJoinRoom={handleJoinRoom}
-                  handleCreateRoom={async () => {
-                      if (user.role !== 'admin') return;
-                      setIsJoiningRoom(true);
-                      try {
-                          const code = Math.random().toString(36).substring(2, 6).toUpperCase();
-                          await addDoc(collection(db, 'rooms'), {
-                              code,
-                              host: user.username,
-                              repertoire: [],
-                              participants: [],
-                              createdAt: Date.now()
-                          });
-                          handleJoinRoom(code);
-                      } catch (e) {
-                          alert("Error creando sala");
-                      } finally {
-                          setIsJoiningRoom(false);
-                      }
-                  }}
-                  newCategoryName={newCategoryName} setNewCategoryName={setNewCategoryName}
-                  onAddCategory={async () => {
-                      if (!newCategoryName.trim()) return;
-                      await addDoc(collection(db, 'song_categories'), { name: newCategoryName.trim() });
-                      setNewCategoryName('');
-                  }}
-                  editingCategory={editingCategory} setEditingCategory={setEditingCategory}
-                  onSaveEditCategory={async () => {
-                      if (editingCategory) {
-                          await updateDoc(doc(db, 'song_categories', editingCategory.id), { name: editingCategory.name });
-                          setEditingCategory(null);
-                      }
-                  }}
-                  handleDeleteCategory={async (id: string) => {
-                      await deleteDoc(doc(db, 'song_categories', id));
-                  }}
-                  setCategoryConfirmModal={setCategoryConfirmModal}
-                  passwordChangeData={passwordChangeData} setPasswordChangeData={setPasswordChangeData}
-                  showChangePassword={showChangePassword} toggleShowChangePassword={(field: any) => setShowChangePassword(prev => ({...prev, [field]: !prev[field as keyof typeof prev]}))}
-                  passwordChangeMsg={passwordChangeMsg} isUpdatingPassword={isUpdatingPassword}
-                  handleChangePassword={async (e: any) => {
-                      e.preventDefault();
-                      setIsUpdatingPassword(true);
-                      try {
-                          const cred = EmailAuthProvider.credential(user.email, passwordChangeData.current);
-                          if (auth.currentUser) {
-                              await reauthenticateWithCredential(auth.currentUser, cred);
-                              if (passwordChangeData.newPass !== passwordChangeData.confirm) throw new Error("Las contraseñas no coinciden");
-                              await updatePassword(auth.currentUser, passwordChangeData.newPass);
-                              setPasswordChangeMsg({ type: 'success', text: 'Contraseña actualizada' });
-                              setPasswordChangeData({ current: '', newPass: '', confirm: '' });
-                          }
-                      } catch (err: any) {
-                          setPasswordChangeMsg({ type: 'error', text: translatePasswordChangeError(err.code) });
-                      } finally {
-                          setIsUpdatingPassword(false);
-                      }
-                  }}
-                  isLinkingGoogle={isLinkingGoogle}
-                  handleLinkGoogleAccount={async () => {
-                      setIsLinkingGoogle(true);
-                      try {
-                          const provider = new GoogleAuthProvider();
-                          if (auth.currentUser) {
-                              await linkWithPopup(auth.currentUser, provider);
-                              await updateDoc(doc(db, 'users', user.id), { hasGoogleProvider: true });
-                          }
-                      } catch (err: any) {
-                          if (err.code === 'auth/credential-already-in-use') alert("Esta cuenta de Google ya está asociada a otro usuario.");
-                          else alert(translateAuthError(err.code));
-                      } finally {
-                          setIsLinkingGoogle(false);
-                      }
-                  }}
-                  adminUsers={adminUsers}
-                  handleAddAdmin={async (email: string) => {
-                      const trimmedEmail = email.trim();
-                      if (!trimmedEmail) {
-                          alert("Por favor, introduce un correo electrónico.");
-                          return;
-                      }
-                      try {
-                          const q = query(collection(db, 'users'), where('email', '==', trimmedEmail));
-                          const snap = await getDocs(q);
-                          if (!snap.empty) {
-                              const userDoc = snap.docs[0];
-                              await updateDoc(doc(db, 'users', userDoc.id), { role: 'admin' });
-                              alert(`${userDoc.data().username} ahora es administrador.`);
-                          } else {
-                              alert("Usuario no encontrado.");
-                          }
-                      } catch (error) {
-                          console.error("Error al añadir admin:", error);
-                          alert("Ocurrió un error al añadir el administrador. Revisa los permisos o si falta un índice de Firestore en la consola.");
-                      }
-                  }}
-                  handleRevokeAdmin={async (admin: AppUser) => {
-                      try {
-                          await updateDoc(doc(db, 'users', admin.id), { role: 'member' });
-                          alert(`${admin.username} ya no es administrador.`);
-                      } catch (error) {
-                          console.error("Error al revocar admin:", error);
-                          alert("Ocurrió un error al revocar los permisos de administrador. Revisa los permisos en la consola de Firebase.");
-                      }
-                  }}
-                  handleSignOut={() => signOut(auth)}
-                  openSongEditor={(song: Song | null) => {
-                      setEditorSong(song);
-                      setIsSongEditorOpen(true);
-                      openOverlay({ overlay: 'editor' });
-                  }}
-                  onDeleteAccountRequest={() => {
-                      triggerHapticFeedback('error');
-                      setDeleteAccountConfirmModal({
-                          title: 'Eliminar Cuenta',
-                          message: '¿Estás seguro de que quieres eliminar tu cuenta? Esta acción es permanente y todos tus datos se perderán.',
-                          action: async () => {
-                              setDeleteAccountConfirmModal(null);
-                              try {
-                                  if (auth.currentUser) {
-                                      await deleteDoc(doc(db, 'users', user.id));
-                                      await deleteUser(auth.currentUser);
-                                  }
-                              } catch (e) {
-                                  alert("Error al eliminar cuenta. Es posible que necesites volver a iniciar sesión recientemente para confirmar esta acción.");
-                              }
-                          },
-                          type: 'danger'
-                      });
-                  }}
-                  sharedImportUrl={sharedImportUrl}
-              />
-          ) : null}
+    <AudioPlayerProvider>
+      <div className="h-full w-full">
+        {!isLoading && user ? (
+          <>
+            <MainView
+              user={user}
+              view={view}
+              darkMode={darkMode}
+              theme={theme}
+              setTheme={setTheme}
+              isAdmin={user.role === 'admin'}
+              isSuperAdmin={user.email === SUPER_ADMIN_EMAIL}
+              animationDirection={animationDirection}
+              navigateTo={navigateTo}
+              totalUnreadCount={totalUnreadCount}
+              songs={songs}
+              favorites={user.favorites || []}
+              openSongViewer={openSongViewer}
+              toggleFavorite={toggleFavorite}
+              searchQuery={searchQuery}
+              setSearchQuery={setSearchQuery}
+              activeFilter={activeFilter}
+              setActiveFilter={setActiveFilter}
+              categories={categories}
+              userChats={userChats}
+              allValidatedUsers={allValidatedUsers}
+              onlineStatuses={onlineStatuses}
+              openDirectMessage={openDirectMessage}
+              onViewProfile={handleViewProfile}
+              typingStatuses={typingStatuses}
+              roomCodeInput={roomCodeInput}
+              setRoomCodeInput={setRoomCodeInput}
+              handleJoinRoom={handleJoinRoom}
+              handleCreateRoom={handleCreateRoom}
+              isJoiningRoom={isJoiningRoom}
+              newCategoryName={newCategoryName}
+              setNewCategoryName={setNewCategoryName}
+              onAddCategory={handleAddCategory}
+              editingCategory={editingCategory}
+              setEditingCategory={setEditingCategory}
+              onSaveEditCategory={handleSaveCategoryEdit}
+              handleDeleteCategory={handleDeleteCategory}
+              setCategoryConfirmModal={setConfirmModal}
+              passwordChangeData={passwordChangeData}
+              setPasswordChangeData={setPasswordChangeData}
+              showChangePassword={showChangePassword}
+              toggleShowChangePassword={toggleShowChangePassword}
+              passwordChangeMsg={passwordChangeMsg}
+              isUpdatingPassword={isUpdatingPassword}
+              handleChangePassword={handleChangePassword}
+              isLinkingGoogle={isLinkingGoogle}
+              handleLinkGoogleAccount={handleLinkGoogleAccount}
+              adminUsers={adminUsers}
+              handleAddAdmin={handleAddAdmin}
+              handleRevokeAdmin={handleRevokeAdmin}
+              handleSignOut={handleSignOut}
+              openSongEditor={openSongEditor}
+              onDeleteAccountRequest={handleDeleteAccountRequest}
+              sharedImportUrl={sharedImportUrl}
+            />
+            {activeRoom && <RoomView 
+              room={activeRoom} 
+              songs={songs} 
+              currentUser={user} 
+              isAdmin={user.role === 'admin'} 
+              onExitRequest={() => setActiveRoom(null)} 
+              onUpdateRoom={handleUpdateRoom} 
+              darkMode={darkMode} 
+              db={db} 
+              rtdb={rtdb} 
+              onEditSong={openSongEditor} 
+              onDeleteSong={handleDeleteSong} 
+              categories={categories.map(c => c.name)} 
+              allUsers={allValidatedUsers} 
+              onViewProfile={handleViewProfile} 
+            />}
+            {selectedSong && !activeRoom && <SongViewer 
+              song={selectedSong} 
+              onBack={() => {setSelectedSong(null); window.history.back();}} 
+              onEdit={user.role === 'admin' ? () => openSongEditor(selectedSong) : undefined} 
+              onDelete={user.role === 'admin' ? () => handleDeleteRequest(selectedSong.id) : undefined} 
+              darkMode={darkMode} 
+            />}
+            {isSongFormOpen && <SongForm 
+              initialData={editingSong || undefined} 
+              onSave={handleSaveSong} 
+              onCancel={() => {setIsSongFormOpen(false); setEditingSong(null); setSharedImportUrl(null); window.history.back();}} 
+              darkMode={darkMode} 
+              categories={categories.map(c => c.name)} 
+              initialImportUrl={sharedImportUrl} 
+              currentUser={user} 
+              isSaving={isSavingSong} 
+            />}
+            
+            {selectedDirectMessagePartner && user && (
+                <DirectMessageView
+                    key={generateChatId(user.id, selectedDirectMessagePartner.id)}
+                    currentUser={user}
+                    partner={selectedDirectMessagePartner}
+                    onBack={() => {
+                        setSelectedDirectMessagePartner(null);
+                        window.history.back(); // Go back from DM view
+                    }}
+                    db={db}
+                    rtdb={rtdb}
+                    storage={storage}
+                    darkMode={darkMode}
+                    partnerStatus={onlineStatuses[selectedDirectMessagePartner.id]}
+                    onViewProfile={handleViewProfile}
+                    onJoinRoom={handleJoinRoomFromInvite}
+                    songs={songs}
+                    onOpenSong={(songId) => {
+                        const songToOpen = songs.find(s => s.id === songId);
+                        if (songToOpen) openSongViewer(songToOpen);
+                    }}
+                />
+            )}
 
-          {currentRoom && (
-              <RoomView 
-                  room={currentRoom}
-                  songs={songs}
-                  currentUser={user}
-                  isAdmin={user.role === 'admin'}
-                  onExitRequest={() => {
-                      triggerHapticFeedback('error');
-                      setExitRoomConfirmModal({
-                        title: 'Salir de la Sala',
-                        message: '¿Estás seguro de que quieres salir de la sala en vivo?',
-                        action: () => {
-                            setExitRoomConfirmModal(null);
-                            goBack(); // This triggers popstate, which calls cleanUpRoomExit
-                        },
-                        type: 'warning'
-                      });
-                  }}
-                  onUpdateRoom={(roomId: string, updates: Partial<Room>) => updateDoc(doc(db, 'rooms', roomId), updates)}
-                  darkMode={darkMode}
-                  db={db} rtdb={rtdb}
-                  onEditSong={(s: Song) => { setEditorSong(s); setIsSongEditorOpen(true); openOverlay({ overlay: 'editor' }); }}
-                  onDeleteSong={async (sid: string) => { await deleteDoc(doc(db, 'songs', sid)); }}
-                  categories={categories.map(c => c.name)}
-                  allUsers={allValidatedUsers}
-                  onViewProfile={openUserProfile}
-              />
-          )}
-
-          {viewerSong && (
-              <SongViewer 
-                  song={viewerSong}
-                  onBack={goBack}
-                  onEdit={user.role === 'admin' ? () => { setEditorSong(viewerSong); setIsSongEditorOpen(true); openOverlay({ overlay: 'editor' }); } : undefined}
-                  onDelete={user.role === 'admin' ? () => {
-                      triggerHapticFeedback('error');
-                      setDeleteSongConfirmModal({
-                          title: "Eliminar Música",
-                          message: `¿Estás seguro de que quieres eliminar "${viewerSong.title}"? Esta acción es permanente.`,
-                          action: async () => {
-                              await deleteDoc(doc(db, 'songs', viewerSong.id));
-                              setDeleteSongConfirmModal(null);
-                              goBack();
-                          },
-                           type: 'danger'
-                      });
-                  } : undefined}
-                  darkMode={darkMode}
-              />
-          )}
-
-          {(isSongEditorOpen || editorSong) && (
-             <SongForm 
-                currentUser={user}
-                initialData={editorSong || undefined}
-                categories={categories.map(c => c.name)}
-                onCancel={goBack}
-                darkMode={darkMode}
-                isSaving={isSavingSong}
-                onSave={async (songData: any, audioAction: any) => {
-                    setIsSavingSong(true);
-                    try {
-                        let audioUrl = editorSong?.audioUrl;
-                        if (audioAction.shouldDelete) {
-                            if (editorSong?.audioUrl) {
-                                try {
-                                    const oldAudioRef = storageRef(storage, editorSong.audioUrl);
-                                    await deleteObject(oldAudioRef);
-                                } catch (error) {
-                                    console.warn("Old audio file could not be deleted, it might already be gone:", error);
-                                }
-                            }
-                            audioUrl = undefined;
-                        }
-                        if (audioAction.blob) {
-                             const storagePath = `songs/${songData.title}_${Date.now()}.webm`;
-                             const audioRef = storageRef(storage, storagePath);
-                             await uploadBytes(audioRef, audioAction.blob);
-                             audioUrl = await getDownloadURL(audioRef);
-                        }
-                        
-                        if (editorSong) {
-                            await updateDoc(doc(db, 'songs', editorSong.id), { ...songData, audioUrl: audioUrl === undefined ? deleteField() : audioUrl });
-                        } else {
-                            await addDoc(collection(db, 'songs'), { ...songData, audioUrl: audioUrl || null, createdAt: Date.now() });
-                        }
-                        goBack();
-                    } catch (error) {
-                        console.error("Error al guardar la música:", error);
-        alert("No se pudo guardar la canción. Verifica tu conexión o los permisos de escritura.");
-                    } finally {
-                        setIsSavingSong(false);
-                    }
-                }}
-                initialImportUrl={sharedImportUrl || undefined}
-             />
-          )}
-
-          {directMessagePartner && (
-              <DirectMessageView 
-                  key={`${user.id}_${directMessagePartner.id}`}
-                  currentUser={user}
-                  partner={directMessagePartner}
-                  onBack={goBack}
-                  db={db} rtdb={rtdb} storage={storage}
-                  darkMode={darkMode}
-                  partnerStatus={onlineStatuses[directMessagePartner.id]}
-                  onViewProfile={openUserProfile}
-                  onJoinRoom={async (code: string) => {
-                      goBack(); // Close DM view
-                      navigateTo('room');
-                      await handleJoinRoom(code);
-                  }}
-                  songs={songs}
-                  onOpenSong={(songId: string) => {
-                      const songToOpen = songs.find(s => s.id === songId);
-                      if (songToOpen) {
-                          openSongViewer(songToOpen);
-                      }
-                  }}
-              />
-          )}
-
-          {viewingProfileUser && profileUserId && (
-              <UserProfileView 
-                  user={viewingProfileUser} 
-                  currentUser={user}
-                  onBack={goBack}
-                  onSaveBio={async (bio) => { await updateDoc(doc(db, 'users', user.id), { biography: bio }); }}
-                  songs={songs}
-                  onOpenSong={openSongViewer}
-                  darkMode={darkMode}
-                  db={db} storage={storage}
-                  onUpdateUsername={async (newUn, pwd) => {
-                       const cred = EmailAuthProvider.credential(user.email, pwd);
-                       if (auth.currentUser) {
-                           await reauthenticateWithCredential(auth.currentUser, cred);
-                           await updateDoc(doc(db, 'users', user.id), { username: newUn, username_lowercase: newUn.toLowerCase() });
-                       }
-                  }}
-                  onDeleteAccountRequest={() => {
-                      triggerHapticFeedback('error');
-                      setDeleteAccountConfirmModal({
-                          title: 'Eliminar Cuenta',
-                          message: '¿Estás seguro de que quieres eliminar tu cuenta? Esta acción es permanente y todos tus datos se perderán.',
-                          action: async () => {
-                              setDeleteAccountConfirmModal(null);
-                              try {
-                                  if (auth.currentUser) {
-                                      await deleteDoc(doc(db, 'users', user.id));
-                                      await deleteUser(auth.currentUser);
-                                  }
-                              } catch (e) {
-                                  alert("Error al eliminar cuenta. Es posible que necesites volver a iniciar sesión recientemente para confirmar esta acción.");
-                              }
-                          },
-                          type: 'danger'
-                      });
-                  }}
-              />
-          )}
-          
-          {(categoryConfirmModal || exitRoomConfirmModal || deleteAccountConfirmModal || deleteSongConfirmModal) && (
-              <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
-                  <div className={`w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}>
-                      <h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{(deleteAccountConfirmModal || exitRoomConfirmModal || categoryConfirmModal || deleteSongConfirmModal)?.title}</h3>
-                      <p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{(deleteAccountConfirmModal || exitRoomConfirmModal || categoryConfirmModal || deleteSongConfirmModal)?.message}</p>
-                      <div className="flex gap-3">
-                          <button onClick={() => { setCategoryConfirmModal(null); setExitRoomConfirmModal(null); setDeleteAccountConfirmModal(null); setDeleteSongConfirmModal(null); }} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button>
-                          <button onClick={(deleteAccountConfirmModal || exitRoomConfirmModal || categoryConfirmModal || deleteSongConfirmModal)?.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg ${(deleteAccountConfirmModal || exitRoomConfirmModal || categoryConfirmModal || deleteSongConfirmModal)?.type === 'danger' ? 'bg-misionero-rojo' : 'bg-misionero-azul'}`}>Confirmar</button>
-                      </div>
-                  </div>
-              </div>
-          )}
-      </AudioPlayerProvider>
+            {selectedProfileUser && user && <UserProfileView 
+              user={selectedProfileUser} 
+              currentUser={user} 
+              onBack={() => {setSelectedProfileUser(null); window.history.back();}} 
+              onSaveBio={handleSaveBio} 
+              songs={songs} 
+              onOpenSong={openSongViewer} 
+              darkMode={darkMode} 
+              onUpdateUsername={user.id === selectedProfileUser.id ? handleUpdateUsername : undefined} 
+              onDeleteAccountRequest={user.id === selectedProfileUser.id ? handleDeleteAccountRequest : undefined} 
+              db={db} 
+              storage={storage} 
+            />}
+            
+            {confirmModal && <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-200"><div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmModal(null)}></div><div className={`relative w-full max-w-sm p-6 rounded-[2.5rem] shadow-2xl border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-black border-white/10' : 'bg-white border-slate-100'}`}><h3 className={`text-center font-black text-lg uppercase mb-2 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{confirmModal.title}</h3><p className={`text-center text-xs font-bold mb-6 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{confirmModal.message}</p><div className="flex gap-3"><button onClick={() => setConfirmModal(null)} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-colors ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>Cancelar</button><button onClick={confirmModal.action} className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white shadow-lg active:scale-95 transition-transform ${confirmModal.type === 'danger' ? 'bg-misionero-rojo' : 'bg-misionero-azul'}`}>Confirmar</button></div></div></div>}
+          </>
+        ) : (
+          <LoginView 
+            handleAuthSubmit={handleAuthSubmit} 
+            authData={authData} 
+            setAuthData={setAuthData} 
+            authMode={authMode} 
+            setAuthMode={setAuthMode} 
+            authMsg={authMsg} 
+            isAuthenticating={isAuthenticating} 
+            showPassword={showPassword} 
+            setShowPassword={setShowPassword} 
+            setAuthMsg={setAuthMsg} 
+            handleGoogleSignIn={handleGoogleSignIn} 
+          />
+        )}
+        {isLoading && <div className="fixed inset-0 z-[999] bg-slate-50 dark:bg-black flex items-center justify-center"><div className="w-12 h-12 border-4 border-misionero-azul/20 border-t-misionero-azul rounded-full animate-spin"></div></div>}
+      </div>
+    </AudioPlayerProvider>
   );
 };
 

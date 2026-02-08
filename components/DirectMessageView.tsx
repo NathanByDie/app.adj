@@ -1,4 +1,3 @@
-// FIX: Removed extraneous content from another file that was mistakenly pasted at the end of this file. This resolves multiple duplicate import errors.
 import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
 import { User as AppUser, DirectMessage, Song } from '../types';
 import { Firestore, collection, query, orderBy, onSnapshot, serverTimestamp, writeBatch, doc, setDoc, increment, updateDoc, getDoc, runTransaction, arrayUnion, arrayRemove, DocumentReference, addDoc } from 'firebase/firestore';
@@ -15,8 +14,6 @@ import { saveMessagesToCache, getMessagesFromCache } from '../services/cache';
 import { SecureMessenger } from '../services/security';
 import { UsersIcon } from '../constants';
 import { importFromLaCuerda } from '../services/importer';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 
 // --- CONSTANTES Y CONFIGURACIÓN DEL CHATBOT ---
 const CHATBOT_EMAIL = 'nathancodnext@gmail.com';
@@ -67,6 +64,34 @@ const cleanObjectForFirestore = (obj: any) => {
     }
   });
   return newObj;
+};
+
+// Componente para renderizar enlaces
+const LinkRenderer: React.FC<{ text: string }> = ({ text }) => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = text.split(urlRegex);
+
+    return (
+        <>
+            {parts.map((part, index) => {
+                if (part.match(urlRegex)) {
+                    return (
+                        <a
+                            key={index}
+                            href={part}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-300 underline hover:text-blue-100"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {part}
+                        </a>
+                    );
+                }
+                return <span key={index}>{part}</span>;
+            })}
+        </>
+    );
 };
 
 interface DirectMessageViewProps {
@@ -153,7 +178,8 @@ const SwipeableDirectMessage: React.FC<{
         return ''; 
     };
     
-    const inviteMatch = msg.text?.match(/^\[INVITE_SALA\]([A-Z0-9]{4,8})/);
+    const textRaw = typeof msg.text === 'string' ? msg.text : '';
+    const inviteMatch = textRaw.match(/^\[INVITE_SALA\]([A-Z0-9]{4,8})/);
     
     const renderContent = () => {
         if (msg.deleted) return <p className="text-xs italic opacity-70">Mensaje eliminado</p>;
@@ -206,17 +232,15 @@ const SwipeableDirectMessage: React.FC<{
             case 'file': return <div className="flex items-center gap-2"><p className="font-bold">{msg.fileName}</p><span className="text-xs opacity-70">{formatFileSize(msg.fileSize || 0)}</span></div>
             default:
                 const songRegex = /\[VIEW_SONG\]\s*\{?([a-zA-Z0-9]+)\}?/;
-                const songMatch = msg.text?.match(songRegex);
-                const textToShow = msg.text?.replace(songRegex, '').trim();
+                const songMatch = textRaw.match(songRegex);
+                const textToShow = textRaw.replace(songRegex, '').trim();
                 const songId = songMatch ? songMatch[1] : null;
                 const song = songId ? songs.find(s => s.id === songId) : null;
 
                 return (
                     <div>
-                        <div className={`prose prose-sm dark:prose-invert prose-p:mb-2 prose-ul:my-2 prose-li:mb-1 prose-strong:font-black ${isMe ? 'prose-strong:text-white' : ''}`}>
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                {textToShow || ''}
-                            </ReactMarkdown>
+                        <div className={`whitespace-pre-wrap text-sm leading-relaxed ${isMe ? 'text-white' : (darkMode ? 'text-slate-200' : 'text-slate-800')}`}>
+                            <LinkRenderer text={textToShow || ''} />
                         </div>
                         {song && (
                              <div className={`mt-2 rounded-lg overflow-hidden border ${darkMode ? 'border-slate-700' : 'border-slate-200'}`}>
@@ -361,15 +385,32 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
     useEffect(() => {
         setMessages([]); // Limpiar mensajes anteriores al cambiar de chat
         let isMounted = true;
+        
+        const processAndSetMessages = (newMessages: DirectMessage[]) => {
+            setMessages(prev => {
+                const existingPending = prev.filter(m => m.pending);
+                const remainingPending = existingPending.filter(pm => !newMessages.some(rm => rm.id === pm.id));
+                return [...newMessages, ...remainingPending];
+            });
+        };
+
+        const sanitizeAndDecrypt = async (messagesToProcess: DirectMessage[]): Promise<DirectMessage[]> => {
+            return await Promise.all(messagesToProcess.map(async (m) => {
+                let text: any = m.text;
+                if (m.encrypted && typeof text === 'string') {
+                    text = await SecureMessenger.decrypt(text, chatId);
+                }
+                if (typeof text !== 'string') {
+                    text = '';
+                }
+                return { ...m, text };
+            }));
+        };
+        
         getMessagesFromCache(chatId).then(async (cachedMessages) => {
             if (isMounted && cachedMessages.length > 0) {
-                const decrypted = await Promise.all(cachedMessages.map(async (m) => {
-                    if (m.encrypted && m.text) {
-                        return { ...m, text: await SecureMessenger.decrypt(m.text, chatId) };
-                    }
-                    return m;
-                }));
-                setMessages(decrypted);
+                const processed = await sanitizeAndDecrypt(cachedMessages);
+                setMessages(processed);
                 setIsLoading(false);
             }
         });
@@ -378,19 +419,9 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
         const unsubscribe = onSnapshot(q, 
             async (snap) => {
                 if (isMounted) {
-                    const processedMessages = await Promise.all(snap.docs.map(async (d) => {
-                        const data = d.data() as DirectMessage;
-                        let text = data.text;
-                        if (data.encrypted && text) {
-                            text = await SecureMessenger.decrypt(text, chatId);
-                        }
-                        return { id: d.id, ...data, text };
-                    }));
-                    setMessages(prev => {
-                        const existingPending = prev.filter(m => m.pending);
-                        const remainingPending = existingPending.filter(pm => !processedMessages.some(rm => rm.id === pm.id));
-                        return [...processedMessages, ...remainingPending];
-                    });
+                    const firestoreMessages = snap.docs.map(d => ({ id: d.id, ...d.data() } as DirectMessage));
+                    const processedMessages = await sanitizeAndDecrypt(firestoreMessages);
+                    processAndSetMessages(processedMessages);
                     setIsLoading(false);
                     if (processedMessages.length > 0) {
                         saveMessagesToCache(chatId, processedMessages);
@@ -402,8 +433,10 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
                 if (isMounted) setIsLoading(false);
             }
         );
+
         return () => { isMounted = false; unsubscribe(); };
     }, [chatId, db]);
+
 
     useLayoutEffect(() => {
         if (messages.length > 0) {
@@ -525,13 +558,13 @@ const DirectMessageView: React.FC<DirectMessageViewProps> = ({ currentUser, part
             const hasPreviousBotMessages = messages.some(m => m.senderId === partner.id);
 
             if (!hasPreviousBotMessages) {
-                greetingInstruction = `Esta es la primera interacción. El nombre del usuario con el que hablas es "${currentUser.username}". Salúdalo amigablemente por su nombre.`;
+                greetingInstruction = `Esta es la primera interacción. Saluda amigablemente (sin decir el nombre del usuario).`;
             } else {
                 const lastBotMessage = [...messages].reverse().find(m => m.senderId === partner.id);
                 if (lastBotMessage?.timestamp?.toDate) {
                     const hoursSince = (new Date().getTime() - lastBotMessage.timestamp.toDate().getTime()) / (1000 * 60 * 60);
                     if (hoursSince > 3) {
-                        greetingInstruction = `Ha pasado un tiempo desde la última conversación. Vuelve a saludar al usuario por su nombre, "${currentUser.username}", antes de responder.`;
+                        greetingInstruction = `Ha pasado un tiempo desde la última conversación. Vuelve a saludar brevemente (sin decir el nombre del usuario) antes de responder.`;
                     }
                 }
             }
@@ -807,7 +840,7 @@ ${projectContext}
                         <div className="flex items-center gap-1.5">
                             <h3 className={`font-black text-sm uppercase truncate ${darkMode ? 'text-white' : 'text-slate-900'}`}>{partner.username}</h3>
                             {partner.profileValidated && (<div className="text-blue-500 bg-blue-500/10 rounded-full p-0.5"><VerifiedIcon /></div>)}
-                            {isChatbot && <span className="text-[8px] font-black bg-misionero-verde text-white px-2 py-0.5 rounded-full">BOT</span>}
+                            {isChatbot && <span className="text-[8px] font-black bg-misionero-verde text-white px-2 py-1 rounded-full">BOT</span>}
                         </div>
                         <p className="text-[10px] font-bold text-slate-400">{isChatbot ? 'Asistente Virtual' : partnerStatusText}</p>
                     </div>
