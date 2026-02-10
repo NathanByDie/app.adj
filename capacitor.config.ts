@@ -1,3 +1,4 @@
+
 import { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
@@ -6,8 +7,6 @@ const config: CapacitorConfig = {
   webDir: 'dist', // Directorio donde se compila tu web (usualmente 'dist' o 'build')
   server: {
     androidScheme: 'https',
-    // hostname es crucial para que Capacitor configure los App Links (deep linking) correctamente.
-    hostname: 'adjstd.netlify.app',
     // Permitir navegación clara para desarrollo si es necesario
     cleartext: true
   },

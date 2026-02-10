@@ -1,66 +1,39 @@
-import { Capacitor } from '@capacitor/core';
-import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 
 /**
- * Provides different haptic feedback patterns using the native Capacitor API if available,
- * with a fallback to the web Vibration API for browsers. This enhances user experience
- * on native devices with more distinct feedback types.
+ * Provides different haptic feedback patterns.
+ * Ensures vibration is only triggered if the API is available.
  */
-export const triggerHapticFeedback = async (pattern: 'light' | 'success' | 'notification' | 'error' | 'unread_message' = 'light') => {
-  // Use native haptics on mobile devices for a better experience
-  if (Capacitor.isNativePlatform()) {
-    try {
-      switch (pattern) {
-        case 'light':
-          await Haptics.impact({ style: ImpactStyle.Light });
-          break;
-        case 'success':
-          await Haptics.notification({ type: NotificationType.Success });
-          break;
-        case 'notification':
-          await Haptics.notification({ type: NotificationType.Warning });
-          break;
-        case 'error':
-          await Haptics.notification({ type: NotificationType.Error });
-          break;
-        case 'unread_message':
-          // The native API doesn't support complex patterns, so we use a medium vibration.
-          await Haptics.vibrate({ duration: 400 });
-          break;
-        default:
-          await Haptics.impact({ style: ImpactStyle.Light });
-      }
-      return; // Exit if native feedback was successful
-    } catch (e) {
-      console.warn("Native haptics failed, falling back to web vibrate:", e);
-      // If native fails for some reason, fall through to the web API
-    }
-  }
 
-  // Web Vibrate API Fallback for browsers
+// A short, crisp vibration for successful actions or UI feedback.
+export const triggerHapticFeedback = (pattern: 'light' | 'success' | 'notification' | 'error' | 'unread_message' = 'light') => {
   if (typeof window !== 'undefined' && window.navigator && window.navigator.vibrate) {
     try {
       switch (pattern) {
         case 'light':
+          // A single, short vibration. Good for selection changes or swipe actions.
           window.navigator.vibrate(50);
           break;
         case 'success':
+          // Two short vibrations. Good for completing an action.
           window.navigator.vibrate([100, 50, 100]);
           break;
         case 'notification':
+          // A longer vibration for notifications.
           window.navigator.vibrate([200, 100, 200]);
           break;
         case 'error':
-          window.navigator.vibrate([75, 50, 75, 50, 75]);
-          break;
+            // A distinct double-buzz to indicate an error.
+            window.navigator.vibrate([75, 50, 75, 50, 75]);
+            break;
         case 'unread_message':
-          window.navigator.vibrate([500, 100, 500]);
-          break;
+            // Specific pattern for unread messages: 500ms, pause 100ms, 500ms
+            window.navigator.vibrate([500, 100, 500]);
+            break;
         default:
           window.navigator.vibrate(50);
       }
     } catch (e) {
-      console.error("Web vibration failed:", e);
+      console.error("Vibration failed:", e);
     }
   }
 };
