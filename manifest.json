@@ -1,7 +1,7 @@
 {
   "name": "ADJStudios - Acordes Misioneros",
   "short_name": "ADJStudios",
-  "start_url": ".",
+  "start_url": "adjstd.netlify.app",
   "display": "standalone",
   "background_color": "#000000",
   "theme_color": "#000000",
